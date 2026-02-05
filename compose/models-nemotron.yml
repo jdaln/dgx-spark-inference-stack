@@ -1,0 +1,78 @@
+services:
+  vllm-nemotron-3-nano-30b-nvfp4:
+    profiles: ["models"]
+    image: christopherowen/vllm-dgx-spark:v12
+    container_name: vllm-nemotron-3-nano-30b-nvfp4
+    command:
+      - vllm
+      - serve
+      - --model
+      - nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-NVFP4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - nemotron-3-nano-30b-nvfp4
+      - --gpu-memory-utilization
+      - "0.7"
+      - --tensor-parallel-size
+      - "1"
+      - --max-model-len
+      - "262144"
+      - --trust-remote-code
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser-plugin
+      - /workspace/plugins/nano_v3_reasoning_parser.py
+      - --reasoning-parser
+      - nano_v3
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - fastsafetensors
+      - --enforce-eager
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../plugins:/workspace/plugins:ro
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_USE_FLASHINFER_MOE_FP4: "0"
+      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: ["gpu"]
+    shm_size: "16g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 1800s
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - vllm_internal

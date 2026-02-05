@@ -1,0 +1,196 @@
+services:
+  vllm-deepseek-r1-14b:
+    profiles: ["models"]
+    image: nvcr.io/nvidia/vllm:25.10-py3
+    container_name: vllm-deepseek-r1-14b
+    command:
+      - vllm
+      - serve
+      - deepseek-ai/DeepSeek-R1-Distill-Qwen-14B
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - deepseek-r1-distill-qwen-14b
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - hermes
+      - --gpu-memory-utilization
+      - "0.65"
+      - --max-model-len
+      - "128000"
+      - --max-num-seqs
+      - "16"
+      - --trust-remote-code
+      - --enforce-eager
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: ["gpu"]
+    shm_size: "16g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 1800s
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - vllm_internal
+
+  vllm-deepseek-r1-32b:
+    profiles: ["models"]
+    image: nvcr.io/nvidia/vllm:25.10-py3
+    container_name: vllm-deepseek-r1-32b
+    command:
+      - vllm
+      - serve
+      - deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - deepseek-r1-distill-qwen-32b
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - hermes
+      - --gpu-memory-utilization
+      - "0.80"
+      - --max-model-len
+      - "128000"
+      - --max-num-seqs
+      - "16"
+      - --trust-remote-code
+      - --enforce-eager
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: ["gpu"]
+    shm_size: "16g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 1800s
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - vllm_internal
+
+
+  vllm-deepseek-ocr:
+    profiles: ["models"]
+    image: nvcr.io/nvidia/vllm:25.10-py3
+    container_name: vllm-deepseek-ocr
+    command:
+      - vllm
+      - serve
+      - deepseek-ai/DeepSeek-OCR
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - deepseek-ocr
+      - --gpu-memory-utilization
+      - "0.82"
+      - --max-num-seqs
+      - "4"
+      - --trust-remote-code
+      - --logits-processors
+      - vllm.model_executor.models.deepseek_ocr:NGramPerReqLogitsProcessor
+      - --no-enable-prefix-caching
+      - --mm-processor-cache-gb
+      - "0"
+      - --max-model-len
+      - "32768"
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../media:/media:ro
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: ["gpu"]
+    shm_size: "16g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 1800s
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - vllm_internal
+

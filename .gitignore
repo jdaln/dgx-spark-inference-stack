@@ -1,0 +1,35 @@
+manual_download/
+models/*
+!models/.gitkeep
+vllm_*/
+media/
+stats/
+!stats/.gitkeep
+
+# IDES
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Local/Secrets
+.env
+docker-compose.override.yml
+*.old
+*.bak
+
+# Caches not covered by vllm_*/
+flashinfer_cache/
+torch_extensions/
+torchinductor/

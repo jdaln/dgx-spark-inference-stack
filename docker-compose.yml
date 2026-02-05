@@ -1,0 +1,213 @@
+include:
+  - compose/models-gpt.yml
+  - compose/models-qwen.yml
+  - compose/models-mistral.yml
+  - compose/models-glm.yml
+  - compose/models-llama.yml
+  # - compose/models-phi.yml
+  # - compose/models-deepseek.yml
+  # - compose/models-experimental.yml
+
+services:
+  waker:
+    build:
+      context: ./waker
+    container_name: vllm-waker
+    runtime: nvidia
+#    ports: ["18080:18080"] #debug
+    environment:
+      PORT: "18080"
+      MANAGE_PREFIX: "vllm-"
+      IGNORE_NAMES: "vllm-gateway,vllm-waker,vllm-request-validator,vllm-qwen2.5-1.5b"
+      UTILITY_CONTAINER: "vllm-qwen2.5-1.5b"
+      EXCLUSIVE_CONTAINERS: "vllm-oss120b"
+      IDLE_STOP_SECONDS: "1200" # 20mn for slow models
+      NO_STOP_BEFORE_SECONDS: "30"
+      HEALTH_TIMEOUT_MS: "900000"
+      DOCKER_STOP_TIMEOUT_SECONDS: "5"
+      MODEL_HEALTH_URL_TEMPLATE: "http://{name}:8000/health"
+      TICK_MS: "1000"
+      BUSY_STATUS_CODE: "429"
+      VERBOSE: ${WAKER_VERBOSE:-0}
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: all
+      MODELS_JSON: >
+        {
+          "gpt-oss-20b": {
+            "container": "vllm-oss20b",
+            "upstream":  "http://vllm-oss20b:8000",
+            "health":    "http://vllm-oss20b:8000/health"
+          },
+          "gpt-oss-120b": {
+            "container": "vllm-oss120b",
+            "upstream":  "http://vllm-oss120b:8000",
+            "health":    "http://vllm-oss120b:8000/health"
+          },
+          "qwen2.5-vl-7b": {
+            "container": "vllm-qwen25-vl-7b",
+            "upstream":  "http://vllm-qwen25-vl-7b:8000",
+            "health":    "http://vllm-qwen25-vl-7b:8000/health"
+          },
+
+          "glm-4-9b-chat": {
+            "container": "vllm-glm4-9b",
+            "upstream":  "http://vllm-glm4-9b:8000",
+            "health":    "http://vllm-glm4-9b:8000/health"
+          },
+          "qwen3-coder-30b-a3b-instruct": {
+            "container": "vllm-qwen3-coder-30b",
+            "upstream":  "http://vllm-qwen3-coder-30b:8000",
+            "health":    "http://vllm-qwen3-coder-30b:8000/health"
+          },
+          "qwen2.5-coder-7b-instruct": {
+            "container": "vllm-qwen25-coder-7b",
+            "upstream":  "http://vllm-qwen25-coder-7b:8000",
+            "health":    "http://vllm-qwen25-coder-7b:8000/health"
+          },
+          "qwen-math": {
+            "container": "vllm-qwen-math",
+            "upstream":  "http://vllm-qwen-math:8000",
+            "health":    "http://vllm-qwen-math:8000/health"
+          },
+          "qwen3-next-80b-a3b-instruct-fp4": {
+            "container": "vllm-qwen3-next-80b-instruct-fp4",
+            "upstream":  "http://vllm-qwen3-next-80b-fp4:8000",
+            "health":    "http://vllm-qwen3-next-80b-fp4:8000/health"
+          },
+          "qwen3-next-80b-a3b-thinking-fp4": {
+            "container": "vllm-qwen3-next-80b-thinking-fp4",
+            "upstream":  "http://vllm-qwen3-next-80b-thinking-fp4:8000",
+            "health":    "http://vllm-qwen3-next-80b-thinking-fp4:8000/health"
+          },
+          "qwen3-vl-32b-instruct-fp4": {
+            "container": "vllm-qwen3-vl-32b-fp4",
+            "upstream":  "http://vllm-qwen3-vl-32b-fp4:8000",
+            "health":    "http://vllm-qwen3-vl-32b-fp4:8000/health"
+          },
+          "glm-4.5-air-fp4": {
+            "container": "vllm-glm-4.5-air-fp4",
+            "upstream":  "http://vllm-glm-4.5-air-fp4:8000",
+            "health":    "http://vllm-glm-4.5-air-fp4:8000/health"
+          },
+          "glm-4.6v-flash-fp4": {
+            "container": "vllm-glm-4.6v-flash-fp4",
+            "upstream":  "http://vllm-glm-4.6v-flash-fp4:8000",
+            "health":    "http://vllm-glm-4.6v-flash-fp4:8000/health"
+          },
+          "glm-4.5-air-derestricted-fp4": {
+            "container": "vllm-glm-4.5-air-derestricted-fp4",
+            "upstream":  "http://vllm-glm-4.5-air-derestricted-fp4:8000",
+            "health":    "http://vllm-glm-4.5-air-derestricted-fp4:8000/health"
+          },
+          "llama-3.3-70b-joyous-fp4": {
+            "container": "vllm-llama-3.3-70b-joyous-fp4",
+            "upstream":  "http://vllm-llama-3.3-70b-joyous-fp4:8000",
+            "health":    "http://vllm-llama-3.3-70b-joyous-fp4:8000/health"
+          },
+          "llama-3.3-70b-instruct-fp4": {
+            "container": "vllm-llama-3.3-70b-instruct-fp4",
+            "upstream":  "http://vllm-llama-3.3-70b-instruct-fp4:8000",
+            "health":    "http://vllm-llama-3.3-70b-instruct-fp4:8000/health"
+          },
+          "eurollm-22b-instruct-fp4": {
+            "container": "vllm-eurollm-22b-fp4",
+            "upstream":  "http://vllm-eurollm-22b-fp4:8000",
+            "health":    "http://vllm-eurollm-22b-fp4:8000/health"
+          },
+          "qwen2.5-1.5b-instruct": {
+            "container": "vllm-qwen2.5-1.5b",
+            "upstream":  "http://vllm-qwen2.5-1.5b:8000",
+            "health":    "http://vllm-qwen2.5-1.5b:8000/health"
+          },
+          "phi-4-multimodal-instruct-fp4": {
+            "container": "vllm-phi-4-multimodal-fp4",
+            "upstream":  "http://vllm-phi-4-multimodal-fp4:8000",
+            "health":    "http://vllm-phi-4-multimodal-fp4:8000/health"
+          },
+          "nemotron-3-nano-30b-fp8": {
+            "container": "vllm-nemotron-3-nano-30b-fp8",
+            "upstream":  "http://vllm-nemotron-3-nano-30b-fp8:8000",
+            "health":    "http://vllm-nemotron-3-nano-30b-fp8:8000/health"
+          },
+          "phi-4-reasoning-plus-fp4": {
+            "container": "vllm-phi-4-reasoning-plus-fp4",
+            "upstream":  "http://vllm-phi-4-reasoning-plus-fp4:8000",
+            "health":    "http://vllm-phi-4-reasoning-plus-fp4:8000/health"
+          },
+          "nemotron-nano-12b-v2-vl": {
+            "container": "vllm-nemotron",
+            "upstream":  "http://vllm-nemotron:8000",
+            "health":    "http://vllm-nemotron:8000/health"
+          },
+          "qwen3-vl-30b-instruct": {
+            "container": "vllm-qwen3-vl-30b",
+            "upstream":  "http://vllm-qwen3-vl-30b:8000",
+            "health":    "http://vllm-qwen3-vl-30b:8000/health"
+          },
+          "qwen3-vl-30b-thinking-instruct": {
+            "container": "vllm-qwen3-vl-30b-thinking",
+            "upstream":  "http://vllm-qwen3-vl-30b-thinking:8000",
+            "health":    "http://vllm-qwen3-vl-30b-thinking:8000/health"
+          }
+        }
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./stats:/stats
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:18080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    networks:
+      - vllm_internal
+#      - default #debug
+
+  request-validator:
+    build:
+      context: ./request-validator
+    container_name: vllm-request-validator
+    environment:
+      PORT: "18081"
+      VERBOSE: ${WAKER_VERBOSE:-0}
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+    networks:
+      - vllm_internal
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.js"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  api-gateway:
+    image: nginx:1.27-alpine
+    container_name: vllm-gateway
+    depends_on:
+      request-validator:
+        condition: service_healthy
+    ports: ["127.0.0.1:8009:8080"]
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - ./gateway.conf:/etc/nginx/conf.d/gateway.conf:ro 
+    restart: unless-stopped
+    networks:
+      - default
+      - vllm_internal
+
+networks:
+  vllm_internal:
+    internal: true

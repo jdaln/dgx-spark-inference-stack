@@ -1,0 +1,11 @@
+{
+  "name": "vllm-waker",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "dockerode": "^4.0.9",
+    "express": "^4.21.2",
+    "http-proxy-middleware": "^2.0.9",
+    "undici": "^6.22.0"
+  }
+}

@@ -1,0 +1,488 @@
+services:
+#    command:
+#      - serve
+#      - Firworks/Devstral-Small-2-24B-Instruct-2512-nvfp4
+#      - --host
+#      - 0.0.0.0
+#      - --port
+#      - "8000"
+#      - --download-dir
+#      - /models
+#      - --served-model-name
+#      - devstral-small-2-24b-instruct-fp4
+#      - --gpu-memory-utilization
+#      - "0.82"
+#      - --dtype
+#      - auto
+#      - --max-model-len
+#      - "32768"
+#      - --tool-call-parser
+#      - mistral
+#      - --enable-auto-tool-choice
+#      - --quantization
+#      - compressed-tensors
+#      - --kv-cache-dtype
+#      - fp8
+#      # force text-only mode so PixtralProcessor never loads
+#      - --skip-mm-profiling
+#      - --limit-mm-per-prompt.image
+#      - "0"
+#      # fix architectures=None crash
+#      - --hf_overrides
+#      - '{"architectures":["Mistral3ForConditionalGeneration"]}'
+#    volumes:
+#      - ../vllm_cache_huggingface:/root/.cache/huggingface
+#      - ../models:/models
+#      - ../flashinfer_cache:/root/.cache/flashinfer
+#      - ../torch_extensions:/root/.cache/torch_extensions
+#      - ../torchinductor:/tmp/torchinductor_root
+#    environment:
+#      HF_HOME: /root/.cache/huggingface
+#      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+#      VLLM_NO_USAGE_STATS: "1"
+#      VLLM_FLASHINFER_MOE_BACKEND: "latency"
+#      VLLM_USE_V1: "0"
+#    deploy:
+#      resources:
+#        reservations:
+#          devices:
+#            - driver: nvidia
+#              count: "all"
+#              capabilities: ["gpu"]
+#    shm_size: "16g"
+#    ulimits:
+#      memlock: -1
+#      stack: 67108864
+#    restart: "no"
+#    healthcheck:
+#      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+#      interval: 30s
+#      timeout: 5s
+#      retries: 5
+#      start_period: 900s
+#    networks:
+#      - default
+#      - vllm_internal
+
+#  vllm-mistral-small-fp4:
+#    profiles: ["models"]
+#    image: avarok/vllm-dgx-spark:v11-tf5
+#    container_name: vllm-mistral-small-fp4
+#    command:
+#      - serve
+#      - --model
+#      - RedHatAI/Mistral-Small-3.2-24B-Instruct-2506-NVFP4
+#      - --host
+#      - 0.0.0.0
+#      - --port
+#      - "8000"
+#      - --download-dir
+#      - /models
+#      - --served-model-name
+#      - mistral-small-3.2-24b-instruct-fp4
+#      - --gpu-memory-utilization
+#      - "0.82"
+#      - --tensor_parallel_size
+#      - "1"
+#      - --tokenizer_mode
+#      - mistral
+#      - --max-model-len
+#      - "32768"
+#      - --quantization
+#      - compressed-tensors
+#      - --kv-cache-dtype
+#      - fp8
+#    volumes:
+#      - ../vllm_cache_huggingface:/root/.cache/huggingface
+#      - ../models:/models
+#      - ../flashinfer_cache:/root/.cache/flashinfer
+##      - ../torch_extensions:/root/.cache/torch_extensions
+##      - ../torchinductor:/tmp/torchinductor_root
+#    environment:
+#      HF_HOME: /root/.cache/huggingface
+#      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+#      VLLM_NO_USAGE_STATS: "1"
+#      VLLM_FLASHINFER_MOE_BACKEND: "latency"
+#    deploy:
+#      resources:
+#        reservations:
+#          devices:
+#            - driver: nvidia
+#              count: "all"
+#              capabilities: ["gpu"]
+#    shm_size: "16g"
+#    ulimits:
+#      memlock: -1
+#      stack: 67108864
+#    restart: "no"
+#    healthcheck:
+#      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+#      interval: 30s
+#      timeout: 5s
+#      retries: 5
+#      start_period: 1800s
+#    networks:
+#      - default
+#      - vllm_internal
+
+#  vllm-ministral-8b-fp4:
+#    profiles: ["models"]
+#    image: avarok/vllm-dgx-spark:v11
+#    container_name: vllm-ministral-8b-fp4
+#    command:
+#      - serve
+#      - --model
+#      - Firworks/Ministral-3-8B-Instruct-2512-nvfp4
+#      - --host
+#      - 0.0.0.0
+#      - --port
+#      - "8000"
+#      - --download-dir
+#      - /models
+#      - --served-model-name
+#      - ministral-3-8b-instruct-fp4
+#      - --gpu-memory-utilization
+#      - "0.82"
+#      - --dtype
+#      - auto
+#      - --max-model-len
+#      - "32768"
+#      - --quantization
+#      - modelopt_fp4
+#      - --kv-cache-dtype
+#      - fp8
+#    volumes:
+#      - ../vllm_cache_huggingface:/root/.cache/huggingface
+#      - ../models:/models
+#      - ../flashinfer_cache:/root/.cache/flashinfer
+#      - ../torch_extensions:/root/.cache/torch_extensions
+#      - ../torchinductor:/tmp/torchinductor_root
+#    environment:
+#      HF_HOME: /root/.cache/huggingface
+#      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+ #     VLLM_NO_USAGE_STATS: "1"
+#      VLLM_FLASHINFER_MOE_BACKEND: "latency"
+#    deploy:
+#      resources:
+#        reservations:
+#          devices:
+#            - driver: nvidia
+#              count: "all"
+#              capabilities: ["gpu"]
+#    shm_size: "16g"
+#    ulimits:
+#      memlock: -1
+#      stack: 67108864
+#    restart: "no"
+#    healthcheck:
+#      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+#      interval: 30s
+#      timeout: 5s
+#      retries: 5
+#      start_period: 1800s
+#    networks:
+#      - default
+#      - vllm_internal
+
+#  vllm-ministral-3b-reasoning-fp4:
+#    profiles: ["models"]
+#    image: avarok/vllm-dgx-spark:v11
+#    container_name: vllm-ministral-3b-reasoning-fp4
+#    command:
+#      - serve
+#      - --model
+#      - Firworks/Ministral-3-3B-Reasoning-2512-nvfp4
+#      - --host
+#      - 0.0.0.0
+#      - --port
+#      - "8000"
+#      - --download-dir
+#      - /models
+#      - --served-model-name
+#      - ministral-3-3b-reasoning-fp4
+#      - --gpu-memory-utilization
+#      - "0.82"
+#      - --dtype
+#      - auto
+#      - --max-model-len
+#      - "32768"
+#      - --quantization
+#      - modelopt_fp4
+#      - --kv-cache-dtype
+#      - fp8
+#    volumes:
+#      - ../vllm_cache_huggingface:/root/.cache/huggingface
+#      - ../models:/models
+#      - ../flashinfer_cache:/root/.cache/flashinfer
+#      - ../torch_extensions:/root/.cache/torch_extensions
+#      - ../torchinductor:/tmp/torchinductor_root
+#    environment:
+#      HF_HOME: /root/.cache/huggingface
+#      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+#      VLLM_NO_USAGE_STATS: "1"
+#      VLLM_FLASHINFER_MOE_BACKEND: "latency"
+#    deploy:
+#      resources:
+#        reservations:
+#          devices:
+#            - driver: nvidia
+#              count: "all"
+#              capabilities: ["gpu"]
+#    shm_size: "16g"
+#    ulimits:
+#      memlock: -1
+#      stack: 67108864
+#    restart: "no"
+#    healthcheck:
+#      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+#      interval: 30s
+#      timeout: 5s
+#      retries: 5
+#      start_period: 1800s
+#    networks:
+#      - default
+#      - vllm_internal
+
+#  vllm-ministral-8b-reasoning-fp4:
+#    profiles: ["models"]
+#    image: avarok/vllm-dgx-spark:v11
+#    container_name: vllm-ministral-8b-reasoning-fp4
+#    command:
+#      - serve
+#      - --model
+#      - Firworks/Ministral-3-8B-Reasoning-2512-nvfp4
+#      - --host
+#      - 0.0.0.0
+#      - --port
+#      - "8000"
+#      - --download-dir
+#      - /models
+#      - --served-model-name
+#      - ministral-3-8b-reasoning-fp4
+#      - --gpu-memory-utilization
+#      - "0.82"
+#      - --dtype
+#      - auto
+#      - --max-model-len
+#      - "32768"
+#      - --quantization
+#      - modelopt_fp4
+#      - --kv-cache-dtype
+#      - fp8
+#    volumes:
+#      - ../vllm_cache_huggingface:/root/.cache/huggingface
+#      - ../models:/models
+#      - ../flashinfer_cache:/root/.cache/flashinfer
+#      - ../torch_extensions:/root/.cache/torch_extensions
+#      - ../torchinductor:/tmp/torchinductor_root
+#    environment:
+#      HF_HOME: /root/.cache/huggingface
+#      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+#      VLLM_NO_USAGE_STATS: "1"
+#      VLLM_FLASHINFER_MOE_BACKEND: "latency"
+#    deploy:
+#      resources:
+#        reservations:
+#          devices:
+#            - driver: nvidia
+#              count: "all"
+#              capabilities: ["gpu"]
+#    shm_size: "16g"
+#    ulimits:
+#      memlock: -1
+#      stack: 67108864
+#    restart: "no"
+#    healthcheck:
+#      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+#      interval: 30s
+#      timeout: 5s
+#      retries: 5
+#      start_period: 1800s
+#    networks:
+#      - default
+#      - vllm_internal
+
+#  vllm-ministral-14b-reasoning-fp4:
+#    profiles: ["models"]
+#    image: avarok/vllm-dgx-spark:v11
+#    container_name: vllm-ministral-14b-reasoning-fp4
+#    command:
+#      - serve
+#      - --model
+#      - Firworks/Ministral-3-14B-Reasoning-2512-nvfp4
+#      - --host
+#      - 0.0.0.0
+#      - --port
+#      - "8000"
+#      - --download-dir
+#      - /models
+#      - --served-model-name
+#      - ministral-3-14b-reasoning-fp4
+#      - --gpu-memory-utilization
+#      - "0.82"
+#      - --dtype
+#      - auto
+#      - --max-model-len
+#      - "32768"
+#      - --quantization
+#      - modelopt_fp4
+#      - --kv-cache-dtype
+#      - fp8
+#    volumes:
+#      - ../vllm_cache_huggingface:/root/.cache/huggingface
+#      - ../models:/models
+#      - ../flashinfer_cache:/root/.cache/flashinfer
+#      - ../torch_extensions:/root/.cache/torch_extensions
+#      - ../torchinductor:/tmp/torchinductor_root
+#    environment:
+#      HF_HOME: /root/.cache/huggingface
+#      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+#      VLLM_NO_USAGE_STATS: "1"
+#      VLLM_FLASHINFER_MOE_BACKEND: "latency"
+#    deploy:
+#      resources:
+#        reservations:
+#          devices:
+#            - driver: nvidia
+#              count: "all"
+#              capabilities: ["gpu"]
+#    shm_size: "16g"
+#    ulimits:
+#      memlock: -1
+#      stack: 67108864
+#    restart: "no"
+#    healthcheck:
+#      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+#      interval: 30s
+#      timeout: 5s
+#      retries: 5
+#      start_period: 1800s
+#    networks:
+#      - default
+#      - vllm_internal
+
+#  vllm-ministral-14b-fp4:
+#    profiles: ["models"]
+#    image: nvcr.io/nvidia/vllm:25.10-py3
+#    container_name: vllm-ministral-14b-fp4
+#    command:
+#      - vllm
+#      - serve
+#      - Firworks/Ministral-3-14B-Instruct-2512-nvfp4
+#      - --host
+#      - 0.0.0.0
+#      - --port
+#      - "8000"
+#      - --download-dir
+#      - /models
+#      - --served-model-name
+#      - ministral-3-14b-instruct-fp4
+#      - --gpu-memory-utilization
+#      - "0.82"
+#      - --dtype
+#      - auto
+#      - --max-model-len
+#      - "32768"
+#      - --quantization
+#      - modelopt_fp4
+#      - --kv-cache-dtype
+#      - fp8
+#    volumes:
+#      - ../vllm_cache_huggingface:/root/.cache/huggingface
+#      - ../models:/models
+#      - ../flashinfer_cache:/root/.cache/flashinfer
+#      - ../torch_extensions:/root/.cache/torch_extensions
+#      - ../torchinductor:/tmp/torchinductor_root
+#    environment:
+#      HF_HOME: /root/.cache/huggingface
+#      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+#      VLLM_NO_USAGE_STATS: "1"
+#      VLLM_FLASHINFER_MOE_BACKEND: "latency"
+#    deploy:
+#      resources:
+#        reservations:
+#          devices:
+#            - driver: nvidia
+#              count: "all"
+#              capabilities: ["gpu"]
+#    shm_size: "16g"
+#    ulimits:
+#      memlock: -1
+#      stack: 67108864
+#    restart: "no"
+#    healthcheck:
+#      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+#      interval: 30s
+#      timeout: 5s
+#      retries: 5
+#      start_period: 1800s
+#    networks:
+#      - default
+#      - vllm_internal
+
+  vllm-mistral-nemo-12b:
+    profiles: ["models"]
+    image: nvcr.io/nvidia/vllm:25.10-py3 #Was too new for host driver
+    container_name: vllm-mistral-nemo-12b
+    command:
+      - vllm
+      - serve
+      - mistralai/Mistral-Nemo-Instruct-2407
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - mistral-nemo-instruct-2407
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - mistral
+      - --gpu-memory-utilization
+      - "0.65"
+      - --max-num-seqs
+      - "16"
+      - --max-model-len
+      - "128000"
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: ["gpu"]
+    shm_size: "16g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 1800s
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - vllm_internal
+
+
+
+
+

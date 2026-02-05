@@ -1,0 +1,39 @@
+diff --git a/vllm/v1/worker/gpu_model_runner.py b/vllm/v1/worker/gpu_model_runner.py
+--- a/vllm/v1/worker/gpu_model_runner.py
++++ b/vllm/v1/worker/gpu_model_runner.py
+@@ -97,6 +97,7 @@ import numpy as np
+ import torch
+ import torch.distributed
+ import torch.nn as nn
++import torch.cuda.nvtx as nvtx
+ 
+ from vllm.attention import AttentionType, get_attn_backend
+ from vllm.config import CompilationLevel, VllmConfig
+@@ -3111,6 +3112,20 @@ class GPUModelRunner(LoRAModelRunnerMixin, ECConnectorModelRunnerMixin,
+         scheduler_output: "SchedulerOutput",
+         intermediate_tensors: IntermediateTensors | None = None,
+     ) -> ModelRunnerOutput | AsyncModelRunnerOutput | IntermediateTensors | None:
++        # NVTX markers for profiling: determine if this is prefill or decode
++        num_scheduled = scheduler_output.total_num_scheduled_tokens
++        num_reqs = len(scheduler_output.num_scheduled_tokens)
++        
++        # Heuristic: prefill has more tokens per request, decode has ~1 token per request
++        avg_tokens_per_req = num_scheduled / max(num_reqs, 1)
++        is_prefill = avg_tokens_per_req > 2  # decode typically has 1-2 tokens/req
++        
++        phase_name = "prefill" if is_prefill else "decode"
++        nvtx.range_push(f"batch_{phase_name}_reqs={num_reqs}_tokens={num_scheduled}")
++        
++        try:
++            return self._execute_model_inner(scheduler_output, intermediate_tensors)
++        finally:
++            nvtx.range_pop()
++
++    def _execute_model_inner(
++        self,
++        scheduler_output: "SchedulerOutput",
++        intermediate_tensors: IntermediateTensors | None = None,
++    ) -> ModelRunnerOutput | AsyncModelRunnerOutput | IntermediateTensors | None:
+         if self.execute_model_state is not None:
+             raise RuntimeError(
+                 "State error: sample_tokens() must be called "

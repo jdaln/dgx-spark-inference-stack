@@ -1,0 +1,624 @@
+services:
+  # EXPERIMENTAL: Qwen3-Next models crash sporadically on DGX Spark (GB10 GPU)
+  # Reason: The GB10 GPU uses CUDA 12.1, but vLLM's PyTorch only supports CUDA ≤12.0.
+  # This causes random "cudaErrorIllegalInstruction" crashes in the linear attention layer
+  # after several successful requests. Tool calling works when it doesn't crash.
+  # Re-enable in models-qwen.yml when vLLM gets proper GB10/CUDA 12.1 support.
+  
+  vllm-qwen3-next-80b-fp4:
+    profiles: ["models"]
+    image: avarok/vllm-dgx-spark:v11
+    container_name: vllm-qwen3-next-80b-instruct-fp4
+    command:
+      - serve
+      - --model
+      - nvidia/Qwen3-Next-80B-A3B-Instruct-NVFP4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - qwen3-next-80b-a3b-instruct-fp4
+      - --gpu-memory-utilization
+      - "0.82"
+      - --kv-cache-dtype
+      - "fp8"
+      - --async-scheduling
+      - --max-model-len
+      - "131072"
+      - --quantization
+      - modelopt_fp4
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - "hermes"
+      - --enforce-eager
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: ["gpu"]
+    shm_size: "16g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 60s
+      timeout: 5s
+      retries: 5
+      start_period: 900s
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - vllm_internal
+
+  vllm-qwen3-next-80b-thinking-fp4:
+    profiles: ["models"]
+    image: avarok/vllm-dgx-spark:v11
+    container_name: vllm-qwen3-next-80b-thinking-fp4
+    command:
+      - serve
+      - --model
+      - nvidia/Qwen3-Next-80B-A3B-Thinking-NVFP4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - qwen3-next-80b-a3b-thinking-fp4
+      - --gpu-memory-utilization
+      - "0.82"
+      - --kv-cache-dtype
+      - "fp8"
+      - --async-scheduling
+      - --max-model-len
+      - "131072"
+      - --quantization
+      - modelopt_fp4
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - "hermes"
+      - --enforce-eager
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: ["gpu"]
+    shm_size: "16g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 60s
+      timeout: 5s
+      retries: 5
+      start_period: 900s
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - vllm_internal
+
+  # DISABLED: RimTalk Mini model causes persistent OOM errors on DGX Spark (GB10)
+
+  # Reason: The model forces the V1 engine which has initialization issues and high memory
+  # overhead on this hardware, even with VLLM_USE_V1=0, --use-v1=False, and --enforce-eager.
+  # vllm-rimtalk-mini-fp4:
+  #   profiles: ["models"]
+  #   image: avarok/vllm-dgx-spark:v11
+  #   container_name: vllm-rimtalk-mini-fp4
+  #   command:
+  #     - serve
+  #     - --model
+  #     - Firworks/RimTalk-Mini-v1-nvfp4
+  #     - --host
+  #     - 0.0.0.0
+  #     - --port
+  #     - "8000"
+  #     - --download-dir
+  #     - /models
+  #     - --served-model-name
+  #     - rimtalk-mini-v1-fp4
+  #     - --gpu-memory-utilization
+  #     - "0.82"
+  #     - --dtype
+  #     - auto
+  #     - --max-model-len
+  #     - "16384"
+  #     - --quantization
+  #     - compressed-tensors
+  #     - --enforce-eager
+  #   volumes:
+  #     - ../vllm_cache_huggingface:/root/.cache/huggingface
+  #     - ../models:/models
+  #     - ../flashinfer_cache:/root/.cache/flashinfer
+  #     - ../torch_extensions:/root/.cache/torch_extensions
+  #     - ../torchinductor:/tmp/torchinductor_root
+  #   environment:
+  #     HF_HOME: /root/.cache/huggingface
+  #     VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+  #     VLLM_NO_USAGE_STATS: "1"
+  #     VLLM_FLASHINFER_MOE_BACKEND: "latency"
+  #     VLLM_USE_V1: "0"
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: "all"
+  #             capabilities: ["gpu"]
+  #   shm_size: "16g"
+  #   ulimits:
+  #     memlock: -1
+  #     stack: 67108864
+  #   restart: "no"
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 600s
+  #   networks:
+  #     - default
+  #     - vllm_internal
+
+  # DISABLED: Kimi Linear model is incompatible with DGX Spark (GB10 GPU)
+  # Reason: MLA (Multi-head Latent Attention) is not supported by any available
+  # attention backend (FlashInfer, Flash Attention, TORCH_SDPA) on this hardware.
+  # MLA support requires SM100+ GPUs or a newer vLLM version with GB10 MLA support.
+  # vllm-kimi-linear-48b-fp4:
+  #   profiles: ["models"]
+  #   image: avarok/vllm-dgx-spark:v11
+  #   container_name: vllm-kimi-linear-48b-fp4
+  #   command:
+  #     - serve
+  #     - --model
+  #     - Firworks/Kimi-Linear-48B-A3B-Instruct-nvfp4
+  #     - --host
+  #     - 0.0.0.0
+  #     - --port
+  #     - "8000"
+  #     - --download-dir
+  #     - /models
+  #     - --served-model-name
+  #     - kimi-linear-48b-a3b-instruct-fp4
+  #     - --gpu-memory-utilization
+  #     - "0.82"
+  #     - --dtype
+  #     - auto
+  #     - --max-model-len
+  #     - "32768"
+  #     - --quantization
+  #     - compressed-tensors
+  #     - --trust-remote-code
+  #   volumes:
+  #     - ../vllm_cache_huggingface:/root/.cache/huggingface
+  #     - ../models:/models
+  #     - ../flashinfer_cache:/root/.cache/flashinfer
+  #     - ../torch_extensions:/root/.cache/torch_extensions
+  #     - ../torchinductor:/tmp/torchinductor_root
+  #   environment:
+  #     HF_HOME: /root/.cache/huggingface
+  #     VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+  #     VLLM_NO_USAGE_STATS: "1"
+  #     VLLM_FLASHINFER_MOE_BACKEND: "latency"
+  #     VLLM_USE_V1: "0"
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: "all"
+  #             capabilities: ["gpu"]
+  #   shm_size: "16g"
+  #   ulimits:
+  #     memlock: -1
+  #     stack: 67108864
+  #   restart: "no"
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 600s
+  #   networks:
+  #     - default
+  #     - vllm_internal
+
+#   vllm-step-audio-r1-fp4: # Did not get it to work yet
+#     profiles: ["models"]
+#     image: avarok/vllm-dgx-spark:v11
+#     container_name: vllm-step-audio-r1-fp4
+#     command:
+#       - serve
+#       - Firworks/Step-Audio-R1-nvfp4
+#       - --served-model-name
+#       - step-audio-r1-fp4
+#       - --host
+#       - 0.0.0.0
+#       - --port
+#       - "8000"
+#       - --download-dir
+#       - /models
+#       - --max-model-len
+#       - "16384"
+#       - --max-num-seqs
+#       - "32"
+#       - --chat-template
+#       - |
+#         {%- macro render_content(content) -%}{%- if content is string -%}{{- content.replace("<audio_patch>\n", "<audio_patch>") -}}{%- elif content is mapping -%}{{- content['value'] if 'value' in content else content['text'] -}}{%- elif content is iterable -%}{%- for item in content -%}{%- if item.type == 'text' -%}{{- item['value'] if 'value' in item else item['text'] -}}{%- elif item.type == 'audio' -%}<audio_patch>{%- endif -%}{%- endfor -%}{%- endif -%}{%- endmacro -%}{%- if tools -%}{{- '<|BOT|>system\n' -}}{%- if messages[0]['role'] == 'system' -%}{{- render_content(messages[0]['content']) + '<|EOT|>' -}}{%- endif -%}{{- '<|BOT|>tool_json_schemas\n' + tools|tojson + '<|EOT|>' -}}{%- else -%}{%- if messages[0]['role'] == 'system' -%}{{- '<|BOT|>system\n' + render_content(messages[0]['content']) + '<|EOT|>' -}}{%- endif -%}{%- endif -%}{%- for message in messages -%}{%- if message["role"] == "user" -%}{{- '<|BOT|>human\n' + render_content(message["content"]) + '<|EOT|>' -}}{%- elif message["role"] == "assistant" -%}{{- '<|BOT|>assistant\n' + (render_content(message["content"]) if message["content"] else '') -}}{%- set is_last_assistant = true -%}{%- for m in messages[loop.index:] -%}{%- if m["role"] == "assistant" -%}{%- set is_last_assistant = false -%}{%- endif -%}{%- endfor -%}{%- if not is_last_assistant -%}{{- '<|EOT|>' -}}{%- endif -%}{%- elif message["role"] == "function_output" -%}{%- else -%}{%- if not (loop.first and message["role"] == "system") -%}{{- '<|BOT|>' + message["role"] + '\n' + render_content(message["content"]) + '<|EOT|>' -}}{%- endif -%}{%- endif -%}{%- endfor -%}{%- if add_generation_prompt -%}{{- '<|BOT|>assistant\n<think>\n' -}}{%- endif -%}
+#       - --disable-log-requests
+#       - --disable-log-stats
+#       - --interleave-mm-strings
+#       - --trust-remote-code
+#       - --quantization
+#       - modelopt_fp4
+#       - --gpu-memory-utilization
+#       - "0.82"
+#     volumes:
+#       - ../vllm_cache_huggingface:/root/.cache/huggingface
+#       - ../models:/models
+#       - ../flashinfer_cache:/root/.cache/flashinfer
+#       - ../torch_extensions:/root/.cache/torch_extensions
+#       - ../torchinductor:/tmp/torchinductor_root
+#     environment:
+#       HF_HOME: /root/.cache/huggingface
+#       VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+#       VLLM_NO_USAGE_STATS: "1"
+#       VLLM_FLASHINFER_MOE_BACKEND: "latency"
+#       VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+#     deploy:
+#       resources:
+#         reservations:
+#           devices:
+#             - driver: nvidia
+#               count: "all"
+#               capabilities: ["gpu"]
+#     shm_size: "16g"
+#     ulimits:
+#       memlock: -1
+#       stack: 67108864
+#     restart: "no"
+#     healthcheck:
+#       test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+#       interval: 30s
+#       timeout: 5s
+#       retries: 5
+#       start_period: 1800s
+#     logging:
+#       driver: ${DOCKER_LOG_DRIVER:-json-file}
+#       options:
+#         max-size: "10m"
+#         max-file: "3"
+#     networks:
+#       - default
+#       - vllm_internal
+
+  # DISABLED: Phi-4 FP4 models produce garbage output ("ousous...") on DGX Spark (GB10)
+  # Reason: Likely incompatibility with vLLM's FP4 kernel for Phi architecture or fast-attention implementation.
+  # Checked with NVIDIA/Avarok team - requires upcoming vLLM patch for GB200/GB10 support.
+  
+  vllm-phi-4-multimodal-fp4:
+    profiles: ["models"]
+    image: avarok/vllm-dgx-spark:v11
+    container_name: vllm-phi-4-multimodal-fp4
+    command:
+      - serve
+      - --model
+      - nvidia/Phi-4-multimodal-instruct-NVFP4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - phi-4-multimodal-instruct-fp4
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - phi4_mini_json
+      - --gpu-memory-utilization
+      - "0.82"
+      - --dtype
+      - auto
+      - --max-model-len
+      - "32768"
+      - --quantization
+      - modelopt_fp4
+      - --enforce-eager
+      - --trust-remote-code
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_FLASHINFER_MOE_BACKEND: "latency"
+      VLLM_USE_V1: "0"
+      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: ["gpu"]
+    shm_size: "16g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 1800s
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - vllm_internal
+
+  vllm-phi-4-reasoning-plus-fp4:
+    profiles: ["models"]
+    image: avarok/vllm-dgx-spark:v11
+    container_name: vllm-phi-4-reasoning-plus-fp4
+    command:
+      - serve
+      - --model
+      - nvidia/Phi-4-reasoning-plus-NVFP4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - phi-4-reasoning-plus-fp4
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - phi4_mini_json
+      - --gpu-memory-utilization
+      - "0.82"
+      - --dtype
+      - auto
+      - --max-model-len
+      - "32768"
+      - --kv-cache-dtype
+      - fp8
+      - --quantization
+      - modelopt_fp4
+      - --chat-template
+      - "{% for message in messages %}{{'<|' + message['role'] + '|>' + '\n' + message['content'] + '<|end|>\n' }}{% endfor %}{% if add_generation_prompt %}{{ '<|assistant|>\n' }}{% endif %}"
+      - --enforce-eager
+      - --trust-remote-code
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_FLASHINFER_MOE_BACKEND: "latency"
+      VLLM_USE_V1: "0"
+      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: ["gpu"]
+    shm_size: "16g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 1800s
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - vllm_internal
+
+  # DISABLED: Nemotron 3 Nano 30B (FP8) - Incompatible with current vvLLM build on GB10
+  # Reason:
+  # 1. vLLM V1 engine is forced (VLLM_USE_V1=0 ignored) and unstable for this hybrid architecture.
+  # 2. 'latency' backend crashes (Shared Memory). 'triton' unimplemented.
+  # 3. 'masked_gemm' runs but decoder produces empty strings (null output).
+  vllm-nemotron-3-nano-30b-fp8:
+    profiles: ["models"]
+    image: avarok/vllm-dgx-spark:v11
+    container_name: vllm-nemotron-3-nano-30b-fp8
+    command:
+      - serve
+      - nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - nemotron-3-nano-30b-fp8
+      - --gpu-memory-utilization
+      - "0.82"
+      - --dtype
+      - auto
+      - --max-model-len
+      - "131072"
+      - --max-num-seqs
+      - "8"
+      - --trust-remote-code
+      # - --enable-auto-tool-choice
+      # - --tool-call-parser
+      # - hermes
+      # - --reasoning-parser-plugin
+      # - /plugins/nano_v3_reasoning_parser.py
+      # - --reasoning-parser
+      # - nano_v3
+      - --kv-cache-dtype
+      - fp8
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models:z
+      - ../plugins:/plugins:ro
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_FLASHINFER_MOE_BACKEND: "masked_gemm"
+      VLLM_USE_FLASHINFER_MOE_FP8: "1"
+      VLLM_USE_V1: "0"
+      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: ["gpu"]
+    shm_size: "16g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 1800s
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - vllm_internal
+
+  # vllm-nemotron:
+  #   image: nvcr.io/nvidia/vllm:25.10-py3 
+  #   # Does not yet work. See https://forums.developer.nvidia.com/t/running-nvidia-nemotron-nano-vl-12b-v2-nvfp4-qad-on-your-spark/350349/1 if/when this model is needed
+  #   container_name: vllm-nemotron
+  #   profiles: ["models"]
+  #   command:
+  #     - vllm
+  #     - serve
+  #     - nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-BF16
+  #     - --host
+  #     - 0.0.0.0
+  #     - --port
+  #     - "8000"
+  #     - --download-dir
+  #     - /models
+  #     - --served-model-name
+  #     - nemotron-nano-12b-v2-vl
+  #     - --trust-remote-code
+  #     - --max-model-len
+  #     - "131072"
+  #     - --gpu-memory-utilization
+  #     - "0.82"
+  #     - '--limit-mm-per-prompt={"video":1}'
+  #   volumes:
+  #     - ../models/vllm_cache_huggingface:/root/.cache/huggingface
+  #     - ../models:/models
+  #     - ../media:/media:rw
+  #   environment:
+  #     HF_HOME: /root/.cache/huggingface
+  #     VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             capabilities: ["gpu"]
+  #             count: "all"
+  #   shm_size: "32g"
+  #   ulimits:
+  #     memlock: -1
+  #     stack: 67108864
+  #   restart: "no"
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     retries: 10
+  #     start_period: 600s
+  #   networks:
+  #     - default
+  #     - vllm_internal
+

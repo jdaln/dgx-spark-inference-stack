@@ -1,0 +1,339 @@
+services:
+  vllm-glm-4.5-air-fp4:
+    profiles: ["models"]
+    image: avarok/vllm-dgx-spark:v11
+    container_name: vllm-glm-4.5-air-fp4
+    command:
+      - serve
+      - --model
+      - Firworks/GLM-4.5-Air-nvfp4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - glm-4.5-air-fp4
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - glm45
+      - --gpu-memory-utilization
+      - "0.82"
+      - --dtype
+      - auto
+      - --max-model-len
+      - "131072"
+      - --quantization
+      - compressed-tensors
+      - --kv-cache-dtype
+      - fp8
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+      VLLM_FLASHINFER_MOE_BACKEND: "latency"
+      VLLM_USE_FLASHINFER_MOE_FP4: "1"
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: ["gpu"]
+    shm_size: "16g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 1800s
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - vllm_internal
+
+  vllm-glm-4.6v-flash-fp4:
+    profiles: ["models"]
+    image: avarok/vllm-dgx-spark:v11-tf5
+    container_name: vllm-glm-4.6v-flash-fp4
+    command:
+      - serve
+      - --model
+      - Firworks/GLM-4.6V-Flash-nvfp4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - glm-4.6v-flash-fp4
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - glm45
+      - --gpu-memory-utilization
+      - "0.82"
+      - --dtype
+      - auto
+      - --max-model-len
+      - "131072"
+      - --quantization
+      - compressed-tensors
+      - --kv-cache-dtype
+      - fp8
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_FLASHINFER_MOE_BACKEND: "latency"
+      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: ["gpu"]
+    shm_size: "16g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 1800s
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - vllm_internal
+
+  vllm-glm-4.5-air-derestricted-fp4:
+    profiles: ["models"]
+    image: avarok/vllm-dgx-spark:v11
+    container_name: vllm-glm-4.5-air-derestricted-fp4
+    command:
+      - serve
+      - --model
+      - Firworks/GLM-4.5-Air-Derestricted-nvfp4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - glm-4.5-air-derestricted-fp4
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - glm45
+      - --gpu-memory-utilization
+      - "0.82"
+      - --dtype
+      - auto
+      - --max-model-len
+      - "131072"
+      - --quantization
+      - compressed-tensors
+      - --kv-cache-dtype
+      - fp8
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_FLASHINFER_MOE_BACKEND: "latency"
+      VLLM_USE_FLASHINFER_MOE_FP4: "1"
+      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: ["gpu"]
+    shm_size: "16g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 1800s
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - vllm_internal
+
+  vllm-glm4-9b:
+    profiles: ["models"]
+    image: nvcr.io/nvidia/vllm:25.10-py3
+    container_name: vllm-glm4-9b
+    command:
+      - vllm
+      - serve
+      - THUDM/glm-4-9b-chat
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - glm-4-9b-chat
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - glm45
+      - --gpu-memory-utilization
+      - "0.65"
+      - --max-model-len
+      - "32768"
+      - --max-num-seqs
+      - "8"
+      - --trust-remote-code
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: ["gpu"]
+    shm_size: "16g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 1800s
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - vllm_internal
+
+#   vllm-glm-4.7-flash-awq:
+#     profiles: ["models"]
+#     image: avarok/vllm-dgx-spark:v11-tf5
+#     container_name: vllm-glm-4.7-flash-awq
+#     entrypoint: /bin/bash
+#     command:
+#       - -c
+#       - |
+#         bash /workspace/mods/fix-glm-4.7-flash-AWQ/run.sh && \
+#         exec vllm serve \
+#         --trust-remote-code \
+#         cyankiwi/GLM-4.7-Flash-AWQ-4bit \
+#         --host 0.0.0.0 \
+#         --port 8000 \
+#         --download-dir /models \
+#         --served-model-name glm-4.7-flash-awq \
+#         --enable-auto-tool-choice \
+#         --tool-call-parser glm45 \
+#         --reasoning-parser glm45 \
+#         --max-model-len 202752 \
+#         --max-num-batched-tokens 4096 \
+#         --max-num-seqs 64 \
+#         --gpu-memory-utilization 0.7 \
+#         --disable-log-requests \
+#         --disable-log-stats
+#     volumes:
+#       - ../vllm_cache_huggingface:/root/.cache/huggingface
+#       - ../models:/models
+#       - ../mods:/workspace/mods:ro
+#       - ../flashinfer_cache:/root/.cache/flashinfer
+#       - ../torch_extensions:/root/.cache/torch_extensions
+#       - ../torchinductor:/tmp/torchinductor_root
+#     environment:
+#       HF_HOME: /root/.cache/huggingface
+#       VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+#       VLLM_NO_USAGE_STATS: "1"
+#       VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+#     deploy:
+#       resources:
+#         reservations:
+#           devices:
+#             - driver: nvidia
+#               count: "all"
+#               capabilities: ["gpu"]
+#     shm_size: "16g"
+#     ulimits:
+#       memlock: -1
+#       stack: 67108864
+#     restart: "no"
+#     healthcheck:
+#       test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+#       interval: 30s
+#       timeout: 5s
+#       retries: 5
+#       start_period: 1800s
+#     logging:
+#       driver: ${DOCKER_LOG_DRIVER:-json-file}
+#       options:
+#         max-size: "10m"
+#         max-file: "3"
+#     networks:
+#       - default
+#       - vllm_internal

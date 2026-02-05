@@ -1,0 +1,193 @@
+services:
+  vllm-oss20b:
+    profiles: ["models"]
+    image: christopherowen/vllm-dgx-spark:v12
+    container_name: vllm-oss20b
+    command:
+      - vllm
+      - serve
+      - --model
+      - openai/gpt-oss-20b
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - gpt-oss-20b
+      - --quantization
+      - mxfp4
+      - --mxfp4-backend
+      - CUTLASS
+      - --mxfp4-layers
+      - moe,qkv,o,lm_head
+      - --attention-backend
+      - FLASHINFER
+      - --kv-cache-dtype
+      - fp8
+      - --tensor-parallel-size
+      - "1"
+      - --gpu-memory-utilization
+      - "0.80"
+      - --max-num-seqs
+      - "2"
+      - --max-num-batched-tokens
+      - "8192"
+      - --max-model-len
+      - "131072"
+      - --enable-prefix-caching
+      - --load-format
+      - fastsafetensors
+      - --disable-log-stats
+      - --disable-log-requests
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - openai
+    volumes:
+        # HuggingFace model cache (required)
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      # FlashInfer JIT cache (speeds up startup after first run)
+      - ../.cache/flashinfer:/root/.cache/flashinfer
+      # vLLM cache
+      - ../.cache/vllm:/root/.cache/vllm
+      # Ccache for rebuilds
+      - ../.cache/ccache:/root/.ccache
+      - ../models:/models
+      - ../manual_download/openai_gpt-oss-encodings_fix/cl100k_base.tiktoken:/etc/encodings/cl100k_base.tiktoken
+      - ../manual_download/openai_gpt-oss-encodings_fix/o200k_base.tiktoken:/etc/encodings/o200k_base.tiktoken
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      TIKTOKEN_ENCODINGS_BASE: /etc/encodings
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_USE_FLASHINFER_MXFP4_BF16_MOE: "1"
+      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+      FLASHINFER_LOGLEVEL: "0"
+      FLASHINFER_JIT_VERBOSE: "0"
+      FLASHINFER_NVCC_THREADS: "4"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: ["gpu"]
+    devices:
+      - /dev/infiniband:/dev/infiniband
+    shm_size: "16g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 900s     # <-- wait 15 min before the first check
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - vllm_internal
+ 
+  vllm-oss120b:
+    profiles: ["models"]
+    image: christopherowen/vllm-dgx-spark:v12
+    container_name: vllm-oss120b
+    command:
+      - vllm
+      - serve
+      - --model
+      - openai/gpt-oss-120b
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - gpt-oss-120b
+      - --quantization
+      - mxfp4
+      - --mxfp4-backend
+      - CUTLASS
+      - --mxfp4-layers
+      - moe,qkv,o,lm_head
+      - --attention-backend
+      - FLASHINFER
+      - --kv-cache-dtype
+      - fp8
+      - --tensor-parallel-size
+      - "1"
+      - --gpu-memory-utilization
+      - "0.94"
+      - --max-num-seqs
+      - "2"
+      - --max-num-batched-tokens
+      - "8192"
+      - --max-model-len
+      - "131072"
+      - --enable-prefix-caching
+      - --load-format
+      - fastsafetensors
+      - --disable-log-stats
+      - --disable-log-requests
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - openai
+    volumes:
+        # HuggingFace model cache (required)
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      # FlashInfer JIT cache (speeds up startup after first run)
+      - ../.cache/flashinfer:/root/.cache/flashinfer
+      # vLLM cache
+      - ../.cache/vllm:/root/.cache/vllm
+      # Ccache for rebuilds
+      - ../.cache/ccache:/root/.ccache
+      - ../models:/models
+      - ../manual_download/openai_gpt-oss-encodings_fix/cl100k_base.tiktoken:/etc/encodings/cl100k_base.tiktoken
+      - ../manual_download/openai_gpt-oss-encodings_fix/o200k_base.tiktoken:/etc/encodings/o200k_base.tiktoken
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      TIKTOKEN_ENCODINGS_BASE: /etc/encodings
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_USE_FLASHINFER_MXFP4_BF16_MOE: "1"
+      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+      FLASHINFER_LOGLEVEL: "0"
+      FLASHINFER_JIT_VERBOSE: "0"
+      FLASHINFER_NVCC_THREADS: "4"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: ["gpu"]
+    devices:
+      - /dev/infiniband:/dev/infiniband
+    shm_size: "16g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 1800s     # <-- wait 30 min before the first check
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - default
+      - vllm_internal
+

@@ -1,0 +1,152 @@
+{
+  "gpt-oss-20b": {
+    "container": "vllm-oss20b",
+    "port": 8000,
+    "maxModelLen": 131072,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal"
+  },
+  "gpt-oss-120b": {
+    "container": "vllm-oss120b",
+    "port": 8000,
+    "maxModelLen": 131072,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "exclusive",
+    "sourceRecipe": "spark-vllm-docker:openai-gpt-oss-120b"
+  },
+  "glm-4-9b-chat": {
+    "container": "vllm-glm4-9b",
+    "port": 8000,
+    "maxModelLen": 32768,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal"
+  },
+  "glm-4.5-air-fp4": {
+    "container": "vllm-glm-4.5-air-fp4",
+    "port": 8000,
+    "maxModelLen": 131072,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal"
+  },
+  "glm-4.5-air-derestricted-fp4": {
+    "container": "vllm-glm-4.5-air-derestricted-fp4",
+    "port": 8000,
+    "maxModelLen": 131072,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal"
+  },
+  "glm-4.6v-flash-fp4": {
+    "container": "vllm-glm-4.6v-flash-fp4",
+    "port": 8000,
+    "maxModelLen": 131072,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal",
+    "multimodal": true
+  },
+  "eurollm-22b-instruct-fp4": {
+    "container": "vllm-eurollm-22b-fp4",
+    "port": 8000,
+    "maxModelLen": 32768,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal"
+  },
+  "llama-3.3-70b-instruct-fp4": {
+    "container": "vllm-llama-3.3-70b-instruct-fp4",
+    "port": 8000,
+    "maxModelLen": 131072,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal"
+  },
+  "llama-3.3-70b-joyous-fp4": {
+    "container": "vllm-llama-3.3-70b-joyous-fp4",
+    "port": 8000,
+    "maxModelLen": 131072,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal"
+  },
+  "mistral-nemo-instruct-2407": {
+    "container": "vllm-mistral-nemo-12b",
+    "port": 8000,
+    "maxModelLen": 128000,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal"
+  },
+  "qwen-math": {
+    "container": "vllm-qwen-math",
+    "port": 8000,
+    "maxModelLen": 4096,
+    "toolSupport": "none",
+    "validatorProfile": "small-no-tools",
+    "lifecycle": "normal"
+  },
+  "qwen2.5-1.5b-instruct": {
+    "container": "vllm-qwen2.5-1.5b",
+    "port": 8000,
+    "maxModelLen": 8192,
+    "toolSupport": "none",
+    "validatorProfile": "small-no-tools",
+    "lifecycle": "utility"
+  },
+  "qwen2.5-coder-7b-instruct": {
+    "container": "vllm-qwen25-coder-7b",
+    "port": 8000,
+    "maxModelLen": 32768,
+    "toolSupport": "force-required",
+    "validatorProfile": "coder-force-tools",
+    "lifecycle": "normal"
+  },
+  "qwen2.5-vl-7b": {
+    "container": "vllm-qwen25-vl-7b",
+    "port": 8000,
+    "maxModelLen": 32768,
+    "toolSupport": "none",
+    "validatorProfile": "vl",
+    "lifecycle": "normal",
+    "multimodal": true
+  },
+  "qwen3-coder-30b-a3b-instruct": {
+    "container": "vllm-qwen3-coder-30b",
+    "port": 8000,
+    "maxModelLen": 65536,
+    "toolSupport": "force-required",
+    "validatorProfile": "coder-force-tools",
+    "lifecycle": "normal"
+  },
+  "qwen3-vl-30b-instruct": {
+    "container": "vllm-qwen3-vl-30b",
+    "port": 8000,
+    "maxModelLen": 65536,
+    "toolSupport": "none",
+    "validatorProfile": "vl",
+    "lifecycle": "normal",
+    "multimodal": true
+  },
+  "qwen3-vl-30b-thinking-instruct": {
+    "container": "vllm-qwen3-vl-30b-thinking",
+    "port": 8000,
+    "maxModelLen": 65536,
+    "toolSupport": "none",
+    "validatorProfile": "vl",
+    "lifecycle": "normal",
+    "multimodal": true
+  },
+  "qwen3-vl-32b-instruct-fp4": {
+    "container": "vllm-qwen3-vl-32b-fp4",
+    "port": 8000,
+    "maxModelLen": 131072,
+    "toolSupport": "none",
+    "validatorProfile": "vl",
+    "lifecycle": "normal",
+    "multimodal": true
+  }
+}

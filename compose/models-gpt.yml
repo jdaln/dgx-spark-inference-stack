@@ -1,6 +1,48 @@
+x-model-common: &model-common
+  profiles: ["models"]
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: "all"
+            capabilities: ["gpu"]
+  devices:
+    - /dev/infiniband:/dev/infiniband
+  shm_size: "16g"
+  ulimits:
+    memlock: -1
+    stack: 67108864
+  restart: "no"
+  logging:
+    driver: ${DOCKER_LOG_DRIVER:-json-file}
+    options:
+      max-size: "10m"
+      max-file: "3"
+  networks:
+    - default
+    - vllm_internal
+
+x-env-common: &env-common
+  HF_HOME: /root/.cache/huggingface
+  TIKTOKEN_ENCODINGS_BASE: /etc/encodings
+  VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+  VLLM_NO_USAGE_STATS: "1"
+  VLLM_USE_FLASHINFER_MXFP4_BF16_MOE: "1"
+  VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+  FLASHINFER_LOGLEVEL: "0"
+  FLASHINFER_JIT_VERBOSE: "0"
+  FLASHINFER_NVCC_THREADS: "4"
+
+x-healthcheck-default: &healthcheck-default
+  test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+  interval: 30s
+  timeout: 5s
+  retries: 5
+
 services:
   vllm-oss20b:
-    profiles: ["models"]
+    <<: *model-common
     image: christopherowen/vllm-dgx-spark:v12
     container_name: vllm-oss20b
     command:
@@ -57,46 +99,13 @@ services:
       - ../manual_download/openai_gpt-oss-encodings_fix/cl100k_base.tiktoken:/etc/encodings/cl100k_base.tiktoken
       - ../manual_download/openai_gpt-oss-encodings_fix/o200k_base.tiktoken:/etc/encodings/o200k_base.tiktoken
     environment:
-      HF_HOME: /root/.cache/huggingface
-      TIKTOKEN_ENCODINGS_BASE: /etc/encodings
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_USE_FLASHINFER_MXFP4_BF16_MOE: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-      FLASHINFER_LOGLEVEL: "0"
-      FLASHINFER_JIT_VERBOSE: "0"
-      FLASHINFER_NVCC_THREADS: "4"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    devices:
-      - /dev/infiniband:/dev/infiniband
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
+      <<: *env-common
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 900s     # <-- wait 15 min before the first check
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
  
   vllm-oss120b:
-    profiles: ["models"]
+    <<: *model-common
     image: christopherowen/vllm-dgx-spark:v12
     container_name: vllm-oss120b
     command:
@@ -153,41 +162,8 @@ services:
       - ../manual_download/openai_gpt-oss-encodings_fix/cl100k_base.tiktoken:/etc/encodings/cl100k_base.tiktoken
       - ../manual_download/openai_gpt-oss-encodings_fix/o200k_base.tiktoken:/etc/encodings/o200k_base.tiktoken
     environment:
-      HF_HOME: /root/.cache/huggingface
-      TIKTOKEN_ENCODINGS_BASE: /etc/encodings
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_USE_FLASHINFER_MXFP4_BF16_MOE: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-      FLASHINFER_LOGLEVEL: "0"
-      FLASHINFER_JIT_VERBOSE: "0"
-      FLASHINFER_NVCC_THREADS: "4"
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    devices:
-      - /dev/infiniband:/dev/infiniband
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
+      <<: *env-common
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s     # <-- wait 30 min before the first check
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
 

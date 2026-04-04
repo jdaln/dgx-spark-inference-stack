@@ -1,0 +1,7 @@
+*
+!shared/
+!shared/**
+!waker/
+!waker/**
+!request-validator/
+!request-validator/**

@@ -12,43 +12,26 @@
 // 10. Proxies the final, validated request to the correct vLLM container.
 
 import http from "node:http";
+import { loadModelsConfig } from "../shared/models-config.mjs";
 
 const PORT = Number(process.env.PORT || 18081);
 const VERBOSE = (process.env.VERBOSE || "0") !== "0";
 const WAKER_URL = process.env.WAKER_URL || "http://waker:18080";
-
-// Model configuration: Maps the served model name to its container host and context window size.
-const MODEL_CONFIG = {
-  "gpt-oss-20b": { host: "vllm-oss20b", port: 8000, maxModelLen: 131072 },
-  "gpt-oss-120b": { host: "vllm-oss120b", port: 8000, maxModelLen: 131072 },
-  "qwen3-next-80b-a3b-instruct-fp4": { host: "vllm-qwen3-next-80b-fp4", port: 8000, maxModelLen: 131072 },
-  "qwen3-next-80b-a3b-thinking-fp4": { host: "vllm-qwen3-next-80b-thinking-fp4", port: 8000, maxModelLen: 131072 },
-  "qwen3-vl-32b-instruct-fp4": { host: "vllm-qwen3-vl-32b-fp4", port: 8000, maxModelLen: 131072 },
-  "glm-4.5-air-fp4": { host: "vllm-glm-4.5-air-fp4", port: 8000, maxModelLen: 131072 },
-  "glm-4.6v-flash-fp4": { host: "vllm-glm-4.6v-flash-fp4", port: 8000, maxModelLen: 131072 },
-  "glm-4.5-air-derestricted-fp4": { host: "vllm-glm-4.5-air-derestricted-fp4", port: 8000, maxModelLen: 131072 },
-  "llama-3.3-70b-joyous-fp4": { host: "vllm-llama-3.3-70b-joyous-fp4", port: 8000, maxModelLen: 131072 },
-  "llama-3.3-70b-instruct-fp4": { host: "vllm-llama-3.3-70b-instruct-fp4", port: 8000, maxModelLen: 131072 },
-  "eurollm-22b-instruct-fp4": { host: "vllm-eurollm-22b-fp4", port: 8000, maxModelLen: 32768 },
-  "qwen2.5-1.5b-instruct": { host: "vllm-qwen2.5-1.5b", port: 8000, maxModelLen: 8192 },
-  "phi-4-multimodal-instruct-fp4": { host: "vllm-phi-4-multimodal-fp4", port: 8000, maxModelLen: 32768 },
-  "nemotron-3-nano-30b-fp8": { host: "vllm-nemotron-3-nano-30b-fp8", port: 8000, maxModelLen: 131072 },
-  "phi-4-reasoning-plus-fp4": { host: "vllm-phi-4-reasoning-plus-fp4", port: 8000, maxModelLen: 32768 },
-  "qwen2.5-vl-7b": { host: "vllm-qwen25-vl-7b", port: 8000, maxModelLen: 32768 },
-
-  "glm-4-9b-chat": { host: "vllm-glm4-9b", port: 8000, maxModelLen: 32768 },
-  "qwen3-coder-30b-a3b-instruct": { host: "vllm-qwen3-coder-30b", port: 8000, maxModelLen: 65536 },
-  "qwen2.5-coder-7b-instruct": { host: "vllm-qwen25-coder-7b", port: 8000, maxModelLen: 32768 },
-  "gemma-3-4b-it-qat": { host: "vllm-gemma3-4b", port: 8000, maxModelLen: 32768 },
-  "gemma-2-27b-it": { host: "vllm-gemma2-27b", port: 8000, maxModelLen: 32768 },
-  "gemma-2-9b-it": { host: "vllm-gemma2-9b", port: 8000, maxModelLen: 32768 },
-  "qwen-math": { host: "vllm-qwen-math", port: 8000, maxModelLen: 4096 },
-  "nemotron-nano-12b-v2-vl": { host: "vllm-nemotron", port: 8000, maxModelLen: 131072 },
-
-  "mistral-nemo-instruct-2407": { host: "vllm-mistral-nemo-12b", port: 8000, maxModelLen: 128000 },
-  "qwen3-vl-30b-instruct": { host: "vllm-qwen3-vl-30b", port: 8000, maxModelLen: 65536 },
-  "qwen3-vl-30b-thinking-instruct": { host: "vllm-qwen3-vl-30b-thinking", port: 8000, maxModelLen: 65536 },
-};
+const MODELS_CONFIG_PATH = process.env.MODELS_CONFIG_PATH || "/config/models.json";
+const MODELS_CONFIG = loadModelsConfig(MODELS_CONFIG_PATH);
+const MODEL_CONFIG = Object.fromEntries(
+  MODELS_CONFIG.entries.map((entry) => [
+    entry.model,
+    {
+      host: entry.container,
+      port: entry.port,
+      maxModelLen: entry.maxModelLen,
+      toolSupport: entry.toolSupport,
+      validatorProfile: entry.validatorProfile,
+      multimodal: entry.multimodal
+    }
+  ])
+);
 
 function log(...args) {
   if (VERBOSE) console.log("[validator]", ...args);
@@ -56,6 +39,22 @@ function log(...args) {
 
 function warn(...args) {
   console.warn("[validator]", ...args);
+}
+
+function shouldStripTools(targetConfig) {
+  if (!targetConfig) return false;
+  if (targetConfig.validatorProfile === "small-no-tools" || targetConfig.validatorProfile === "vl") {
+    return true;
+  }
+  return targetConfig.toolSupport === "none";
+}
+
+function shouldForceToolChoice(targetConfig) {
+  if (!targetConfig) return false;
+  if (targetConfig.validatorProfile === "coder-force-tools") {
+    return true;
+  }
+  return targetConfig.toolSupport === "force-required";
 }
 
 function json(res, code, obj, headers = {}) {
@@ -282,18 +281,11 @@ function processBody(body, targetConfig, url) {
     // Strip tool parameters for models that don't support tool calling
     // - Small utility models (270m, 1.5b, qwen-math)
     // - Vision/VL models (they don't have tool parsers configured)
-    const noToolSupport = data.model && (
-      data.model.includes("270m") ||
-      data.model.includes("1.5b") ||
-      data.model.includes("qwen-math") ||
-      data.model.includes("-vl-") ||
-      data.model.includes("-vl")
-    );
-    if (noToolSupport) {
+    if (shouldStripTools(targetConfig)) {
       const toolParams = ["tool_choice", "tools", "functions", "function_call", "parallel_tool_calls"];
       for (const param of toolParams) {
         if (data[param] !== undefined) {
-          log(`Stripping ${param} from small model ${data.model}`);
+          log(`Stripping ${param} for ${data.model} (${targetConfig.validatorProfile})`);
           delete data[param];
         }
       }
@@ -309,16 +301,11 @@ function processBody(body, targetConfig, url) {
     // WORKING MODELS:
     // - qwen3-coder: Works with tool_choice="required"
     // - qwen2.5-coder: Works with tool_choice="required"
-    const needsToolForcing = data.model && (
-      data.model.includes("qwen3-coder") ||
-      data.model.includes("qwen2.5-coder")
-      // data.model.includes("qwen3-next")  // DISABLED: xgrammar crashes on GB10
-    );
     const hasToolResults = Array.isArray(data.messages) && data.messages.some(m => m.role === "tool");
-    if (needsToolForcing && data.tools && data.tools.length > 0 && !hasToolResults) {
+    if (shouldForceToolChoice(targetConfig) && data.tools && data.tools.length > 0 && !hasToolResults) {
       if (!data.tool_choice || data.tool_choice === "auto") {
         data.tool_choice = "required";
-        log(`Forced tool_choice to required for ${data.model}`);
+        log(`Forced tool_choice to required for ${data.model} (${targetConfig.validatorProfile})`);
       }
     }
 
@@ -440,5 +427,6 @@ const server = http.createServer(async (req, res) => {
 server.setTimeout(0);
 server.listen(PORT, () => {
   log(`Request validator listening on port ${PORT}`);
+  log(`Loaded models config from ${MODELS_CONFIG_PATH}`);
   log(`Configured models: ${Object.keys(MODEL_CONFIG).length}`);
 });

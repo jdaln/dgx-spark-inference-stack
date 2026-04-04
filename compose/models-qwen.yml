@@ -1,9 +1,47 @@
+x-model-common: &model-common
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: "all"
+            capabilities: ["gpu"]
+  shm_size: "16g"
+  ulimits:
+    memlock: -1
+    stack: 67108864
+  restart: "no"
+  logging:
+    driver: ${DOCKER_LOG_DRIVER:-json-file}
+    options:
+      max-size: "10m"
+      max-file: "3"
+  networks:
+    - default
+    - vllm_internal
+
+x-model-profiled: &model-profiled
+  <<: *model-common
+  profiles: ["models"]
+
+x-env-common: &env-common
+  HF_HOME: /root/.cache/huggingface
+  VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+  VLLM_NO_USAGE_STATS: "1"
+  VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+
+x-healthcheck-default: &healthcheck-default
+  test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+  interval: 30s
+  timeout: 5s
+  retries: 5
+
 services:
   # Qwen3-Next models moved to models-experimental.yml due to GB10/CUDA 12.1 crashes
   # See README.md "Known Issues" section for details
 
   vllm-qwen3-vl-32b-fp4:
-    profiles: ["models"]
+    <<: *model-profiled
     image: avarok/vllm-dgx-spark:v11
     container_name: vllm-qwen3-vl-32b-fp4
     command:
@@ -40,39 +78,14 @@ services:
       - ../torch_extensions:/root/.cache/torch_extensions
       - ../torchinductor:/tmp/torchinductor_root
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
+      <<: *env-common
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
 
   vllm-qwen2.5-1.5b:
     # profiles: ["models"] # Always on - small model for titles
+    <<: *model-common
     image: avarok/vllm-dgx-spark:v11
     container_name: vllm-qwen2.5-1.5b
     command:
@@ -102,39 +115,13 @@ services:
       - ../torch_extensions:/root/.cache/torch_extensions
       - ../torchinductor:/tmp/torchinductor_root
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
+      <<: *env-common
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
 
   vllm-qwen25-vl-7b:
-    profiles: ["models"]
+    <<: *model-profiled
     image: nvcr.io/nvidia/vllm:25.10-py3
     container_name: vllm-qwen25-vl-7b
     command:
@@ -163,39 +150,13 @@ services:
       - ../models:/models
       - ../media:/media:ro
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
+      <<: *env-common
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
 
   vllm-qwen3-coder-30b:
-    profiles: ["models"]
+    <<: *model-profiled
     image: avarok/vllm-dgx-spark:v11
     container_name: vllm-qwen3-coder-30b
     command:
@@ -232,39 +193,13 @@ services:
       - ../torch_extensions:/root/.cache/torch_extensions
       - ../torchinductor:/tmp/torchinductor_root
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
+      <<: *env-common
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
 
   vllm-qwen25-coder-7b:
-    profiles: ["models"]
+    <<: *model-profiled
     image: nvcr.io/nvidia/vllm:25.10-py3
     container_name: vllm-qwen25-coder-7b
     command:
@@ -294,41 +229,15 @@ services:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
       - ../models:/models
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
+      <<: *env-common
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
 
   vllm-qwen-math:
+    <<: *model-profiled
     image: nvcr.io/nvidia/vllm:25.10-py3
     container_name: vllm-qwen-math
-    profiles: ["models"]
     command:
       - vllm
       - serve
@@ -354,39 +263,15 @@ services:
       - ../models/vllm_cache_huggingface:/root/.cache/huggingface
       - ../models:/models
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              capabilities: ["gpu"]
-              count: "all"
+      <<: *env-common
     shm_size: "4g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
+      <<: *healthcheck-default
       retries: 10
       start_period: 900s     # <-- wait 15 min before the first check
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
 
   vllm-qwen3-vl-30b:
-    profiles: ["models"]
+    <<: *model-profiled
     image: christopherowen/vllm-dgx-spark:v12
     container_name: vllm-qwen3-vl-30b
     command:
@@ -417,39 +302,13 @@ services:
       - ../torch_extensions:/root/.cache/torch_extensions
       - ../torchinductor:/tmp/torchinductor_root
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
+      <<: *env-common
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
 
   vllm-qwen3-vl-30b-thinking:
-    profiles: ["models"]
+    <<: *model-profiled
     image: christopherowen/vllm-dgx-spark:v12
     container_name: vllm-qwen3-vl-30b-thinking
     command:
@@ -483,36 +342,10 @@ services:
       - ../torch_extensions:/root/.cache/torch_extensions
       - ../torchinductor:/tmp/torchinductor_root
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
+      <<: *env-common
       VLLM_FLASHINFER_MOE_BACKEND: "cutlass"
       VLLM_USE_FLASHINFER_MOE_FP4: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
       #VLLM_USE_FLASHINFER_MOE_FP4: "0" #try if problems
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal

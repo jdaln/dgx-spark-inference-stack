@@ -30,9 +30,7 @@ Returns per model:
 
 ### View logs
 > [!NOTE]
-> The stack implements a **No-Log Policy**. Docker logging is disabled for all services (`logging: driver: none`), and vLLM request/stats logging is suppressed. Standard `docker logs` commands will sometimes return no output.
-
-To debug the waker service specifically, you can temporarily re-enable logging in `docker-compose.yml` or use the debug endpoints.
+> By default, Docker logging uses `json-file` with rotation (10MB, 3 files) and vLLM request/stats logging is suppressed. Waker verbose logging is off by default. You can disable all Docker logging by setting `DOCKER_LOG_DRIVER=none`.
 
 ### Check container status
 ```bash
@@ -68,37 +66,39 @@ docker logs -f vllm-qwen-math
 
 ## Error Responses
 
-### HTTP 403 - Model Unavailable
+### HTTP 429 - Model Unavailable
 
 When a model is busy (another model is currently loaded), you'll receive a detailed response:
 
 ```json
 {
-  "error": "model-unavailable",
+  "ok": false,
+  "error": "busy",
   "requested": "qwen-math",
-  "reason": "Another model is currently loaded",
-  "current_model": "vllm-gpt-oss-20b",
-  "uptime_sec": 245,
-  "idle_sec": 120,
-  "time_until_release_sec": 180,
-  "will_auto_stop": true,
-  "retry_after_sec": 180
+  "currentModel": {
+    "name": "vllm-gpt-oss-20b",
+    "uptimeSec": 245,
+    "idleSec": 120,
+    "timeUntilReleaseSec": 180,
+    "willAutoStop": true
+  },
+  "retryAfterSec": 180
 }
 ```
 
 **Fields:**
 - `requested`: The model you tried to access
-- `current_model`: The model currently loaded in GPU memory
-- `uptime_sec`: How long the current model has been running
-- `idle_sec`: How long since the current model was last used
-- `time_until_release_sec`: Estimated seconds until the model may be released (if idle)
-- `will_auto_stop`: Whether the model will auto-stop when idle (true if past minimum uptime)
-- `retry_after_sec`: Recommended retry delay (also in `Retry-After` header)
+- `currentModel.name`: The model currently loaded in GPU memory
+- `currentModel.uptimeSec`: How long the current model has been running
+- `currentModel.idleSec`: How long since the current model was last used
+- `currentModel.timeUntilReleaseSec`: Estimated seconds until the model may be released (if idle)
+- `currentModel.willAutoStop`: Whether the model will auto-stop when idle (true if past minimum uptime)
+- `retryAfterSec`: Recommended retry delay (also in `Retry-After` header)
 
 **What to do:**
-- Wait for `time_until_release_sec` seconds if the model is idle and will auto-stop
-- Use `retry_after_sec` as a safe retry delay
-- If `idle_sec` is low, the model is actively being used - retry later
+- Wait for `timeUntilReleaseSec` seconds if the model is idle and will auto-stop
+- Use `retryAfterSec` as a safe retry delay
+- If `idleSec` is low, the model is actively being used - retry later
 
 ### Common Issues
 
@@ -108,16 +108,16 @@ When a model is busy (another model is currently loaded), you'll receive a detai
 - View container logs: `docker compose logs vllm-<model-name>`
 - Verify HuggingFace access for model downloads
 
-#### Always getting HTTP 403 (Busy)
+#### Always getting HTTP 429 (Busy)
 - Check the error response - it shows which model is loaded and when it will be released
-- Look at `idle_sec` and `time_until_release_sec` in the response
-- If `will_auto_stop` is `true`, the model will release after `time_until_release_sec`
-- If `will_auto_stop` is `false`, the model hasn't reached minimum uptime yet
+- Look at `idleSec` and `timeUntilReleaseSec` in the response
+- If `willAutoStop` is `true`, the model will release after `timeUntilReleaseSec`
+- If `willAutoStop` is `false`, the model hasn't reached minimum uptime yet
 - Check waker state for more details: `curl http://localhost:8009/debug/state`
 - To force immediate switch: `docker compose stop vllm-gpt-oss-20b` (or other model)
 
 #### Health check timeout
-- Increase `HEALTH_TIMEOUT_MS` (default 15 min may be too short for large models)
+- Increase `HEALTH_TIMEOUT_MS` (default: 900000 = 15 min, may be too short for large models)
 - Check model container logs for errors
 - Verify GPU memory is sufficient
 
@@ -127,5 +127,6 @@ When a model is busy (another model is currently loaded), you'll receive a detai
 - Check `NO_STOP_BEFORE_SECONDS` isn't too low
 
 #### "Model does not exist" error
-- Ensure model name in API request matches `--served-model-name` in `docker-compose.yml`
-- Check that waker's `MODELS_JSON` key matches the route in `gateway.conf`
+- Ensure model name in API request matches `--served-model-name` in the model's compose file
+- Check that waker's `MODELS_JSON` key matches the model name
+- Verify the model is listed in request-validator's `MODEL_CONFIG`

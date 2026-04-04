@@ -18,8 +18,8 @@ The stack consists of four main components:
 
 4. **API Gateway** (always running)
    - Nginx reverse proxy on port 8009.
-   - Routes requests to appropriate models (via validator for default route).
-   - Returns HTTP 403 when busy/starting with `Retry-After` header.
+   - Routes all `/v1/` traffic through the request validator.
+   - Returns HTTP 429 when busy/starting with `Retry-After` header.
 
 ### API Endpoints
 
@@ -40,11 +40,19 @@ The stack consists of four main components:
 .
 ├── docker-compose.yml          # Main orchestration file
 ├── gateway.conf                # Nginx configuration
-├── waker/                      # Waker service
+├── compose/                    # Model compose files (models-gpt.yml, models-qwen.yml, etc.)
+├── waker/                      # Waker service (lifecycle manager)
 │   ├── Dockerfile
 │   ├── index.js                # Main waker logic
-│   ├── package.json
-│   └── package-lock.json
+│   ├── gpu-monitor.js          # GPU stats tracking
+│   └── package.json
+├── request-validator/          # Request validation/routing middleware
+│   ├── Dockerfile
+│   ├── index.js                # Validation, token capping, model routing
+│   └── package.json
+├── custom-docker-containers/   # Custom vLLM image build contexts
+├── debugging/                  # Debug tools (proxy, test scripts)
+├── docs/                       # Documentation
 ├── models/                     # Model download cache (created at runtime)
 ├── vllm_cache_huggingface/     # HuggingFace cache (created at runtime)
 ├── manual_download/            # Custom tokenizers and files
@@ -55,20 +63,21 @@ The stack consists of four main components:
 
 ### Request Flow
 
-1. Client sends request to `http://localhost:8009/v1/qwen-math/...`
-2. Nginx performs auth subrequest to waker: `POST /ensure/qwen-math`
-3. Waker checks:
-   - Is another model running? → Return 403 with detailed info
+1. Client sends request to `http://localhost:8009/v1/chat/completions` with `"model": "qwen-math"`
+2. Nginx proxies all `/v1/` traffic to the **request validator** (port 18081)
+3. Request validator reads the `model` field from the request body, then calls the **waker**: `POST /ensure/qwen-math`
+4. Waker checks:
+   - Is another model running? → Return 429 with detailed info
    - Is qwen-math already running? → Check health
    - Otherwise → Start container and wait for health
-4. If healthy: Waker returns 200, Nginx proxies to model
-5. If busy/starting: Nginx returns 403 with detailed model status and timing info
+5. If healthy: Waker returns 200, request validator fixes/validates the request (token capping, role alternation, tool stripping), then proxies to the vLLM container
+6. If busy/starting: Request validator forwards the 429 response with model status and `Retry-After` header back to the client
 
 ### Lifecycle Management
 
 1. **Startup**: Container starts when first requested
 2. **Active**: Waker tracks last activity timestamp
-3. **Idle Detection**: After 5 min idle + 30 sec minimum uptime
+3. **Idle Detection**: After 20 min idle (configurable via `IDLE_STOP_SECONDS`) + 30 sec minimum uptime
 4. **Shutdown**: Container stops gracefully (5 sec timeout)
 5. **Cooldown**: 20 sec debounce prevents rapid restart cycles
 

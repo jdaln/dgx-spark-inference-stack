@@ -33,3 +33,6 @@ docker-compose.override.yml
 flashinfer_cache/
 torch_extensions/
 torchinductor/
+
+.cache/
+tmp/

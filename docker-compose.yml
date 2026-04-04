@@ -13,7 +13,11 @@ services:
     build:
       context: ./waker
     container_name: vllm-waker
-    runtime: nvidia
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=10m
 #    ports: ["18080:18080"] #debug
     environment:
       PORT: "18080"
@@ -29,8 +33,6 @@ services:
       TICK_MS: "1000"
       BUSY_STATUS_CODE: "429"
       VERBOSE: ${WAKER_VERBOSE:-0}
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: all
       MODELS_JSON: >
         {
           "gpt-oss-20b": {
@@ -172,6 +174,11 @@ services:
     build:
       context: ./request-validator
     container_name: vllm-request-validator
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=10m
     environment:
       PORT: "18081"
       VERBOSE: ${WAKER_VERBOSE:-0}
@@ -192,6 +199,14 @@ services:
   api-gateway:
     image: nginx:1.27-alpine
     container_name: vllm-gateway
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]  # nginx needs to bind port 8080
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=10m
+      - /var/cache/nginx:noexec,nosuid,size=10m
+      - /run:noexec,nosuid,size=1m
     depends_on:
       request-validator:
         condition: service_healthy

@@ -21,21 +21,22 @@ To use this stack with the [Cline](https://github.com/cline/cline) VS Code exten
 | `qwen3-vl-32b-instruct-fp4` | `131072` | Best quality VL for docs + screenshots |
 | `glm-4.5-air-fp4` | `131072` | Great general assistant alternative |
 | `glm-4.6v-flash-fp4` | `131072` | Fastest VL for real-time UI workflows |
+| `glm-4.5-air-derestricted-fp4` | `131072` | Fewer refusals, creative/roleplay |
 | `llama-3.3-70b-joyous-fp4` | `131072` | High-quality general assistant |
 | `llama-3.3-70b-instruct-fp4` | `131072` | Standard Llama 3.3 70B |
-| `deepseek-r1-distill-qwen-14b` | `128000` | Reasoning on a budget |
-| `deepseek-r1-distill-qwen-32b` | `128000` | Strong reasoning + planning |
 | `nemotron-3-nano-30b-fp8` | `131072` | Efficient MoE reasoning + long-context |
+| `nemotron-nano-12b-v2-vl` | `131072` | Lightweight vision assistant |
+| `qwen3-vl-30b-instruct` | `65536` | New Qwen3 Vision-Language model |
+| `qwen3-vl-30b-thinking-instruct` | `65536` | Complex visual reasoning with thinking |
+| `qwen3-coder-30b-a3b-instruct` | `65536` | Long-context coding + tool usage |
 | `eurollm-22b-instruct-fp4` | `32768` | EU languages / multilingual support |
-| `qwen2.5-1.5b-instruct` | `8192` | Small utility model for titles/classification |
 | `phi-4-multimodal-instruct-fp4` | `32768` | Text+image(+audio) multimodal |
 | `phi-4-reasoning-plus-fp4` | `32768` | Careful/robust reasoning style |
 | `qwen2.5-vl-7b` | `32768` | Cheapest practical VL |
-| `deepseek-ocr` | `32768` | Best for raw text extraction |
 | `glm-4-9b-chat` | `32768` | Cheap chat, lightweight assistant |
-| `qwen3-coder-30b-a3b-instruct` | `32768` | Long-context coding + tool usage |
 | `qwen2.5-coder-7b-instruct` | `32768` | Budget coding assistant |
-| `qwen-math` | `32768` | Math specialist |
+| `qwen2.5-1.5b-instruct` | `8192` | Small utility model for titles/classification |
+| `qwen-math` | `4096` | Math specialist |
 
 > [!IMPORTANT]
 > **Context Window Accuracy**: It is critical that your Cline settings for "Context Window" match the values in this table. The request validator middleware automatically fixes minor overflows, but setting it correctly in Cline ensures optimal performance and prevents unnecessary token capping.
@@ -75,9 +76,8 @@ To use this stack with [OpenCode](https://github.com/opencode-ai/opencode), foll
            "apiKey": "local"
          },
          "models": {
-           "gpt-oss-20b": { "name": "GPT-OSS 20B", "limit": { "context": 131072, "output": 8192 } },
-           "iquest-coder-v1-40b-instruct-fp4": { "name": "iQuest Coder v1 40B Instruct (FP4)", "limit": { "context": 131072, "output": 8192 } }
-           // ... (all 29 models included)
+           "gpt-oss-20b": { "name": "GPT-OSS 20B", "limit": { "context": 131072, "output": 8192 } }
+           // ... (see opencode.json in project root for full model list)
          }
        }
      },

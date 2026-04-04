@@ -21,13 +21,18 @@ Located in `docker-compose.yml` under the `waker` service:
 
 - `PORT`: Waker HTTP port (default: 18080)
 - `MANAGE_PREFIX`: Container name prefix to manage (default: "vllm-")
-- `IDLE_STOP_SECONDS`: Idle time before stopping (default: 1800 = 30 min)
+- `IGNORE_NAMES`: Comma-separated container names to never manage (default: "vllm-gateway,vllm-waker,vllm-request-validator")
+- `IDLE_STOP_SECONDS`: Idle time before stopping a model (default: 0 = disabled; set to 1200 = 20 min in docker-compose.yml)
 - `NO_STOP_BEFORE_SECONDS`: Minimum uptime before allowing stop (default: 30)
-- `HEALTH_TIMEOUT_MS`: Max wait for health check (default: 1800000 = 30 min)
+- `HEALTH_TIMEOUT_MS`: Max wait for health check (default: 900000 = 15 min)
 - `DOCKER_STOP_TIMEOUT_SECONDS`: Grace period for container stop (default: 5)
 - `TICK_MS`: State check interval (default: 1000)
-- `BUSY_STATUS_CODE`: HTTP code for busy responses (default: 403)
-- `MODELS_JSON`: Model configuration mapping
+- `STOP_DEBOUNCE_MS`: Debounce delay before stopping idle containers (default: 20000 = 20 sec)
+- `BUSY_STATUS_CODE`: HTTP code for busy responses (code default: 409; set to 429 in docker-compose.yml)
+- `UTILITY_CONTAINER`: Always-running small model container name (default: "vllm-qwen2.5-1.5b")
+- `EXCLUSIVE_CONTAINERS`: Comma-separated containers that require stopping the utility model to free GPU memory (default: "vllm-oss120b")
+- `MODEL_HEALTH_URL_TEMPLATE`: Health URL template with `{name}` placeholder (default: "http://{name}:8001/health")
+- `MODELS_JSON`: Model configuration mapping (model name → container/upstream/health)
 
 ### Model Configuration Features
 - **GPU Memory Utilization**: Configurable allocation (default ~82%, small models ~5-12%)

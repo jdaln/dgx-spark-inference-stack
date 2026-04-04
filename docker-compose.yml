@@ -200,7 +200,7 @@ services:
     image: nginx:1.27-alpine
     container_name: vllm-gateway
     cap_drop: [ALL]
-    cap_add: [NET_BIND_SERVICE]  # nginx needs to bind port 8080
+    cap_add: [CHOWN, SETGID, SETUID]
     security_opt: ["no-new-privileges:true"]
     read_only: true
     tmpfs:

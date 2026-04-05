@@ -25,14 +25,22 @@ x-model-common: &model-common
 
 x-env-common: &env-common
   HF_HOME: /root/.cache/huggingface
-  TIKTOKEN_ENCODINGS_BASE: /etc/encodings
+  TIKTOKEN_ENCODINGS_BASE: ${GPT_TIKTOKEN_ENCODINGS_BASE:-/workspace/vllm/tiktoken_encodings}
   VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
   VLLM_NO_USAGE_STATS: "1"
-  VLLM_USE_FLASHINFER_MXFP4_BF16_MOE: "1"
+  VLLM_USE_FLASHINFER_MOE_MXFP4_MXFP8: "1"
   VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
   FLASHINFER_LOGLEVEL: "0"
   FLASHINFER_JIT_VERBOSE: "0"
-  FLASHINFER_NVCC_THREADS: "4"
+  FLASHINFER_NVCC_THREADS: ${GPT_MXFP4_NVCC_THREADS:-2}
+  MAX_JOBS: ${GPT_MXFP4_MAX_JOBS:-2}
+  CMAKE_BUILD_PARALLEL_LEVEL: ${GPT_MXFP4_MAX_JOBS:-2}
+  NINJAFLAGS: -j${GPT_MXFP4_MAX_JOBS:-2}
+  MAKEFLAGS: -j${GPT_MXFP4_MAX_JOBS:-2}
+
+x-mxfp4-build: &mxfp4-build
+  context: ..
+  dockerfile: ./custom-docker-containers/vllm-node-mxfp4/Dockerfile
 
 x-healthcheck-default: &healthcheck-default
   test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
@@ -43,7 +51,8 @@ x-healthcheck-default: &healthcheck-default
 services:
   vllm-oss20b:
     <<: *model-common
-    image: christopherowen/vllm-dgx-spark:v12
+    build: *mxfp4-build
+    image: ${VLLM_TRACK_IMAGE_MXFP4:-vllm-node-mxfp4}
     container_name: vllm-oss20b
     command:
       - vllm
@@ -71,7 +80,7 @@ services:
       - --tensor-parallel-size
       - "1"
       - --gpu-memory-utilization
-      - "0.80"
+      - "0.70"
       - --max-num-seqs
       - "2"
       - --max-num-batched-tokens
@@ -96,8 +105,6 @@ services:
       # Ccache for rebuilds
       - ../.cache/ccache:/root/.ccache
       - ../models:/models
-      - ../manual_download/openai_gpt-oss-encodings_fix/cl100k_base.tiktoken:/etc/encodings/cl100k_base.tiktoken
-      - ../manual_download/openai_gpt-oss-encodings_fix/o200k_base.tiktoken:/etc/encodings/o200k_base.tiktoken
     environment:
       <<: *env-common
     healthcheck:
@@ -106,7 +113,8 @@ services:
  
   vllm-oss120b:
     <<: *model-common
-    image: christopherowen/vllm-dgx-spark:v12
+    build: *mxfp4-build
+    image: ${VLLM_TRACK_IMAGE_MXFP4:-vllm-node-mxfp4}
     container_name: vllm-oss120b
     command:
       - vllm
@@ -134,7 +142,12 @@ services:
       - --tensor-parallel-size
       - "1"
       - --gpu-memory-utilization
-      - "0.94"
+      # Normal-mode default. The small utility model can still coexist at 0.80, but
+      # the practical combined budget for substantial LLMs on this host is only about 0.94,
+      # so gpt-oss-20b and gpt-oss-120b should not both be resident at once.
+      - ${GPT_OSS_120B_GPU_MEMORY_UTILIZATION:-0.80}
+      # Exclusive-only fallback for quick IDE switching when you also change models.json lifecycle back to exclusive:
+      # - ${GPT_OSS_120B_GPU_MEMORY_UTILIZATION:-0.93}
       - --max-num-seqs
       - "2"
       - --max-num-batched-tokens
@@ -149,6 +162,8 @@ services:
       - --enable-auto-tool-choice
       - --tool-call-parser
       - openai
+      - --reasoning-parser
+      - openai_gptoss
     volumes:
         # HuggingFace model cache (required)
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -159,8 +174,6 @@ services:
       # Ccache for rebuilds
       - ../.cache/ccache:/root/.ccache
       - ../models:/models
-      - ../manual_download/openai_gpt-oss-encodings_fix/cl100k_base.tiktoken:/etc/encodings/cl100k_base.tiktoken
-      - ../manual_download/openai_gpt-oss-encodings_fix/o200k_base.tiktoken:/etc/encodings/o200k_base.tiktoken
     environment:
       <<: *env-common
     healthcheck:

@@ -9,7 +9,8 @@
 // 7. Strips tool parameters from models that don't support tool calling (small, VL, math).
 // 8. Forces `tool_choice: required` for models that ignore tools with "auto" (Qwen3-Coder, Qwen2.5-Coder).
 // 9. Fixes role alternation for Gemma/Llama models requiring strict user/assistant turns.
-// 10. Proxies the final, validated request to the correct vLLM container.
+// 10. Disables hidden thinking by default for models whose reasoning parser otherwise consumes the visible answer budget.
+// 11. Proxies the final, validated request to the correct vLLM container.
 
 import http from "node:http";
 import { loadModelsConfig } from "../shared/models-config.mjs";
@@ -23,6 +24,7 @@ const MODEL_CONFIG = Object.fromEntries(
   MODELS_CONFIG.entries.map((entry) => [
     entry.model,
     {
+      modelId: entry.model,
       host: entry.container,
       port: entry.port,
       maxModelLen: entry.maxModelLen,
@@ -57,16 +59,44 @@ function shouldForceToolChoice(targetConfig) {
   return targetConfig.toolSupport === "force-required";
 }
 
+const DEFAULT_NON_THINKING_MODELS = new Set([
+  "glm-4.7-flash-awq",
+  "nemotron-3-nano-30b-nvfp4"
+]);
+
+function shouldDisableThinkingByDefault(targetConfig, data) {
+  if (!targetConfig || !DEFAULT_NON_THINKING_MODELS.has(targetConfig.modelId)) {
+    return false;
+  }
+
+  if (data.thinking !== undefined) {
+    return false;
+  }
+
+  const chatTemplateKwargs = data.chat_template_kwargs;
+  if (chatTemplateKwargs === undefined || chatTemplateKwargs === null) {
+    return true;
+  }
+
+  if (typeof chatTemplateKwargs !== "object" || Array.isArray(chatTemplateKwargs)) {
+    return true;
+  }
+
+  return chatTemplateKwargs.enable_thinking === undefined && chatTemplateKwargs.thinking === undefined;
+}
+
 function json(res, code, obj, headers = {}) {
   res.writeHead(code, { ...headers, "Content-Type": "application/json" });
   res.end(JSON.stringify(obj));
 }
 
-// Rough estimate of tokens from text
-// Using ~2.5 chars per token (conservative for code/technical text which tokenizes more densely)
+// Rough estimate of tokens from text.
+// Use a standard ~4 chars/token heuristic and keep the separate safety buffer below;
+// the older 2.5 chars/token estimate was over-capping large code prompts long before
+// the actual model context limit on GLM 4.7.
 function estimateTokens(text) {
   if (typeof text !== "string") return 0;
-  return Math.ceil(text.length / 2.5);
+  return Math.ceil(text.length / 4);
 }
 
 // Estimate total input tokens from messages
@@ -307,6 +337,20 @@ function processBody(body, targetConfig, url) {
         data.tool_choice = "required";
         log(`Forced tool_choice to required for ${data.model} (${targetConfig.validatorProfile})`);
       }
+    }
+
+    if (shouldDisableThinkingByDefault(targetConfig, data)) {
+      const chatTemplateKwargs =
+        data.chat_template_kwargs && typeof data.chat_template_kwargs === "object" && !Array.isArray(data.chat_template_kwargs)
+          ? data.chat_template_kwargs
+          : {};
+      data.thinking = false;
+      data.chat_template_kwargs = {
+        ...chatTemplateKwargs,
+        enable_thinking: false,
+        thinking: false
+      };
+      log(`Disabled thinking by default for ${data.model} to preserve visible final answers`);
     }
 
     return JSON.stringify(data);

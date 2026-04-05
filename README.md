@@ -49,8 +49,12 @@ The goal of the project is to provide an inference server for your home. After t
        # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream
        docker build -t avarok/vllm-dgx-spark:v11 custom-docker-containers/avarok
 
-       # Build Christopher Owen image (MXFP4 Optimized)
-       docker build -t christopherowen/vllm-dgx-spark:v12 custom-docker-containers/christopherowen
+      # Build the repo-owned MXFP4 track used by GPT-OSS.
+      # This bakes the manually downloaded tiktoken files into the image.
+      docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dockerfile .
+
+      # Build the refreshed TF5 track used by GLM 4.7.
+      docker build -t local/vllm-node-tf5:cu131 -f custom-docker-containers/vllm-node-tf5/Dockerfile .
        ```
 
 5. **Start the stack**
@@ -58,7 +62,7 @@ The goal of the project is to provide an inference server for your home. After t
    # Start gateway and waker only (models start on-demand)
    docker compose up -d
 
-   # Pre-create all enabled model containers (recommended)
+   # Pre-create all enabled model containers once the required local track images exist
    docker compose --profile models up --no-start
    ```
 
@@ -86,6 +90,18 @@ However, to ensure stability, I enforce a strict **Pull Request Template**.
 
 ## ⚠️ Known Issues
 
+### Current Validation Status
+
+With the current harness and repo defaults, the only **validated main models** right now are:
+
+- **`gpt-oss-20b`**
+- **`gpt-oss-120b`**
+- **`glm-4.7-flash-awq`**
+
+The shipped `qwen2.5-1.5b-instruct` small model is still kept for utility tasks like titles/session metadata, but it is not part of that validated main-model set.
+
+Other available models may still work, but until they are re-tested with the current tooling they should be treated as **experimental** rather than recommended defaults.
+
 ### Experimental Models (GB10/CUDA 12.1 Compatibility)
 
 The following models are marked as **experimental** due to sporadic crashes on DGX Spark (GB10 GPU):
@@ -99,8 +115,10 @@ The following models are marked as **experimental** due to sporadic crashes on D
 
 ### Nemotron 3 Nano 30B (NVFP4)
 
-The **`nemotron-3-nano-30b-nvfp4`** model is currently disabled.
-**Reason:** Incompatible with current vLLM build on GB10. Requires proper V1 engine support or updated backend implementation.
+The **`nemotron-3-nano-30b-nvfp4`** model is now re-enabled on the refreshed `vllm-node` standard-track path, but it should still be treated as **experimental** on the current harness.
+**Current status:** It now loads and answers requests on the refreshed runtime, but it is not part of the validated main-model set or the shipped OpenCode config yet.
+**Important behavior:** Visible assistant content depends on the non-thinking request shape. The request validator now injects that default for normal gateway requests.
+**Current conservative client ceiling:** About `100000` prompt tokens for manual OpenCode/Cline-style use. The active-stack five-way soak passes cleanly at roughly `101776` prompt tokens and is already borderline by roughly `116298`.
 
 
 ### OpenCode Image/Screenshot Support on Linux

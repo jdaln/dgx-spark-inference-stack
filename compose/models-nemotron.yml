@@ -1,7 +1,7 @@
 services:
   vllm-nemotron-3-nano-30b-nvfp4:
     profiles: ["models"]
-    image: christopherowen/vllm-dgx-spark:v12
+    image: ${VLLM_TRACK_IMAGE_STANDARD:-vllm-node}
     container_name: vllm-nemotron-3-nano-30b-nvfp4
     command:
       - vllm
@@ -35,8 +35,6 @@ services:
       - --load-format
       - fastsafetensors
       - --enforce-eager
-      - --disable-log-requests
-      - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
       - ../models:/models

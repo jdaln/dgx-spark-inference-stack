@@ -5,3 +5,15 @@
 !waker/**
 !request-validator/
 !request-validator/**
+!custom-docker-containers/
+!custom-docker-containers/**
+!manual_download/
+!manual_download/openai_gpt-oss-encodings_fix/
+!manual_download/openai_gpt-oss-encodings_fix/**
+!mods/
+!mods/fix-glm-4.7-flash-AWQ/
+!mods/fix-glm-4.7-flash-AWQ/**
+!tmp/spark-vllm-docker/wheels/
+!tmp/spark-vllm-docker/wheels/**
+!tmp/transformers-upstream/src/transformers/
+!tmp/transformers-upstream/src/transformers/**

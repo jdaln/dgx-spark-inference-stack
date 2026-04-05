@@ -1,0 +1,13 @@
+build_date: 2026-04-04T13:15:19Z
+build_script_commit: 49d6d9fefd7cd05e63af8b28e4b514e9d30d249f
+vllm_version: unknown
+vllm_commit: 045293d82b832229560ac4a13152a095af603b6e
+flashinfer_commit: f349e52496a72a00d8c4ac02c7a1e38523ff7194
+gpu_arch: 12.1a
+base_image: nvcr.io/nvidia/pytorch:26.01-py3
+build_args:
+  vllm_ref: mxfp4-pinned
+  transformers_5: false
+  exp_mxfp4: true
+  vllm_prs: ""
+  build_jobs: 16

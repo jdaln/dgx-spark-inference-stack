@@ -5,7 +5,8 @@
     "maxModelLen": 131072,
     "toolSupport": "full",
     "validatorProfile": "default",
-    "lifecycle": "normal"
+    "lifecycle": "normal",
+    "notes": "Validated main model on the current 2026-04-05 harness; promoted in the shipped OpenCode config with a conservative 108000 OpenCode context limit."
   },
   "gpt-oss-120b": {
     "container": "vllm-oss120b",
@@ -13,8 +14,9 @@
     "maxModelLen": 131072,
     "toolSupport": "full",
     "validatorProfile": "default",
-    "lifecycle": "exclusive",
-    "sourceRecipe": "spark-vllm-docker:openai-gpt-oss-120b"
+    "lifecycle": "normal",
+    "sourceRecipe": "spark-vllm-docker:openai-gpt-oss-120b",
+    "notes": "Validated main model on the current 2026-04-05 harness at gpu_memory_utilization 0.80 in normal mode, where the small utility model can still coexist. On this host the practical combined budget for concurrently loaded substantial LLMs is about 0.94 total, if you test at 0.93, switch to exclusive."
   },
   "glm-4-9b-chat": {
     "container": "vllm-glm4-9b",
@@ -22,7 +24,8 @@
     "maxModelLen": 32768,
     "toolSupport": "full",
     "validatorProfile": "default",
-    "lifecycle": "normal"
+    "lifecycle": "normal",
+    "experimental": true
   },
   "glm-4.5-air-fp4": {
     "container": "vllm-glm-4.5-air-fp4",
@@ -30,7 +33,8 @@
     "maxModelLen": 131072,
     "toolSupport": "full",
     "validatorProfile": "default",
-    "lifecycle": "normal"
+    "lifecycle": "normal",
+    "experimental": true
   },
   "glm-4.5-air-derestricted-fp4": {
     "container": "vllm-glm-4.5-air-derestricted-fp4",
@@ -38,7 +42,8 @@
     "maxModelLen": 131072,
     "toolSupport": "full",
     "validatorProfile": "default",
-    "lifecycle": "normal"
+    "lifecycle": "normal",
+    "experimental": true
   },
   "glm-4.6v-flash-fp4": {
     "container": "vllm-glm-4.6v-flash-fp4",
@@ -47,7 +52,18 @@
     "toolSupport": "full",
     "validatorProfile": "default",
     "lifecycle": "normal",
-    "multimodal": true
+    "multimodal": true,
+    "experimental": true
+  },
+  "glm-4.7-flash-awq": {
+    "container": "vllm-glm-4.7-flash-awq",
+    "port": 8000,
+    "maxModelLen": 131072,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal",
+    "sourceRecipe": "spark-vllm-docker:glm-4.7-flash-awq",
+    "notes": "Validated main model on the current 2026-04-05 harness. Uses a local TF5 image variant with the vendored GLM 4.7 speed patch plus an expanded MLA weight-guard fix; the validated local default is now 131072 context with 5-way concurrency at gpu_memory_utilization 0.70 while the utility model stays running on this host, and the shipped OpenCode config promotes it at a conservative 108000 context limit."
   },
   "eurollm-22b-instruct-fp4": {
     "container": "vllm-eurollm-22b-fp4",
@@ -55,7 +71,8 @@
     "maxModelLen": 32768,
     "toolSupport": "full",
     "validatorProfile": "default",
-    "lifecycle": "normal"
+    "lifecycle": "normal",
+    "experimental": true
   },
   "llama-3.3-70b-instruct-fp4": {
     "container": "vllm-llama-3.3-70b-instruct-fp4",
@@ -63,7 +80,8 @@
     "maxModelLen": 131072,
     "toolSupport": "full",
     "validatorProfile": "default",
-    "lifecycle": "normal"
+    "lifecycle": "normal",
+    "experimental": true
   },
   "llama-3.3-70b-joyous-fp4": {
     "container": "vllm-llama-3.3-70b-joyous-fp4",
@@ -71,7 +89,8 @@
     "maxModelLen": 131072,
     "toolSupport": "full",
     "validatorProfile": "default",
-    "lifecycle": "normal"
+    "lifecycle": "normal",
+    "experimental": true
   },
   "mistral-nemo-instruct-2407": {
     "container": "vllm-mistral-nemo-12b",
@@ -79,7 +98,19 @@
     "maxModelLen": 128000,
     "toolSupport": "full",
     "validatorProfile": "default",
-    "lifecycle": "normal"
+    "lifecycle": "normal",
+    "experimental": true
+  },
+  "nemotron-3-nano-30b-nvfp4": {
+    "container": "vllm-nemotron-3-nano-30b-nvfp4",
+    "port": 8000,
+    "maxModelLen": 262144,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal",
+    "sourceRecipe": "spark-vllm-docker:nemotron-3-nano-nvfp4",
+    "experimental": true,
+    "notes": "Re-enabled on the refreshed standard-track `vllm-node` path. Direct requests now load and return visible output when thinking is explicitly disabled; the validator applies that non-thinking default for normal gateway requests too. Five concurrent gateway-path soaks now pass at roughly 29k, 58k, and 102k prompt tokens, while the next tested tier at roughly 116k is already borderline for the current 256-token completion floor, so a conservative manual client limit of 100000 is the current guidance. Still experimental until finer-grained long-context validation is finished on this host."
   },
   "qwen-math": {
     "container": "vllm-qwen-math",
@@ -87,7 +118,8 @@
     "maxModelLen": 4096,
     "toolSupport": "none",
     "validatorProfile": "small-no-tools",
-    "lifecycle": "normal"
+    "lifecycle": "normal",
+    "experimental": true
   },
   "qwen2.5-1.5b-instruct": {
     "container": "vllm-qwen2.5-1.5b",
@@ -95,7 +127,9 @@
     "maxModelLen": 8192,
     "toolSupport": "none",
     "validatorProfile": "small-no-tools",
-    "lifecycle": "utility"
+    "lifecycle": "utility",
+    "experimental": true,
+    "notes": "Utility-only small model used for titles/session metadata in the shipped OpenCode config, but not yet promoted as a validated main model."
   },
   "qwen2.5-coder-7b-instruct": {
     "container": "vllm-qwen25-coder-7b",
@@ -103,7 +137,8 @@
     "maxModelLen": 32768,
     "toolSupport": "force-required",
     "validatorProfile": "coder-force-tools",
-    "lifecycle": "normal"
+    "lifecycle": "normal",
+    "experimental": true
   },
   "qwen2.5-vl-7b": {
     "container": "vllm-qwen25-vl-7b",
@@ -112,7 +147,8 @@
     "toolSupport": "none",
     "validatorProfile": "vl",
     "lifecycle": "normal",
-    "multimodal": true
+    "multimodal": true,
+    "experimental": true
   },
   "qwen3-coder-30b-a3b-instruct": {
     "container": "vllm-qwen3-coder-30b",
@@ -120,7 +156,8 @@
     "maxModelLen": 65536,
     "toolSupport": "force-required",
     "validatorProfile": "coder-force-tools",
-    "lifecycle": "normal"
+    "lifecycle": "normal",
+    "experimental": true
   },
   "qwen3-vl-30b-instruct": {
     "container": "vllm-qwen3-vl-30b",
@@ -129,7 +166,8 @@
     "toolSupport": "none",
     "validatorProfile": "vl",
     "lifecycle": "normal",
-    "multimodal": true
+    "multimodal": true,
+    "experimental": true
   },
   "qwen3-vl-30b-thinking-instruct": {
     "container": "vllm-qwen3-vl-30b-thinking",
@@ -138,7 +176,8 @@
     "toolSupport": "none",
     "validatorProfile": "vl",
     "lifecycle": "normal",
-    "multimodal": true
+    "multimodal": true,
+    "experimental": true
   },
   "qwen3-vl-32b-instruct-fp4": {
     "container": "vllm-qwen3-vl-32b-fp4",
@@ -147,6 +186,7 @@
     "toolSupport": "none",
     "validatorProfile": "vl",
     "lifecycle": "normal",
-    "multimodal": true
+    "multimodal": true,
+    "experimental": true
   }
 }

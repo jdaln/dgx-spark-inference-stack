@@ -117,16 +117,60 @@ When a model is busy (another model is currently loaded), you'll receive a detai
 - To force immediate switch: `docker compose stop vllm-gpt-oss-20b` (or other model)
 
 #### Health check timeout
-- Increase `HEALTH_TIMEOUT_MS` (default: 900000 = 15 min, may be too short for large models)
+- Increase `HEALTH_TIMEOUT_MS` (default: 900000 = 15 min) if the normal gateway path is timing out while waker waits on `/ensure/<model>`
 - Check model container logs for errors
 - Verify GPU memory is sufficient
+
+#### Long first cold start stays unhealthy
+- Distinguish the two startup gates: `HEALTH_TIMEOUT_MS` controls the waker `/ensure` path, while `tools/run-model.sh` waits on the model container's own Docker healthcheck
+- For very large first downloads or first loads, increase the model service `healthcheck.start_period` in its compose fragment; otherwise Docker can mark the container unhealthy before the initial load finishes
+- A practical example is the experimental Huihui GPT-OSS 120B variant, whose cold start needed a much longer health grace than the default 30 minutes
+- If the model directory under `./models/` is still growing or contains large `.incomplete` blobs, the startup may still be doing valid work rather than hanging
+
+#### Host RAM pressure during compile or graph capture
+- On DGX Spark, large-model startup failures can come from shared system RAM pressure during download extraction, JIT compilation, or CUDA graph capture, even when the GPU-facing flags look reasonable
+- For large TF5 models such as Gemma, a persistent `/swap.img` can be a reasonable host-level mitigation when the goal is to keep the faster runtime path rather than forcing `--enforce-eager` or permanently shrinking the normal runtime envelope
+- If the service still dies on the first real request with `ray.exceptions.OutOfMemoryError` at roughly the default `0.95` node threshold, raise the Gemma service's `RAY_memory_usage_threshold` instead of immediately downgrading the runtime path. In this repo, the Gemma services now default that threshold to `0.99` for exactly that reason
+- For sawpping, if `/etc/fstab` does not already  contain `/swap.img none swap sw 0 0` or it is not working, the  setup is:
+
+```bash
+# Bring up the persistent swap file already listed in /etc/fstab.
+sudo chmod 600 /swap.img
+sudo mkswap /swap.img
+sudo swapon -a
+swapon --show
+free -h
+
+# Keep swap as a startup pressure valve, not a steady-state working set.
+sudo sysctl vm.swappiness=10
+echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/99-swap.conf
+cat /proc/sys/vm/swappiness
+
+# If /swap.img is missing or invalid, rebuild it once and re-enable it.
+sudo swapoff /swap.img 2>/dev/null || true
+sudo rm -f /swap.img
+sudo fallocate -l 240G /swap.img
+sudo chmod 600 /swap.img
+sudo mkswap /swap.img
+sudo swapon -a
+
+```
+
+
+- Treat swap as startup headroom, not as a throughput optimization. If swap stays heavily used after the model reaches health, the runtime envelope is still too aggressive for the host
+
+#### Gemma TF5 startup dies with AOTAutograd `PicklingError`
+- A Gemma TF5 cold start can fail during standalone compile with a trace ending in `Can't pickle <function launcher ...>: attribute lookup launcher on __main__ failed`
+- On the current TF5 image, the practical repo-level workaround is to disable local AOTAutograd cache saves for the affected service with `TORCHINDUCTOR_AUTOGRAD_CACHE=0`
+- This is distinct from the earlier Ray host-memory path: if the container exits with that `PicklingError`, adding more swap is not the relevant fix
 
 #### Models keep stopping
 - Increase `IDLE_STOP_SECONDS` or set to 0 to disable auto-stop
 - Use `/touch/<model>` endpoint to keep model alive
 - Check `NO_STOP_BEFORE_SECONDS` isn't too low
+- For long cold starts, also verify you are on the updated waker logic: containers that have never reached `healthy` once are now protected from idle reaping even if Docker health has already flipped from `starting` to `unhealthy`
 
 #### "Model does not exist" error
 - Ensure model name in API request matches `--served-model-name` in the model's compose file
-- Check that waker's `MODELS_JSON` key matches the model name
-- Verify the model is listed in request-validator's `MODEL_CONFIG`
+- Verify the model is listed in `models.json`
+- If the model was added recently, restart `waker` and `request-validator` so they reload `models.json`

@@ -24,7 +24,7 @@ To use this stack with the [Cline](https://github.com/cline/cline) VS Code exten
 | `glm-4.5-air-derestricted-fp4` | `131072` | Fewer refusals, creative/roleplay |
 | `llama-3.3-70b-joyous-fp4` | `131072` | High-quality general assistant |
 | `llama-3.3-70b-instruct-fp4` | `131072` | Standard Llama 3.3 70B |
-| `nemotron-3-nano-30b-fp8` | `131072` | Efficient MoE reasoning + long-context |
+| `nemotron-3-nano-30b-nvfp4` | `100000` | Efficient MoE reasoning + long-context (experimental, manual add only) |
 | `nemotron-nano-12b-v2-vl` | `131072` | Lightweight vision assistant |
 | `qwen3-vl-30b-instruct` | `65536` | New Qwen3 Vision-Language model |
 | `qwen3-vl-30b-thinking-instruct` | `65536` | Complex visual reasoning with thinking |
@@ -50,19 +50,19 @@ To use this stack with [OpenCode](https://github.com/opencode-ai/opencode), foll
 
 ### Quick Start
 
-1. **Set the endpoint environment variable**:
-   ```bash
-   export LOCAL_ENDPOINT=http://localhost:8009/v1 # or hardcode in .opencode.json
-   ```
+1. **Use the included configuration** (`opencode.json` in project root):
+  The repository includes a curated `opencode.json` using the `dgx` provider. It is intentionally **not** a mirror of every model in the repo. For now, the shipped OpenCode config only exposes the models we have actually validated with the current harness for normal OpenCode-style use: `gpt-oss-20b`, `gpt-oss-120b`, and `glm-4.7-flash-awq`, plus the small utility model used for titles.
 
-2. **Use the included configuration** (`.opencode.json` in project root):
-   The repository includes a pre-configured `.opencode.json` using the `dgx` provider. Simply run:
+2. **If your endpoint or API key is different, edit the provider block**:
+  Update `provider.dgx.options.baseURL` and `provider.dgx.options.apiKey` in `opencode.json` before launching OpenCode.
+
+3. **Run OpenCode**:
    ```bash
    opencode
    ```
 
-3. **Configuration Structure**:
-   The `.opencode.json` is configured to use the local DGX Spark stack as the primary provider:
+4. **Configuration Structure**:
+  The checked-in `opencode.json` is configured to use the local DGX Spark stack as the primary provider:
    ```json
    {
      "$schema": "https://opencode.ai/config.json",
@@ -72,11 +72,12 @@ To use this stack with [OpenCode](https://github.com/opencode-ai/opencode), foll
          "npm": "@ai-sdk/openai-compatible",
          "name": "DGX Spark (local)",
          "options": {
-           "baseURL": "{env:LOCAL_ENDPOINT}",
-           "apiKey": "local"
+           "baseURL": "http://localhost:8009/v1",
+           "apiKey": "63TestTOKEN0REPLACEME"
          },
          "models": {
-           "gpt-oss-20b": { "name": "GPT-OSS 20B", "limit": { "context": 131072, "output": 8192 } }
+           "gpt-oss-20b": { "name": "GPT-OSS 20B", "limit": { "context": 108000, "output": 8192 } },
+           "glm-4.7-flash-awq": { "name": "GLM-4.7 Flash AWQ", "limit": { "context": 108000, "output": 8192 } }
            // ... (see opencode.json in project root for full model list)
          }
        }
@@ -90,12 +91,30 @@ To use this stack with [OpenCode](https://github.com/opencode-ai/opencode), foll
 
 ### Switching Models
 
-To switch the active models, edit the `model` and `small_model` fields in `.opencode.json` using the `dgx/<model-id>` format.
+To switch the active models, edit the `model` and `small_model` fields in `opencode.json` using the `dgx/<model-id>` format.
 
-| Role | Recommended Model | Use Case |
-|------|-------------------|----------|
-| `model` | `dgx/gpt-oss-20b` | Balanced quality/speed for general tasks |
-| `small_model` | `dgx/qwen2.5-1.5b-instruct` | Small model for session titles |
+| Role | Recommended Model | Context | Use Case |
+|------|-------------------|---------|----------|
+| `model` | `dgx/gpt-oss-20b` | `108000` | Balanced quality/speed for general tasks |
+| `model` | `dgx/gpt-oss-120b` | `108000` | Higher-quality default when you want a larger model |
+| `model` | `dgx/gemma4-26b-a4b` | `100000` | Experimental Gemma path with a multi-user-tested interactive ceiling |
+| `model` | `dgx/glm-4.7-flash-awq` | `108000` | Best current long-context coding path in OpenCode |
+| `small_model` | `dgx/qwen2.5-1.5b-instruct` | `8192` | Small model for session titles |
+
+> [!IMPORTANT]
+> The `opencode.json` limits are **OpenCode-safe guidance**, not raw server maxima. For the currently validated `131072`-class models in the shipped config, the repo now uses `108000` as the conservative client-facing ceiling. That leaves room for prompt wrapper overhead, validator safety margin, and a real completion instead of a one-token answer near the hard cap.
+
+> [!TIP]
+> The Gemma 26B entry carries the easy published Gemma sampling guidance directly in `opencode.json`: `temperature=1.0`, `top_p=0.95`, and `top_k=64`. Its OpenCode ceiling is now `100000`, not `200000`: the single-user gateway-path soak still reached roughly `194614` prompt tokens, but the first five-user soak calibrated to roughly `97366` prompt tokens, spent about 100 seconds on that calibration request, and then clipped every answer at the 256-token completion cap. That makes `100000` the safer interactive ceiling for now.
+
+> [!TIP]
+> You do not need to add any special OpenCode request flags for GLM 4.7 on current repo revisions. The request validator  disables hidden thinking by default for `glm-4.7-flash-awq`, specifically because the default parser mode consumed the visible answer budget during long-context OpenCode-style requests.
+
+> [!TIP]
+> `nemotron-3-nano-30b-nvfp4` is still intentionally omitted from the shipped OpenCode config, but the current active-stack soak results are now good enough to give a first manual client ceiling: use `100000` as the conservative context limit for now. Five concurrent gateway-path requests passed with visible content at approximately `29166`, `58210`, and `101776` prompt tokens, while the next tested tier at approximately `116298` prompt tokens was already borderline because one request fell just under the 256-token completion floor.
+
+> [!WARNING]
+> On Linux, OpenCode still has a client-side image-input bug. Vision models can remain listed in `opencode.json` for non-Linux users or for future fixes, but clipboard/file-path images are still unreliable on Linux OpenCode sessions today.
 
 > [!TIP]
 > For remote access, ensure you've set up SSH port forwarding for port `8009` as described in the [Remote Access section](./security.md#remote-access--ssh-hardening).

@@ -5,29 +5,40 @@ Choose the right model for your task to balance performance and speed.
 > [!WARNING]
 > This document is **100% AI generated** and might need improvements.
 
+> [!IMPORTANT]
+> Current status vocabulary in this repo:
+> - **Validated main models**: `gpt-oss-20b`, `gpt-oss-120b`, and `glm-4.7-flash-awq`
+> - **Utility-only shipped helper**: `qwen2.5-1.5b-instruct` for titles/session metadata
+> - **Experimental**: everything else until the current harness re-validates it
+> - **Manual-only on this host**: `gemma4-31b`, which is currently too slow for interactive use and is intentionally omitted from the shipped OpenCode config
+>
+> That means availability in compose or `models.json` does **not** automatically mean “recommended default”.
+
 ## Quick chooser (what to use for what)
 
 ### ✅ Best default chat / general assistant
 - **`gpt-oss-20b`** → fast + strong quality for most tasks
 - **`gpt-oss-120b`** → best overall quality when latency/cost is okay
-- **`glm-4.5-air-fp4`** → great general assistant alternative (often “agent-y”)
+- **`glm-4.7-flash-awq`** → validated long-context coding/chat path on the current harness
+- **`glm-4.5-air-fp4`** → promising general assistant alternative, but still experimental on the current harness
 
 
 ### 🧠 Heavy reasoning (math, logic, planning, step-by-step)
 - **`qwen3-next-80b-a3b-thinking-fp4`** → fast MoE “thinking” model (high throughput)
 - **`deepseek-r1-distill-qwen-32b`** → very strong reasoning per GPU
 - **`phi-4-reasoning-plus-fp4`** → careful/robust reasoning style
-- **`nemotron-3-nano-30b-fp8`** → efficient MoE reasoning + long-context workloads
+- **`nemotron-3-nano-30b-nvfp4`** → efficient MoE reasoning + long-context workloads, re-enabled on the refreshed standard track but still experimental on the current harness
 
 ### 💻 Coding / repo edits / tool-assisted programming
-- **`qwen3-coder-30b-a3b-instruct`** → long-context coding + tool usage
-- **`qwen2.5-coder-7b-instruct`** → budget coding assistant
+- **`glm-4.7-flash-awq`** → validated long-context coding path right now
+- **`qwen3-coder-30b-a3b-instruct`** → strong coding model, but still experimental on the current harness
+- **`qwen2.5-coder-7b-instruct`** → budget coding assistant, experimental and not recommended for OpenCode
 
 ### 👁️ Vision (screenshots, UI, diagrams, “look at this image”)
-- **`qwen3-vl-32b-instruct-fp4`** → best quality VL for docs + screenshots
-- **`qwen3-vl-30b-instruct`** → new Qwen3 Vision-Language model
+- **`qwen3-vl-32b-instruct-fp4`** → best-looking VL candidate in the repo, but still experimental on the current harness
+- **`qwen3-vl-30b-instruct`** → available, but still experimental on the current harness
 
-- **`glm-4.6v-flash-fp4`** → fastest VL for real-time UI workflows
+- **`glm-4.6v-flash-fp4`** → fastest VL candidate for real-time UI workflows, but still experimental on the current harness
 - **`phi-4-multimodal-instruct-fp4`** → solid “one model for text+image(+audio)”
 - **`qwen2.5-vl-7b`** → cheapest practical VL
 
@@ -180,11 +191,11 @@ Choose the right model for your task to balance performance and speed.
   - **Best for:** careful multi-step analysis, complex logic, robust answers
   - **Tradeoffs:** may be slower / more verbose
 
-- `vllm-nemotron-3-nano-30b-fp8` → served as **`nemotron-3-nano-30b-fp8`**
-  - **Type:** efficient MoE reasoning model, FP8
+- `vllm-nemotron-3-nano-30b-nvfp4` → served as **`nemotron-3-nano-30b-nvfp4`**
+  - **Type:** efficient MoE reasoning model, NVFP4
   - **Best for:** production agent workloads, long prompts, fast reasoning at scale
   - **Strengths:** strong efficiency and throughput
-  - **Tradeoffs:** may be less “chatty” than general assistants
+  - **Tradeoffs:** still experimental on the current harness; visible answers depend on the non-thinking request shape now enforced by the validator
 
 ### Multilingual / EU
 

@@ -18,6 +18,39 @@
     "sourceRecipe": "spark-vllm-docker:openai-gpt-oss-120b",
     "notes": "Validated main model on the current 2026-04-05 harness at gpu_memory_utilization 0.80 in normal mode, where the small utility model can still coexist. On this host the practical combined budget for concurrently loaded substantial LLMs is about 0.94 total, if you test at 0.93, switch to exclusive."
   },
+  "huihui-gpt-oss-120b-mxfp4-abliterated": {
+    "container": "vllm-huihui-gpt-oss-120b-abliterated",
+    "port": 8000,
+    "maxModelLen": 131072,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal",
+    "sourceRecipe": "xeonvs/spark-vllm-docker:huihui-gpt-oss-120b-mxfp4-abliterated",
+    "experimental": true,
+    "notes": "Experimental GPT-OSS 120B abliterated variant."
+  },
+  "gemma4-26b-a4b": {
+    "container": "vllm-gemma4-26b-a4b",
+    "port": 8000,
+    "maxModelLen": 262144,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal",
+    "sourceRecipe": "spark-vllm-docker:gemma4-26b-a4b",
+    "experimental": true,
+    "notes": "An exact  gemma4-26b-a4b eugr-style TF5 baseline is built locally. The eugr `tensor_parallel_size=2` default is  not viable on this one-GPU machine, so the local default remains `1`. On this shared-memory host, the preferred mitigation for Gemma's large compile and CUDA-graph-capture startup spike is a persistent `/swap.img`, plus a Gemma-local `RAY_memory_usage_threshold=0.99` so Ray does not kill the worker at the default `0.95` threshold before swap-backed headroom can absorb the first-request spike. The current evidence supports a split view: a single-user gateway-path soak succeeded at roughly `194614` prompt tokens, but the first five-user soak calibrated to roughly `97366` prompt tokens, needed about 100 seconds for that calibration request, and then clipped every answer at the 256-token completion cap. Treat `100000` as the current interactive OpenCode ceiling until a stricter multi-user run with a larger completion budget proves more headroom."
+  },
+  "gemma4-31b": {
+    "container": "vllm-gemma4-31b",
+    "port": 8000,
+    "maxModelLen": 262144,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "exclusive",
+    "sourceRecipe": "local-mirror:google/gemma-4-31B-it",
+    "experimental": true,
+    "notes": "Does not work - hangs. Either too long to answer or has problems."
+},
   "glm-4-9b-chat": {
     "container": "vllm-glm4-9b",
     "port": 8000,
@@ -110,7 +143,7 @@
     "lifecycle": "normal",
     "sourceRecipe": "spark-vllm-docker:nemotron-3-nano-nvfp4",
     "experimental": true,
-    "notes": "Re-enabled on the refreshed standard-track `vllm-node` path. Direct requests now load and return visible output when thinking is explicitly disabled; the validator applies that non-thinking default for normal gateway requests too. Five concurrent gateway-path soaks now pass at roughly 29k, 58k, and 102k prompt tokens, while the next tested tier at roughly 116k is already borderline for the current 256-token completion floor, so a conservative manual client limit of 100000 is the current guidance. Still experimental until finer-grained long-context validation is finished on this host."
+    "notes": "Re-enabled on the refreshed standard-track `vllm-node` path. Direct requests now load and return visible output when thinking is explicitly disabled; the validator applies that non-thinking default for normal gateway requests too. Five concurrent gateway-path soaks now pass at roughly 29k, 58k, 102k, 109k, and 112k prompt tokens, while the next tested tier at roughly 116k is the first known borderline point for the current 256-token completion floor. A conservative manual client limit of 110000 is the current guidance on this host. Still experimental until broader repeated long-context stability checks are finished."
   },
   "qwen-math": {
     "container": "vllm-qwen-math",

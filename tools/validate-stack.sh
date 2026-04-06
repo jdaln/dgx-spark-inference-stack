@@ -71,6 +71,18 @@ assert_command_has_flag() {
   fi
 }
 
+assert_command_lacks_flag() {
+  local service_json="$1"
+  local flag="$2"
+  local label="$3"
+
+  if jq -e --arg flag "$flag" '.command | index($flag) == null' <<<"$service_json" >/dev/null; then
+    pass "$label"
+  else
+    fail "$label (unexpected flag '$flag')"
+  fi
+}
+
 assert_flag_value() {
   local service_json="$1"
   local flag="$2"
@@ -108,6 +120,8 @@ assert_volume_mount() {
 
 GPT_20B_JSON="$(resolve_service_json "$ACTIVE_JSON" "gpt-oss-20b")"
 GPT_120B_JSON="$(resolve_service_json "$ACTIVE_JSON" "gpt-oss-120b")"
+GEMMA4_26B_JSON="$(resolve_service_json "$ACTIVE_JSON" "gemma4-26b-a4b")"
+GEMMA4_31B_JSON="$(resolve_service_json "$ACTIVE_JSON" "gemma4-31b")"
 GLM_47_JSON="$(resolve_service_json "$ACTIVE_JSON" "glm-4.7-flash-awq")"
 NEMOTRON_SERVICE_JSON="$(resolve_service_json "$NEMOTRON_JSON" "vllm-nemotron-3-nano-30b-nvfp4")"
 
@@ -122,8 +136,28 @@ assert_env_value "$GPT_20B_JSON" "TIKTOKEN_ENCODINGS_BASE" "/workspace/vllm/tikt
 assert_equals "$(jq -r '.image // ""' <<<"$GPT_120B_JSON")" "vllm-node-mxfp4" "gpt-oss-120b uses MXFP4 track image"
 assert_json_value "$GPT_120B_JSON" '.build.dockerfile // ""' "./custom-docker-containers/vllm-node-mxfp4/Dockerfile" "gpt-oss-120b maps to the repo MXFP4 Dockerfile"
 assert_flag_value "$GPT_120B_JSON" "--reasoning-parser" "openai_gptoss" "gpt-oss-120b keeps reasoning parser"
-assert_flag_value "$GPT_120B_JSON" "--gpu-memory-utilization" "0.70" "gpt-oss-120b keeps validated memory envelope"
+assert_flag_value "$GPT_120B_JSON" "--gpu-memory-utilization" "0.80" "gpt-oss-120b keeps validated memory envelope"
 assert_env_value "$GPT_120B_JSON" "TIKTOKEN_ENCODINGS_BASE" "/workspace/vllm/tiktoken_encodings" "gpt-oss-120b uses baked-in tokenizer files"
+
+assert_equals "$(jq -r '.image // ""' <<<"$GEMMA4_26B_JSON")" "vllm-node-tf5" "gemma4-26b-a4b uses the refreshed upstream-style TF5 image"
+assert_flag_value "$GEMMA4_26B_JSON" "--tool-call-parser" "gemma4" "gemma4-26b-a4b keeps the upstream tool parser"
+assert_flag_value "$GEMMA4_26B_JSON" "--reasoning-parser" "gemma4" "gemma4-26b-a4b keeps the upstream reasoning parser"
+assert_flag_value "$GEMMA4_26B_JSON" "--max-model-len" "262144" "gemma4-26b-a4b keeps the upstream max model length"
+assert_flag_value "$GEMMA4_26B_JSON" "--max-num-batched-tokens" "8192" "gemma4-26b-a4b keeps the upstream batched token limit"
+assert_flag_value "$GEMMA4_26B_JSON" "--tensor-parallel-size" "1" "gemma4-26b-a4b uses the host-safe tensor parallel default"
+assert_flag_value "$GEMMA4_26B_JSON" "--distributed-executor-backend" "ray" "gemma4-26b-a4b keeps the upstream executor backend"
+assert_env_value "$GEMMA4_26B_JSON" "RAY_memory_usage_threshold" "0.99" "gemma4-26b-a4b raises Ray's host-memory kill threshold for swap-backed startup and first-request spikes"
+
+assert_equals "$(jq -r '.image // ""' <<<"$GEMMA4_31B_JSON")" "vllm-node-tf5" "gemma4-31b uses the refreshed upstream-style TF5 image"
+assert_json_value "$GEMMA4_31B_JSON" '.command[2] // ""' "google/gemma-4-31B-it" "gemma4-31b points at the dense 31B model id"
+assert_flag_value "$GEMMA4_31B_JSON" "--tool-call-parser" "gemma4" "gemma4-31b keeps the upstream tool parser"
+assert_flag_value "$GEMMA4_31B_JSON" "--reasoning-parser" "gemma4" "gemma4-31b keeps the upstream reasoning parser"
+assert_flag_value "$GEMMA4_31B_JSON" "--max-model-len" "262144" "gemma4-31b starts with the mirrored max model length"
+assert_flag_value "$GEMMA4_31B_JSON" "--max-num-batched-tokens" "8192" "gemma4-31b starts with the mirrored batched token limit"
+assert_flag_value "$GEMMA4_31B_JSON" "--tensor-parallel-size" "1" "gemma4-31b uses the host-safe tensor parallel default"
+assert_flag_value "$GEMMA4_31B_JSON" "--distributed-executor-backend" "ray" "gemma4-31b keeps the upstream executor backend"
+assert_env_value "$GEMMA4_31B_JSON" "TORCHINDUCTOR_AUTOGRAD_CACHE" "0" "gemma4-31b disables Torch AOTAutograd cache saves to avoid the TF5 Gemma compile pickling bug"
+assert_env_value "$GEMMA4_31B_JSON" "RAY_memory_usage_threshold" "0.99" "gemma4-31b raises Ray's host-memory kill threshold for swap-backed startup and first-request spikes"
 
 assert_equals "$(jq -r '.image // ""' <<<"$GLM_47_JSON")" "local/vllm-glm-4.7-flash-awq:tf5" "glm-4.7-flash-awq uses local TF5 image"
 assert_equals "$(jq -r '.build.args.BASE_IMAGE // ""' <<<"$GLM_47_JSON")" "local/vllm-node-tf5:cu131" "glm-4.7-flash-awq build uses refreshed TF5 base"
@@ -139,6 +173,8 @@ assert_equals "$(jq -r '.image // ""' <<<"$NEMOTRON_SERVICE_JSON")" "$EXPECTED_S
 assert_flag_value "$NEMOTRON_SERVICE_JSON" "--tool-call-parser" "qwen3_coder" "Nemotron fragment keeps local tool parser"
 assert_flag_value "$NEMOTRON_SERVICE_JSON" "--reasoning-parser-plugin" "/workspace/plugins/nano_v3_reasoning_parser.py" "Nemotron fragment keeps local reasoning parser plugin"
 assert_flag_value "$NEMOTRON_SERVICE_JSON" "--reasoning-parser" "nano_v3" "Nemotron fragment keeps local reasoning parser"
+assert_command_lacks_flag "$NEMOTRON_SERVICE_JSON" "--disable-log-requests" "Nemotron fragment avoids stale request log flag"
+assert_command_lacks_flag "$NEMOTRON_SERVICE_JSON" "--disable-log-stats" "Nemotron fragment avoids stale stats log flag"
 assert_env_value "$NEMOTRON_SERVICE_JSON" "VLLM_USE_FLASHINFER_MOE_FP4" "0" "Nemotron fragment keeps FP4 MoE override"
 assert_volume_mount "$NEMOTRON_SERVICE_JSON" "$REPO_DIR/plugins" "/workspace/plugins" "Nemotron fragment mounts local plugins read-only"
 

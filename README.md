@@ -49,7 +49,7 @@ The goal of the project is to provide an inference server for your home. After t
        # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream
        docker build -t avarok/vllm-dgx-spark:v11 custom-docker-containers/avarok
 
-      # Build the repo-owned MXFP4 track used by GPT-OSS.
+      # Build the repo MXFP4 track used by GPT-OSS.
       # This bakes the manually downloaded tiktoken files into the image.
       docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dockerfile .
 

@@ -1,0 +1,143 @@
+x-model-common: &model-common
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: "all"
+            capabilities: ["gpu"]
+  shm_size: "16g"
+  ulimits:
+    memlock: -1
+    stack: 67108864
+  restart: "no"
+  logging:
+    driver: ${DOCKER_LOG_DRIVER:-json-file}
+    options:
+      max-size: "10m"
+      max-file: "3"
+  networks:
+    - default
+    - vllm_internal
+
+x-model-profiled: &model-profiled
+  <<: *model-common
+  profiles: ["models"]
+
+x-env-common: &env-common
+  HF_HOME: /root/.cache/huggingface
+  VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+  VLLM_NO_USAGE_STATS: "1"
+  VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+
+x-healthcheck-default: &healthcheck-default
+  test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+  interval: 30s
+  timeout: 5s
+  retries: 5
+
+services:
+  vllm-gemma4-26b-a4b:
+    <<: *model-profiled
+    image: vllm-node-tf5
+    container_name: vllm-gemma4-26b-a4b
+    entrypoint: []
+    command:
+      - vllm
+      - serve
+      - google/gemma-4-26B-A4B-it
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - gemma4-26b-a4b
+      - --max-model-len
+      - "${GEMMA4_26B_A4B_MAX_MODEL_LEN:-262144}"
+      - --gpu-memory-utilization
+      - "${GEMMA4_26B_A4B_GPU_MEMORY_UTILIZATION:-0.70}"
+      - --load-format
+      - fastsafetensors
+      - --enable-prefix-caching
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - gemma4
+      - --reasoning-parser
+      - gemma4
+      - --quantization
+      - fp8
+      - --kv-cache-dtype
+      - fp8
+      - --max-num-batched-tokens
+      - "${GEMMA4_26B_A4B_MAX_NUM_BATCHED_TOKENS:-8192}"
+      - --tensor-parallel-size
+      - "${GEMMA4_26B_A4B_TENSOR_PARALLEL_SIZE:-1}"
+      - --distributed-executor-backend
+      - ray
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+    environment:
+      <<: *env-common
+      RAY_memory_usage_threshold: "${GEMMA4_26B_A4B_RAY_MEMORY_USAGE_THRESHOLD:-0.99}"
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-gemma4-31b:
+    <<: *model-profiled
+    image: vllm-node-tf5
+    container_name: vllm-gemma4-31b
+    entrypoint: []
+    command:
+      - vllm
+      - serve
+      - google/gemma-4-31B-it
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - gemma4-31b
+      - --max-model-len
+      - "${GEMMA4_31B_MAX_MODEL_LEN:-262144}"
+      - --gpu-memory-utilization
+      - "${GEMMA4_31B_GPU_MEMORY_UTILIZATION:-0.70}"
+      - --load-format
+      - fastsafetensors
+      - --enable-prefix-caching
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - gemma4
+      - --reasoning-parser
+      - gemma4
+      - --quantization
+      - fp8
+      - --kv-cache-dtype
+      - fp8
+      - --max-num-batched-tokens
+      - "${GEMMA4_31B_MAX_NUM_BATCHED_TOKENS:-8192}"
+      - --tensor-parallel-size
+      - "${GEMMA4_31B_TENSOR_PARALLEL_SIZE:-1}"
+      - --distributed-executor-backend
+      - ray
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+    environment:
+      <<: *env-common
+      TORCHINDUCTOR_AUTOGRAD_CACHE: "0"
+      RAY_memory_usage_threshold: "${GEMMA4_31B_RAY_MEMORY_USAGE_THRESHOLD:-0.99}"
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s

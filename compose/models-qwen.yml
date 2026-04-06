@@ -101,7 +101,7 @@ services:
       - --served-model-name
       - qwen2.5-1.5b-instruct
       - --gpu-memory-utilization
-      - "0.05"
+      - "0.04"
       - --dtype
       - bfloat16
       - --max-model-len

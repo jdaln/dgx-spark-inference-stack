@@ -3,6 +3,7 @@ include:
   - compose/models-qwen.yml
   - compose/models-mistral.yml
   - compose/models-glm.yml
+  - compose/models-gemma.yml
   - compose/models-nemotron.yml
   - compose/models-llama.yml
   # - compose/models-phi.yml

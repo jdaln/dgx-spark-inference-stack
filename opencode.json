@@ -34,6 +34,21 @@
                         "output": 8192
                     }
                 },
+                "gemma4-26b-a4b": {
+                    "name": "Gemma 4 26B A4B",
+                    "reasoning": true,
+                    "tool_call": true,
+                    "experimental": true,
+                    "limit": {
+                        "context": 100000,
+                        "output": 8192
+                    },
+                    "options": {
+                        "temperature": 1,
+                        "top_p": 0.95,
+                        "top_k": 64
+                    }
+                },
                 "glm-4.7-flash-awq": {
                     "name": "GLM-4.7 Flash AWQ",
                     "limit": {

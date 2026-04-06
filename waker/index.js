@@ -143,6 +143,7 @@ async function waitHttpOk(url, deadlineMs) {
 const startAtMs = new Map();
 const lastSeenMs = new Map();
 const lastStopMs = new Map();
+const healthyOnce = new Set();
 
 // -------- busy helper --------
 class BusyError extends Error {
@@ -265,6 +266,7 @@ async function ensureModel(modelKey) {
     await waitHttpOk(url, now() + HEALTH_TIMEOUT_MS);
 
     lastSeenMs.set(name, now());
+    healthyOnce.add(name);
     log(`[waker] ${name} is healthy`);
     return { name, healthUrl: url };
   } finally {
@@ -303,6 +305,7 @@ async function checkModel(modelKey) {
     const isHealthy = await httpOk(healthUrl, 2000); // Quick 2s timeout for check.
     if (isHealthy) {
       log(`[waker] READY on check: ${name} is running and healthy.`);
+      healthyOnce.add(name);
       lastSeenMs.set(name, now()); // Touch the model to keep it alive.
       return { status: "ready", name };
     } else {
@@ -356,8 +359,19 @@ async function tick() {
       const prev = startAtMs.get(name);
       if (!prev || prev !== started) {
         startAtMs.set(name, started);
-        lastSeenMs.set(name, started);
+        lastSeenMs.set(name, now());
+        healthyOnce.delete(name);
         continue; // grace on fresh start
+      }
+
+      const healthStatus = insp?.State?.Health?.Status || "";
+      if (healthStatus === "healthy") {
+        healthyOnce.add(name);
+      }
+
+      if (starting.has(name) || healthStatus === "starting" || (healthStatus === "unhealthy" && !healthyOnce.has(name))) {
+        lastSeenMs.set(name, now());
+        continue;
       }
 
       if (IDLE_STOP_SECONDS <= 0) continue;

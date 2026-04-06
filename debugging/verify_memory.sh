@@ -23,7 +23,7 @@ MODELS=(
     "vllm-llama-3.3-70b-joyous-fp4:llama-3.3-70b-joyous-fp4:0.82"
     "vllm-llama-3.3-70b-instruct-fp4:llama-3.3-70b-instruct-fp4:0.82"
     "vllm-eurollm-22b-fp4:eurollm-22b-instruct-fp4:0.82"
-    "vllm-qwen2.5-1.5b:qwen2.5-1.5b-instruct:0.05" 
+    "vllm-qwen2.5-1.5b:qwen2.5-1.5b-instruct:0.04" 
     # DISABLED: RimTalk Mini - Persistent OOM / V1 engine issues
     # "vllm-rimtalk-mini-fp4:rimtalk-mini-v1-fp4:0.82"
     # DISABLED: Kimi Linear - MLA not supported on DGX Spark (GB10)

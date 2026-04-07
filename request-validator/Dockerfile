@@ -9,7 +9,5 @@ RUN mkdir -p /shared
 COPY shared/models-config.mjs /shared/models-config.mjs
 COPY request-validator/index.js request-validator/healthcheck.js ./
 
-EXPOSE 18081
-
 CMD ["node", "index.js"]
 

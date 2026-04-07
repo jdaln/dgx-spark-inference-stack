@@ -173,4 +173,5 @@ sudo swapon -a
 #### "Model does not exist" error
 - Ensure model name in API request matches `--served-model-name` in the model's compose file
 - Verify the model is listed in `models.json`
-- If the model was added recently, restart `waker` and `request-validator` so they reload `models.json`
+- If the model was added recently, run `bash tools/reload-control-plane.sh` so `waker` and `request-validator` reload `models.json`
+- If you changed which model is marked `lifecycle: "utility"`, use `bash tools/reload-control-plane.sh --stop-stale-utility` to also stop the old helper if it is still running

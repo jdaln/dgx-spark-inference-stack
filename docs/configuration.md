@@ -21,7 +21,7 @@ Located in `docker-compose.yml` under the `waker` service:
 
 - `PORT`: Waker HTTP port (default: 18080)
 - `MANAGE_PREFIX`: Container name prefix to manage (default: "vllm-")
-- `IGNORE_NAMES`: Comma-separated container names to never manage (default in this repo: `vllm-gateway,vllm-waker,vllm-request-validator,vllm-qwen2.5-1.5b`)
+- `IGNORE_NAMES`: Comma-separated container names to never manage (default in this repo: `vllm-gateway,vllm-waker,vllm-request-validator`)
 - `IDLE_STOP_SECONDS`: Idle time before stopping a model (default: 0 = disabled; set to 1200 = 20 min in docker-compose.yml)
 - `NO_STOP_BEFORE_SECONDS`: Minimum uptime before allowing stop (default: 30)
 - `HEALTH_TIMEOUT_MS`: Max wait for health check on the waker `/ensure` path (default: 900000 = 15 min)
@@ -31,7 +31,9 @@ Located in `docker-compose.yml` under the `waker` service:
 - `BUSY_STATUS_CODE`: HTTP code for busy responses (code default: 409; set to 429 in docker-compose.yml)
 - `MODEL_HEALTH_URL_TEMPLATE`: Health URL template with `{name}` placeholder (default in this repo: `http://{name}:8000/health`)
 
-Model inventory is no longer configured via `MODELS_JSON`, `UTILITY_CONTAINER`, or `EXCLUSIVE_CONTAINERS` environment variables. Those are now derived from `models.json`.
+Model inventory is no longer configured via `MODELS_JSON`, `UTILITY_CONTAINER`, or `EXCLUSIVE_CONTAINERS` environment variables. Those are now derived from `models.json`, and the current utility container is auto-ignored by waker from that same shared inventory.
+
+After changing `models.json`, run `bash tools/reload-control-plane.sh` so `waker` and `request-validator` reload the mounted config. If you also changed which model is the utility helper, `bash tools/reload-control-plane.sh --stop-stale-utility` will stop the old helper container after the reload.
 
 For long first cold starts, also keep these distinctions in mind:
 

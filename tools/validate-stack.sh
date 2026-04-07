@@ -120,6 +120,7 @@ assert_volume_mount() {
 
 GPT_20B_JSON="$(resolve_service_json "$ACTIVE_JSON" "gpt-oss-20b")"
 GPT_120B_JSON="$(resolve_service_json "$ACTIVE_JSON" "gpt-oss-120b")"
+UTILITY_JSON="$(resolve_service_json "$ACTIVE_JSON" "qwen3.5-0.8b")"
 GEMMA4_26B_JSON="$(resolve_service_json "$ACTIVE_JSON" "gemma4-26b-a4b")"
 GEMMA4_31B_JSON="$(resolve_service_json "$ACTIVE_JSON" "gemma4-31b")"
 GLM_47_JSON="$(resolve_service_json "$ACTIVE_JSON" "glm-4.7-flash-awq")"
@@ -138,6 +139,15 @@ assert_json_value "$GPT_120B_JSON" '.build.dockerfile // ""' "./custom-docker-co
 assert_flag_value "$GPT_120B_JSON" "--reasoning-parser" "openai_gptoss" "gpt-oss-120b keeps reasoning parser"
 assert_flag_value "$GPT_120B_JSON" "--gpu-memory-utilization" "0.80" "gpt-oss-120b keeps validated memory envelope"
 assert_env_value "$GPT_120B_JSON" "TIKTOKEN_ENCODINGS_BASE" "/workspace/vllm/tiktoken_encodings" "gpt-oss-120b uses baked-in tokenizer files"
+
+assert_equals "$(jq -r '.image // ""' <<<"$UTILITY_JSON")" "scitrera/dgx-spark-sglang:0.5.9-t5" "qwen3.5-0.8b uses the SGLang utility image"
+assert_flag_value "$UTILITY_JSON" "--model-path" "Qwen/Qwen3.5-0.8B" "qwen3.5-0.8b points at the Qwen 3.5 utility checkpoint"
+assert_flag_value "$UTILITY_JSON" "--served-model-name" "qwen3.5-0.8b" "qwen3.5-0.8b keeps the local served model id"
+assert_flag_value "$UTILITY_JSON" "--mem-fraction-static" "0.05" "qwen3.5-0.8b uses the validated low-footprint utility memory fraction"
+assert_flag_value "$UTILITY_JSON" "--tp-size" "1" "qwen3.5-0.8b keeps single-GPU tensor parallelism"
+assert_flag_value "$UTILITY_JSON" "--attention-backend" "triton" "qwen3.5-0.8b pins the Blackwell-safe SGLang attention backend"
+assert_flag_value "$UTILITY_JSON" "--context-length" "32768" "qwen3.5-0.8b keeps the conservative utility context limit"
+assert_env_value "$UTILITY_JSON" "HF_HUB_CACHE" "/models" "qwen3.5-0.8b reuses the shared Hugging Face cache"
 
 assert_equals "$(jq -r '.image // ""' <<<"$GEMMA4_26B_JSON")" "vllm-node-tf5" "gemma4-26b-a4b uses the refreshed upstream-style TF5 image"
 assert_flag_value "$GEMMA4_26B_JSON" "--tool-call-parser" "gemma4" "gemma4-26b-a4b keeps the upstream tool parser"

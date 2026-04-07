@@ -8,7 +8,7 @@ Choose the right model for your task to balance performance and speed.
 > [!IMPORTANT]
 > Current status vocabulary in this repo:
 > - **Validated main models**: `gpt-oss-20b`, `gpt-oss-120b`, and `glm-4.7-flash-awq`
-> - **Utility-only shipped helper**: `qwen2.5-1.5b-instruct` for titles/session metadata
+> - **Validated utility helper**: `qwen3.5-0.8b` for titles/session metadata
 > - **Experimental**: everything else until the current harness re-validates it
 > - **Manual-only on this host**: `gemma4-31b`, which is currently too slow for interactive use and is intentionally omitted from the shipped OpenCode config
 >
@@ -37,6 +37,7 @@ Choose the right model for your task to balance performance and speed.
 ### 👁️ Vision (screenshots, UI, diagrams, “look at this image”)
 - **`qwen3-vl-32b-instruct-fp4`** → best-looking VL candidate in the repo, but still experimental on the current harness
 - **`qwen3-vl-30b-instruct`** → available, but still experimental on the current harness
+- **`gemma4-26b-a4b`** → experimental Gemma path with verified text+image input and tool calling on the current stack
 
 - **`glm-4.6v-flash-fp4`** → fastest VL candidate for real-time UI workflows, but still experimental on the current harness
 - **`phi-4-multimodal-instruct-fp4`** → solid “one model for text+image(+audio)”
@@ -52,7 +53,7 @@ Choose the right model for your task to balance performance and speed.
 - **`eurollm-22b-instruct-fp4`** → EU-language focused assistant
 
 ### 🪶 Small “utility model”
-- **`qwen2.5-1.5b-instruct`** → classification, formatting, tagging, structured output, session titles
+- **`qwen3.5-0.8b`** → validated small helper for classification, formatting, tagging, and session titles
 
 ---
 
@@ -161,6 +162,19 @@ Choose the right model for your task to balance performance and speed.
   - **Best for:** cheap chat, lightweight assistants, simple Q&A
   - **Tradeoffs:** weaker reasoning + coding than 30B+ models
 
+### Gemma 4
+
+- `vllm-gemma4-26b-a4b` → served as **`gemma4-26b-a4b`**
+  - **Type:** multimodal Gemma 4 MoE model (text + image) with native tool calling
+  - **Best for:** experimental Gemma-family coding/chat, image Q&A, and agent-style tool use
+  - **Strengths:** verified gateway-path image input and function calling on the current stack; large raw 256K context window
+  - **Tradeoffs:** still experimental; current interactive guidance is `100000` prompt tokens, and explicit thinking mode can burn completion budget quickly
+
+- `vllm-gemma4-31b` → served as **`gemma4-31b`**
+  - **Type:** dense Gemma 4 multimodal model (text + image)
+  - **Best for:** manual-only quality experiments with the larger Gemma family
+  - **Tradeoffs:** currently too slow for interactive use on this host, so it is intentionally omitted from the shipped OpenCode config
+
 ### Coding specialists
 
 - `vllm-qwen3-coder-30b` → served as **`qwen3-coder-30b-a3b-instruct`**
@@ -222,10 +236,16 @@ Choose the right model for your task to balance performance and speed.
 
 ### Small / utility
 
+- `vllm-qwen3.5-0.8b` → served as **`qwen3.5-0.8b`**
+  - **Type:** small Qwen 3.5 multimodal helper on the SGLang runtime
+  - **Best for:** session titles, lightweight routing, tagging, and short classification tasks
+  - **Strengths:** better headroom than the legacy tiny helper, utility-friendly always-on path, upstream checkpoint also supports image input and thinking mode
+  - **Tradeoffs:** still utility-only in this repo; not promoted as a general OpenCode chat model, and the local path intentionally keeps a conservative memory/context envelope for coexistence
+
 - `vllm-qwen2.5-1.5b` → served as **`qwen2.5-1.5b-instruct`**
   - **Type:** small instruction model, Qwen 2.5 (1.5B params)
-  - **Best for:** labeling, routing, JSON formatting, session titles, short structured tasks
-  - **Tradeoffs:** Highly efficient, but less capable for complex reasoning tasks.
+  - **Best for:** fallback small-text tasks when you want the legacy vLLM helper path
+  - **Tradeoffs:** still efficient, but it is no longer the shipped utility default and remains less capable than the newer Qwen 3.5 helper.
 
 ### Multimodal “one model for everything”
 

@@ -35,7 +35,7 @@ To use this stack with the [Cline](https://github.com/cline/cline) VS Code exten
 | `qwen2.5-vl-7b` | `32768` | Cheapest practical VL |
 | `glm-4-9b-chat` | `32768` | Cheap chat, lightweight assistant |
 | `qwen2.5-coder-7b-instruct` | `32768` | Budget coding assistant |
-| `qwen2.5-1.5b-instruct` | `8192` | Small utility model for titles/classification |
+| `qwen3.5-0.8b` | `8192` | Validated small utility helper for titles/classification |
 | `qwen-math` | `4096` | Math specialist |
 
 > [!IMPORTANT]
@@ -83,7 +83,7 @@ To use this stack with [OpenCode](https://github.com/opencode-ai/opencode), foll
        }
      },
      "model": "dgx/gpt-oss-20b",
-     "small_model": "dgx/qwen2.5-1.5b-instruct",
+    "small_model": "dgx/qwen3.5-0.8b",
      "compaction": { "auto": false },
      "logLevel": "INFO"
    }
@@ -97,15 +97,18 @@ To switch the active models, edit the `model` and `small_model` fields in `openc
 |------|-------------------|---------|----------|
 | `model` | `dgx/gpt-oss-20b` | `108000` | Balanced quality/speed for general tasks |
 | `model` | `dgx/gpt-oss-120b` | `108000` | Higher-quality default when you want a larger model |
-| `model` | `dgx/gemma4-26b-a4b` | `100000` | Experimental Gemma path with a multi-user-tested interactive ceiling |
+| `model` | `dgx/gemma4-26b-a4b` | `100000` | Experimental Gemma path with verified image input, tool calling, and a multi-user-tested interactive ceiling |
 | `model` | `dgx/glm-4.7-flash-awq` | `108000` | Best current long-context coding path in OpenCode |
-| `small_model` | `dgx/qwen2.5-1.5b-instruct` | `8192` | Small model for session titles |
+| `small_model` | `dgx/qwen3.5-0.8b` | `8192` | Validated utility helper for session titles |
 
 > [!IMPORTANT]
 > The `opencode.json` limits are **OpenCode-safe guidance**, not raw server maxima. For the currently validated `131072`-class models in the shipped config, the repo now uses `108000` as the conservative client-facing ceiling. That leaves room for prompt wrapper overhead, validator safety margin, and a real completion instead of a one-token answer near the hard cap.
 
 > [!TIP]
 > The Gemma 26B entry carries the easy published Gemma sampling guidance directly in `opencode.json`: `temperature=1.0`, `top_p=0.95`, and `top_k=64`. Its OpenCode ceiling is now `100000`, not `200000`: the single-user gateway-path soak still reached roughly `194614` prompt tokens, but the first five-user soak calibrated to roughly `97366` prompt tokens, spent about 100 seconds on that calibration request, and then clipped every answer at the 256-token completion cap. That makes `100000` the safer interactive ceiling for now.
+
+> [!TIP]
+> The shipped `small_model` now uses the validated `qwen3.5-0.8b` SGLang utility path inspired by Patrick Yi / scitrera.ai. The underlying checkpoint supports vision and thinking mode upstream, but the repo currently keeps this path intentionally narrow: utility-only role, conservative `8192` OpenCode limit, and no promotion as a general chat default.
 
 > [!TIP]
 > You do not need to add any special OpenCode request flags for GLM 4.7 on current repo revisions. The request validator  disables hidden thinking by default for `glm-4.7-flash-awq`, specifically because the default parser mode consumed the visible answer budget during long-context OpenCode-style requests.

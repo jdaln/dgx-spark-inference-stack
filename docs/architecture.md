@@ -8,7 +8,7 @@ The stack consists of four main components:
    - Node.js service that manages model container lifecycle.
    - Implements single-tenant scheduling (one model at a time).
    - Handles health checks and automatic startup/shutdown.
-   - **Priority Scheduling**: Configured "Exclusive" models (e.g., 120B) can automatically stop the "Small/Utility" model (Qwen 1.5B) to free up resources in order to fit.
+   - **Priority Scheduling**: Configured "Exclusive" models (e.g., 120B) can automatically stop the current "Small/Utility" helper to free up resources in order to fit.
    - Provides debug endpoints for monitoring.
 
 3. **Request Validator** (always running)

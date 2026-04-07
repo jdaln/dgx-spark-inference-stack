@@ -37,8 +37,9 @@
     "validatorProfile": "default",
     "lifecycle": "normal",
     "sourceRecipe": "spark-vllm-docker:gemma4-26b-a4b",
+    "multimodal": true,
     "experimental": true,
-    "notes": "An exact  gemma4-26b-a4b eugr-style TF5 baseline is built locally. The eugr `tensor_parallel_size=2` default is  not viable on this one-GPU machine, so the local default remains `1`. On this shared-memory host, the preferred mitigation for Gemma's large compile and CUDA-graph-capture startup spike is a persistent `/swap.img`, plus a Gemma-local `RAY_memory_usage_threshold=0.99` so Ray does not kill the worker at the default `0.95` threshold before swap-backed headroom can absorb the first-request spike. The current evidence supports a split view: a single-user gateway-path soak succeeded at roughly `194614` prompt tokens, but the first five-user soak calibrated to roughly `97366` prompt tokens, needed about 100 seconds for that calibration request, and then clipped every answer at the 256-token completion cap. Treat `100000` as the current interactive OpenCode ceiling until a stricter multi-user run with a larger completion budget proves more headroom."
+    "notes": "An exact gemma4-26b-a4b eugr-style TF5 baseline is built locally as `vllm-node-tf5`; see docs/runtime-baseline.md for the reproducible upstream helper build flow. The eugr `tensor_parallel_size=2` default is not viable on this one-GPU machine, so the local default remains `1`. On this shared-memory host, the preferred mitigation for Gemma's large compile and CUDA-graph-capture startup spike is a persistent `/swap.img`, plus a Gemma-local `RAY_memory_usage_threshold=0.99` so Ray does not kill the worker at the default `0.95` threshold before swap-backed headroom can absorb the first-request spike. The current evidence supports a split view: a single-user gateway-path soak succeeded at roughly `194614` prompt tokens, but the first five-user soak calibrated to roughly `97366` prompt tokens, needed about 100 seconds for that calibration request, and then clipped every answer at the 256-token completion cap. Gateway-path checks on 2026-04-06 also confirmed that image input and tool calling both work on this stack. Gemma 4 is a thinking-capable family upstream, but explicit thinking should stay deliberate here because it can consume the completion budget quickly. Treat `100000` as the current interactive OpenCode ceiling until a stricter multi-user run with a larger completion budget proves more headroom."
   },
   "gemma4-31b": {
     "container": "vllm-gemma4-31b",
@@ -154,15 +155,26 @@
     "lifecycle": "normal",
     "experimental": true
   },
+  "qwen3.5-0.8b": {
+    "container": "vllm-qwen3.5-0.8b",
+    "port": 8000,
+    "maxModelLen": 32768,
+    "toolSupport": "none",
+    "validatorProfile": "small-no-tools",
+    "lifecycle": "utility",
+    "multimodal": true,
+    "sourceRecipe": "scitrera.ai:patrick-yi-qwen3.5-0.8b-sglang",
+    "notes": "Validated utility helper for titles and lightweight classification tasks. This path is inspired by Patrick Yi / scitrera.ai's SGLang recipe for `Qwen/Qwen3.5-0.8B`, but the local utility role deliberately drops the standalone `mem-fraction-static` target to `0.05` and caps the served context at `32768` so it can coexist with the main-model lanes on this host. On the 2026-04-07 validation sweep, the `0.05` step was the cleanest low-footprint operating point: it reached healthy, answered requests, passed the 5-way utility soak, and cleared the full gateway smoke matrix while avoiding the counterproductive memory expansion seen at `0.06`. The upstream checkpoint itself is multimodal and supports thinking mode, but this repo currently keeps it as a validated utility-only helper rather than a promoted general chat model."
+  },
   "qwen2.5-1.5b-instruct": {
     "container": "vllm-qwen2.5-1.5b",
     "port": 8000,
     "maxModelLen": 8192,
     "toolSupport": "none",
     "validatorProfile": "small-no-tools",
-    "lifecycle": "utility",
+    "lifecycle": "normal",
     "experimental": true,
-    "notes": "Utility-only small model used for titles/session metadata in the shipped OpenCode config, but not yet promoted as a validated main model."
+    "notes": "Former shipped utility helper retained as an experimental fallback small-text model after the Qwen 3.5 0.8B SGLang utility path landed."
   },
   "qwen2.5-coder-7b-instruct": {
     "container": "vllm-qwen25-coder-7b",

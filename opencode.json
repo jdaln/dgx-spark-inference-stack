@@ -56,8 +56,8 @@
                         "output": 8192
                     }
                 },
-                "qwen2.5-1.5b-instruct": {
-                    "name": "Qwen 2.5 1.5B Instruct",
+                "qwen3.5-0.8b": {
+                    "name": "Qwen 3.5 0.8B Utility",
                     "limit": {
                         "context": 8192,
                         "output": 2048
@@ -67,7 +67,7 @@
         }
     },
     "model": "dgx/gpt-oss-20b",
-    "small_model": "dgx/qwen2.5-1.5b-instruct",
+    "small_model": "dgx/qwen3.5-0.8b",
     "compaction": {
         "auto": false
     },

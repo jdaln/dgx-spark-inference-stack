@@ -9,7 +9,7 @@ require_cmd docker jq curl node
 
 GATEWAY_URL="${GATEWAY_URL:-http://127.0.0.1:8009}"
 REQUEST_TIMEOUT_SECONDS="${REQUEST_TIMEOUT_SECONDS:-1800}"
-UTILITY_MODEL="${UTILITY_MODEL:-qwen2.5-1.5b-instruct}"
+UTILITY_MODEL="${UTILITY_MODEL:-qwen3.5-0.8b}"
 DEFAULT_MODEL="${DEFAULT_MODEL:-glm-4-9b-chat}"
 CODER_MODEL="${CODER_MODEL:-qwen2.5-coder-7b-instruct}"
 VL_MODEL="${VL_MODEL:-qwen2.5-vl-7b}"

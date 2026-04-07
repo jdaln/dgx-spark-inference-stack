@@ -25,7 +25,7 @@ services:
     environment:
       PORT: "18080"
       MANAGE_PREFIX: "vllm-"
-      IGNORE_NAMES: "vllm-gateway,vllm-waker,vllm-request-validator,vllm-qwen2.5-1.5b"
+      IGNORE_NAMES: "vllm-gateway,vllm-waker,vllm-request-validator"
       IDLE_STOP_SECONDS: "1200" # 20mn for slow models
       NO_STOP_BEFORE_SECONDS: "30"
       HEALTH_TIMEOUT_MS: "900000"

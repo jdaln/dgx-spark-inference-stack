@@ -98,12 +98,36 @@ wait_for_container_health() {
   local container_name="$1"
   local timeout_seconds="${2:-900}"
   local deadline
+  local start_epoch
+  local started_epoch
   local status
+  local last_status=""
+  local last_log_entry=""
+  local last_progress_epoch
+  local last_report_epoch=0
+  local current_epoch
+  local running_for
+  local idle_for
+  local report_interval_seconds="${RUN_MODEL_WAIT_REPORT_INTERVAL_SECONDS:-30}"
+  local unhealthy_grace_seconds="${RUN_MODEL_UNHEALTHY_GRACE_SECONDS:-900}"
+  local stall_seconds="${RUN_MODEL_STALL_SECONDS:-600}"
 
-  deadline=$(( $(date +%s) + timeout_seconds ))
+  start_epoch="$(date +%s)"
+  deadline=$(( start_epoch + timeout_seconds ))
+  started_epoch="$(container_started_epoch "$container_name")"
+  last_progress_epoch="$start_epoch"
 
   while (( $(date +%s) < deadline )); do
-    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_name" 2>/dev/null || true)"
+    current_epoch="$(date +%s)"
+    status="$(container_health_status "$container_name")"
+
+    update_container_progress_marker "$container_name" last_log_entry last_progress_epoch "$current_epoch"
+
+    if [[ "$status" != "$last_status" ]]; then
+      echo "Waiting for $container_name: status=${status:-unknown}"
+      last_status="$status"
+      last_report_epoch=0
+    fi
 
     case "$status" in
       healthy|running)
@@ -111,10 +135,25 @@ wait_for_container_health() {
         ;;
       exited|dead)
         echo "Container $container_name is $status" >&2
+        print_recent_container_logs "$container_name" >&2
         return 1
         ;;
       unhealthy)
-        echo "Container $container_name is unhealthy" >&2
+        running_for=$(( current_epoch - started_epoch ))
+        idle_for=$(( current_epoch - last_progress_epoch ))
+
+        if container_is_running "$container_name" \
+          && (( running_for <= unhealthy_grace_seconds || idle_for <= stall_seconds )); then
+          if (( current_epoch - last_report_epoch >= report_interval_seconds )); then
+            print_container_wait_summary "$container_name" "$running_for" "$idle_for" "$last_log_entry"
+            last_report_epoch="$current_epoch"
+          fi
+          sleep 2
+          continue
+        fi
+
+        echo "Container $container_name stayed unhealthy without fresh container logs for ${idle_for}s" >&2
+        print_recent_container_logs "$container_name" >&2
         return 1
         ;;
     esac
@@ -123,7 +162,86 @@ wait_for_container_health() {
   done
 
   echo "Timed out waiting for $container_name to become healthy" >&2
+  print_recent_container_logs "$container_name" >&2
   return 1
+}
+
+container_health_status() {
+  local container_name="$1"
+
+  docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_name" 2>/dev/null || true
+}
+
+container_started_epoch() {
+  local container_name="$1"
+  local started_at
+
+  started_at="$(docker inspect --format '{{.State.StartedAt}}' "$container_name" 2>/dev/null || true)"
+  if [[ -z "$started_at" || "$started_at" == "0001-01-01T00:00:00Z" ]]; then
+    date +%s
+    return 0
+  fi
+
+  date --date="$started_at" +%s 2>/dev/null || date +%s
+}
+
+container_last_log_entry() {
+  local container_name="$1"
+
+  docker logs --timestamps --tail 1 "$container_name" 2>&1 | tail -n 1 || true
+}
+
+truncate_text() {
+  local text="$1"
+  local max_length="${2:-180}"
+
+  if (( ${#text} <= max_length )); then
+    printf '%s' "$text"
+    return 0
+  fi
+
+  printf '%s...' "${text:0:max_length-3}"
+}
+
+update_container_progress_marker() {
+  local container_name="$1"
+  local log_entry_var_name="$2"
+  local progress_epoch_var_name="$3"
+  local current_epoch="$4"
+  local current_log_entry
+  local previous_log_entry
+
+  current_log_entry="$(container_last_log_entry "$container_name")"
+  previous_log_entry="${!log_entry_var_name}"
+
+  if [[ -n "$current_log_entry" && "$current_log_entry" != "$previous_log_entry" ]]; then
+    printf -v "$log_entry_var_name" '%s' "$current_log_entry"
+    printf -v "$progress_epoch_var_name" '%s' "$current_epoch"
+  fi
+}
+
+print_container_wait_summary() {
+  local container_name="$1"
+  local running_for="$2"
+  local idle_for="$3"
+  local log_entry="$4"
+  local log_text=""
+
+  if [[ -n "$log_entry" ]]; then
+    log_text="${log_entry#* }"
+    log_text="$(truncate_text "$log_text")"
+    echo "Waiting for $container_name: still starting after ${running_for}s, last log ${idle_for}s ago: $log_text"
+    return 0
+  fi
+
+  echo "Waiting for $container_name: still starting after ${running_for}s, no container logs yet"
+}
+
+print_recent_container_logs() {
+  local container_name="$1"
+
+  echo "Recent container logs for $container_name:" >&2
+  docker logs --tail 20 "$container_name" 2>&1 || true
 }
 
 container_is_running() {

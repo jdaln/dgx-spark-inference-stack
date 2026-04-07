@@ -55,7 +55,13 @@ The goal of the project is to provide an inference server for your home. After t
 
       # Build the refreshed TF5 track used by GLM 4.7.
       docker build -t local/vllm-node-tf5:cu131 -f custom-docker-containers/vllm-node-tf5/Dockerfile .
+
+      # Build the upstream-style TF5 track used by Gemma 4 and newer TF5 recipe imports.
+      # The active Gemma compose services expect this exact local image tag.
+      git clone https://github.com/eugr/spark-vllm-docker tmp/spark-vllm-docker 2>/dev/null || git -C tmp/spark-vllm-docker pull --ff-only
+      (cd tmp/spark-vllm-docker && bash build-and-copy.sh --pre-tf)
        ```
+   *   **Note:** `vllm-node-tf5` is not built from a repo-local Dockerfile today. If you plan to run Gemma 4 or the newer TF5-track Qwen follow-ons, build it explicitly with the upstream helper flow above. See [docs/runtime-baseline.md](docs/runtime-baseline.md) for the exact reproduction notes and build-time network requirements.
 
 5. **Start the stack**
    ```bash
@@ -68,12 +74,12 @@ The goal of the project is to provide an inference server for your home. After t
 
 6. **Test the API**
    ```bash
-   # Request to qwen2.5-1.5b (will auto-start)
-   curl -X POST http://localhost:8009/v1/qwen2.5-1.5b-instruct/chat/completions \
+    # Request to the shipped utility helper
+    curl -X POST http://localhost:8009/v1/qwen3.5-0.8b/chat/completions \
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}" \
      -d '{
-       "model": "qwen2.5-1.5b-instruct",
+          "model": "qwen3.5-0.8b",
        "messages": [{"role": "user", "content": "Hello!"}]
      }'
    ```
@@ -98,9 +104,9 @@ With the current harness and repo defaults, the only **validated main models** r
 - **`gpt-oss-120b`**
 - **`glm-4.7-flash-awq`**
 
-The shipped `qwen2.5-1.5b-instruct` small model is still kept for utility tasks like titles/session metadata, but it is not part of that validated main-model set.
+The shipped `qwen3.5-0.8b` small helper is now the **validated utility helper** for titles/session metadata, but it is not part of that validated main-model set.
 
-Other available models may still work, but until they are re-tested with the current tooling they should be treated as **experimental** rather than recommended defaults.
+Other available models may still work, but beyond that validated utility helper they should be treated as **experimental** rather than recommended defaults until they are re-tested with the current tooling.
 
 ### Experimental Models (GB10/CUDA 12.1 Compatibility)
 
@@ -150,6 +156,7 @@ Special thanks to the community members who made optimized Docker images used in
 - **Thomas P. Braun from Avarok**: For the general-purpose vLLM image (`avarok/vllm-dgx-spark`) with support for non-gated activations (Nemotron) and hybrid models and posts like this https://blog.avarok.net/dgx-spark-nemotron3-and-nvfp4-getting-to-65-tps-8c5569025eb6.
 - **Christopher Owen**: For the MXFP4-optimized vLLM image (`christopherowen/vllm-dgx-spark`) enabling high-performance inference on DGX Spark.
 - **eugr**: For all the work on the original vLLM image (`eugr/vllm-dgx-spark`) customizations and the great postings on NVIDIA Forums.
+- **Patrick Yi / scitrera.ai**: For the SGLang utility-model recipe that informed the local `qwen3.5-0.8b` helper path.
 
 ### Model Providers
 

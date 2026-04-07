@@ -134,6 +134,19 @@ export function normalizeModelsConfig(raw, filePath) {
   };
 }
 
+export function resolveHealthUrl(modelsConfig, modelKey, containerName, fallbackTemplate = "http://{name}:8000/health") {
+  const byModelEntry = modelsConfig.byModel[modelKey] || null;
+  const byContainerModelId = modelsConfig.byContainer[containerName] || null;
+  const byContainerEntry = byContainerModelId ? modelsConfig.byModel[byContainerModelId] : null;
+  const entry = byModelEntry || byContainerEntry;
+
+  if (entry?.health) {
+    return entry.health;
+  }
+
+  return fallbackTemplate.replace("{name}", containerName);
+}
+
 export function loadModelsConfig(filePath) {
   let text;
   try {

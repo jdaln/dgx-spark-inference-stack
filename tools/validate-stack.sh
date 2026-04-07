@@ -118,6 +118,54 @@ assert_volume_mount() {
   fi
 }
 
+assert_shared_health_url_resolution() {
+  local label="$1"
+
+  if REPO_DIR="$REPO_DIR" node --input-type=module <<'NODE'
+import { pathToFileURL } from "node:url";
+
+const repoDir = process.env.REPO_DIR;
+const { normalizeModelsConfig, resolveHealthUrl } = await import(pathToFileURL(`${repoDir}/shared/models-config.mjs`).href);
+
+const config = normalizeModelsConfig(
+  {
+    "alt-port-model": {
+      container: "vllm-alt-port",
+      port: 8123,
+      maxModelLen: 4096,
+      toolSupport: "full",
+      validatorProfile: "default",
+      lifecycle: "normal"
+    }
+  },
+  "<inline-health-url-test>"
+);
+
+const cases = [
+  ["model id lookup", resolveHealthUrl(config, "alt-port-model", "vllm-alt-port"), "http://vllm-alt-port:8123/health"],
+  ["container lookup", resolveHealthUrl(config, "vllm-alt-port", "vllm-alt-port"), "http://vllm-alt-port:8123/health"],
+  ["fallback template", resolveHealthUrl(config, "missing-model", "vllm-missing", "http://{name}:8000/health"), "http://vllm-missing:8000/health"]
+];
+
+let failed = false;
+for (const [name, actual, expected] of cases) {
+  if (actual !== expected) {
+    console.error(`FAIL ${name}: expected ${expected}, got ${actual}`);
+    failed = true;
+  }
+}
+
+if (failed) {
+  process.exit(1);
+}
+NODE
+  then
+    pass "$label"
+  else
+    fail "$label"
+  fi
+}
+
 GPT_20B_JSON="$(resolve_service_json "$ACTIVE_JSON" "gpt-oss-20b")"
 GPT_120B_JSON="$(resolve_service_json "$ACTIVE_JSON" "gpt-oss-120b")"
 UTILITY_JSON="$(resolve_service_json "$ACTIVE_JSON" "qwen3.5-0.8b")"
@@ -143,6 +191,8 @@ assert_json_value "$GPT_120B_JSON" '.build.dockerfile // ""' "./custom-docker-co
 assert_flag_value "$GPT_120B_JSON" "--reasoning-parser" "openai_gptoss" "gpt-oss-120b keeps reasoning parser"
 assert_flag_value "$GPT_120B_JSON" "--gpu-memory-utilization" "0.80" "gpt-oss-120b keeps validated memory envelope"
 assert_env_value "$GPT_120B_JSON" "TIKTOKEN_ENCODINGS_BASE" "/workspace/vllm/tiktoken_encodings" "gpt-oss-120b uses baked-in tokenizer files"
+
+assert_shared_health_url_resolution "shared health-url resolution handles model ids, container names, and fallback templates"
 
 assert_equals "$(jq -r '.image // ""' <<<"$UTILITY_JSON")" "scitrera/dgx-spark-sglang:0.5.9-t5" "qwen3.5-0.8b uses the SGLang utility image"
 assert_flag_value "$UTILITY_JSON" "--model-path" "Qwen/Qwen3.5-0.8B" "qwen3.5-0.8b points at the Qwen 3.5 utility checkpoint"

@@ -3,7 +3,7 @@
 import http from "node:http";
 import https from "node:https";
 import { URL } from "node:url";
-import { loadModelsConfig } from "../shared/models-config.mjs";
+import { loadModelsConfig, resolveHealthUrl as resolveConfiguredHealthUrl } from "../shared/models-config.mjs";
 import { startMonitoring, getModelStats, getAllStats } from "./gpu-monitor.js";
 
 // -------- config --------
@@ -17,7 +17,7 @@ const TICK_MS = Number(process.env.TICK_MS || 1000);
 const STOP_DEBOUNCE_MS = Number(process.env.STOP_DEBOUNCE_MS || 20_000);
 const BUSY_STATUS_CODE = Number(process.env.BUSY_STATUS_CODE || 409); // 409 = Conflict
 const MODELS_CONFIG_PATH = process.env.MODELS_CONFIG_PATH || "/config/models.json";
-const MODEL_HEALTH_URL_TEMPLATE = process.env.MODEL_HEALTH_URL_TEMPLATE || "http://{name}:8001/health";
+const MODEL_HEALTH_URL_TEMPLATE = process.env.MODEL_HEALTH_URL_TEMPLATE || "http://{name}:8000/health";
 
 const DOCKER_HOST = process.env.DOCKER_HOST || "unix:///var/run/docker.sock";
 const DOCKER_API_VERSION = process.env.DOCKER_API_VERSION || "";
@@ -56,9 +56,7 @@ function resolveContainerName(modelKey) {
 }
 
 function resolveHealthUrl(modelKey, containerName) {
-  const entry = resolveModelEntry(modelKey);
-  if (entry?.health) return entry.health;
-  return MODEL_HEALTH_URL_TEMPLATE.replace("{name}", containerName);
+  return resolveConfiguredHealthUrl(MODELS_CONFIG, modelKey, containerName, MODEL_HEALTH_URL_TEMPLATE);
 }
 
 log("[waker] Loaded models config:", {

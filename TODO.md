@@ -1,27 +1,7 @@
 # TODOs
 
-## Make `tools/run-model.sh` Cold-Start Aware
 
-The current runner still treats Docker `health=unhealthy` as a hard failure even when a first cold start is obviously still making real progress through image pull, model download, or initial load.
-
-**Goal:** make first-run bring-up of new recipe-wave models observable and reliable without masking genuine startup failures.
-
-**Why now:** the post-Step-4 recipe-expansion wave is active, and the plan already calls out this exact gap from the Gemma TF5 bring-up path.
-
-**Done when:** `tools/run-model.sh` can distinguish expected cold-start progress from a real stall, surfaces the active phase clearly, and still fails fast once progress actually stops.
-
-## Keep External Recipe Provenance Explicit
-
-When the repo adopts a model config from a non-primary upstream source, record that provenance in the shipped docs and credits instead of leaving it only in `my-plan-for-improvments.md` or commit history.
-
-**Goal:** make external recipe lineage visible and reviewable before those models become recommended defaults or shipped helpers.
-
-**Next case already in flight:** Patrick Yi / scitrera.ai's `Qwen/Qwen3.5-0.8B` SGLang utility recipe.
-
-**Done when:** adopted external recipes have a visible repo-level breadcrumb in the relevant docs or credits, plus a lightweight `sourceRecipe` pointer in `models.json`.
-
-
-## Test Ollama Integration (OpenAI API Compatibility)
+### Test Ollama Integration (OpenAI API Compatibility)
 
 Investigate running an [Ollama](https://ollama.com/) server as a potential alternative backend or "sidecar" alongside vLLM. Ollama provides native OpenAI API compatibility, which could simplify deploying GGUF quantized models or running models on different hardware backends.
 

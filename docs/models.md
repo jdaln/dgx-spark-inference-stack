@@ -168,7 +168,7 @@ Choose the right model for your task to balance performance and speed.
   - **Type:** multimodal Gemma 4 MoE model (text + image) with native tool calling
   - **Best for:** experimental Gemma-family coding/chat, image Q&A, and agent-style tool use
   - **Strengths:** verified gateway-path image input and function calling on the current stack; large raw 256K context window
-  - **Tradeoffs:** still experimental; current interactive guidance is `100000` prompt tokens, and explicit thinking mode can burn completion budget quickly
+  - **Tradeoffs:** still experimental; current interactive guidance is `240000` prompt tokens, and explicit thinking mode can burn completion budget quickly
 
 - `vllm-gemma4-31b` → served as **`gemma4-31b`**
   - **Type:** dense Gemma 4 multimodal model (text + image)

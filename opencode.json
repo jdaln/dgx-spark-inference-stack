@@ -40,7 +40,7 @@
                     "tool_call": true,
                     "experimental": true,
                     "limit": {
-                        "context": 100000,
+                        "context": 240000,
                         "output": 8192
                     },
                     "options": {

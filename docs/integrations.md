@@ -97,7 +97,7 @@ To switch the active models, edit the `model` and `small_model` fields in `openc
 |------|-------------------|---------|----------|
 | `model` | `dgx/gpt-oss-20b` | `108000` | Balanced quality/speed for general tasks |
 | `model` | `dgx/gpt-oss-120b` | `108000` | Higher-quality default when you want a larger model |
-| `model` | `dgx/gemma4-26b-a4b` | `100000` | Experimental Gemma path with verified image input, tool calling, and a multi-user-tested interactive ceiling |
+| `model` | `dgx/gemma4-26b-a4b` | `240000` | Experimental Gemma path with verified image input, tool calling, and a much higher multi-user-tested interactive ceiling |
 | `model` | `dgx/glm-4.7-flash-awq` | `108000` | Best current long-context coding path in OpenCode |
 | `model` | `dgx/huihui-qwen3.5-35b-a3b-abliterated` | `200000` | Experimental long-context general/tool lane with much stronger richer-prompt evidence than the other experimental Qwen variants |
 | `model` | `dgx/qwen3-coder-next-int4-autoround` | `524000` | Experimental long-context coder path; current ceiling is based on a minimal retention probe, not richer summarization-quality validation |
@@ -107,7 +107,7 @@ To switch the active models, edit the `model` and `small_model` fields in `openc
 > The `opencode.json` limits are **OpenCode-safe guidance**, not raw server maxima. For the currently validated `131072`-class models in the shipped config, the repo now uses `108000` as the conservative client-facing ceiling. That leaves room for prompt wrapper overhead, validator safety margin, and a real completion instead of a one-token answer near the hard cap.
 
 > [!TIP]
-> The Gemma 26B entry carries the easy published Gemma sampling guidance directly in `opencode.json`: `temperature=1.0`, `top_p=0.95`, and `top_k=64`. Its OpenCode ceiling is now `100000`, not `200000`: the single-user gateway-path soak still reached roughly `194614` prompt tokens, but the first five-user soak calibrated to roughly `97366` prompt tokens, spent about 100 seconds on that calibration request, and then clipped every answer at the 256-token completion cap. That makes `100000` the safer interactive ceiling for now.
+> The Gemma 26B entry carries the easy published Gemma sampling guidance directly in `opencode.json`: `temperature=1.0`, `top_p=0.95`, and `top_k=64`. Its first five-user run at a `256` completion cap was conservative and misleading: with `max_completion_tokens=1024`, richer five-user stack-summary probes now pass at roughly `145990`, `194614`, and `243238` prompt tokens. The shipped OpenCode ceiling is therefore raised to `240000`, while the model remains explicitly experimental.
 
 > [!TIP]
 > The shipped `small_model` now uses the validated `qwen3.5-0.8b` SGLang utility path inspired by Patrick Yi / scitrera.ai. The underlying checkpoint supports vision and thinking mode upstream, but the repo currently keeps this path intentionally narrow: utility-only role, conservative `8192` OpenCode limit, and no promotion as a general chat default.

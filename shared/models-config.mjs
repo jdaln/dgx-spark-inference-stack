@@ -64,6 +64,7 @@ export function normalizeModelsConfig(raw, filePath) {
     const validatorProfile = value.validatorProfile ?? "default";
     const lifecycle = value.lifecycle ?? "normal";
     const multimodal = value.multimodal ?? false;
+    const normalizeTextContent = value.normalizeTextContent ?? false;
     const experimental = value.experimental ?? false;
     const sourceRecipe = value.sourceRecipe ?? null;
     const notes = value.notes ?? null;
@@ -76,6 +77,9 @@ export function normalizeModelsConfig(raw, filePath) {
 
     if (typeof multimodal !== "boolean") {
       fail(filePath, `model '${modelId}' has invalid multimodal '${multimodal}' (must be true or false)`);
+    }
+    if (typeof normalizeTextContent !== "boolean") {
+      fail(filePath, `model '${modelId}' has invalid normalizeTextContent '${normalizeTextContent}' (must be true or false)`);
     }
     if (typeof experimental !== "boolean") {
       fail(filePath, `model '${modelId}' has invalid experimental '${experimental}' (must be true or false)`);
@@ -105,6 +109,7 @@ export function normalizeModelsConfig(raw, filePath) {
       validatorProfile,
       lifecycle,
       multimodal,
+      normalizeTextContent,
       experimental,
       sourceRecipe,
       notes,

@@ -56,6 +56,24 @@
                         "output": 8192
                     }
                 },
+                "huihui-qwen3.5-35b-a3b-abliterated": {
+                    "name": "Huihui Qwen3.5 35B A3B Abliterated",
+                    "tool_call": true,
+                    "experimental": true,
+                    "limit": {
+                        "context": 200000,
+                        "output": 8192
+                    }
+                },
+                "qwen3-coder-next-int4-autoround": {
+                    "name": "Qwen3 Coder-Next AutoRound",
+                    "tool_call": true,
+                    "experimental": true,
+                    "limit": {
+                        "context": 524000,
+                        "output": 8192
+                    }
+                },
                 "qwen3.5-0.8b": {
                     "name": "Qwen 3.5 0.8B Utility",
                     "limit": {

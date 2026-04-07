@@ -51,7 +51,7 @@ To use this stack with [OpenCode](https://github.com/opencode-ai/opencode), foll
 ### Quick Start
 
 1. **Use the included configuration** (`opencode.json` in project root):
-  The repository includes a curated `opencode.json` using the `dgx` provider. It is intentionally **not** a mirror of every model in the repo. For now, the shipped OpenCode config only exposes the models we have actually validated with the current harness for normal OpenCode-style use: `gpt-oss-20b`, `gpt-oss-120b`, and `glm-4.7-flash-awq`, plus the small utility model used for titles.
+  The repository includes a curated `opencode.json` using the `dgx` provider. It is intentionally **not** a mirror of every model in the repo. The shipped OpenCode config primarily exposes the models we have actually validated with the current harness for normal OpenCode-style use: `gpt-oss-20b`, `gpt-oss-120b`, and `glm-4.7-flash-awq`, plus the small utility model used for titles. It also includes a small number of explicitly marked experimental entries when there is enough evidence for a practical manual ceiling but not yet enough broader quality validation for promotion.
 
 2. **If your endpoint or API key is different, edit the provider block**:
   Update `provider.dgx.options.baseURL` and `provider.dgx.options.apiKey` in `opencode.json` before launching OpenCode.
@@ -99,6 +99,8 @@ To switch the active models, edit the `model` and `small_model` fields in `openc
 | `model` | `dgx/gpt-oss-120b` | `108000` | Higher-quality default when you want a larger model |
 | `model` | `dgx/gemma4-26b-a4b` | `100000` | Experimental Gemma path with verified image input, tool calling, and a multi-user-tested interactive ceiling |
 | `model` | `dgx/glm-4.7-flash-awq` | `108000` | Best current long-context coding path in OpenCode |
+| `model` | `dgx/huihui-qwen3.5-35b-a3b-abliterated` | `200000` | Experimental long-context general/tool lane with much stronger richer-prompt evidence than the other experimental Qwen variants |
+| `model` | `dgx/qwen3-coder-next-int4-autoround` | `524000` | Experimental long-context coder path; current ceiling is based on a minimal retention probe, not richer summarization-quality validation |
 | `small_model` | `dgx/qwen3.5-0.8b` | `8192` | Validated utility helper for session titles |
 
 > [!IMPORTANT]
@@ -112,6 +114,12 @@ To switch the active models, edit the `model` and `small_model` fields in `openc
 
 > [!TIP]
 > You do not need to add any special OpenCode request flags for GLM 4.7 on current repo revisions. The request validator  disables hidden thinking by default for `glm-4.7-flash-awq`, specifically because the default parser mode consumed the visible answer budget during long-context OpenCode-style requests.
+
+> [!TIP]
+> `huihui-qwen3.5-35b-a3b-abliterated` is now listed in the shipped `opencode.json`, but it stays explicitly experimental. Its `200000` ceiling is conservative relative to the current richer five-user stack-summary evidence, which stayed clean through roughly `253603` prompt tokens with `1024` completion tokens. Manual reads remained coherent, but they still tended to flatten the mixed lifecycle story into pure single-tenancy and to drift toward generic scaling advice, so treat it as an opt-in long-context general/tool lane rather than a promoted default.
+
+> [!TIP]
+> `qwen3-coder-next-int4-autoround` is now listed in the shipped `opencode.json`, but it stays explicitly experimental. The current `524000` ceiling is based on a five-user gateway-path minimal retention probe that asked the model to reply with `ok.` after a very large filler context. That probe stayed clean through roughly `524382` prompt tokens, but the richer default stack-summary soak prompt still looped into repeated headings or punctuation even at much lower context. Treat it as an opt-in long-context coder lane, not as a promoted default.
 
 > [!TIP]
 > `nemotron-3-nano-30b-nvfp4` is still intentionally omitted from the shipped OpenCode config, but the current active-stack soak results are now good enough to give a first manual client ceiling: use `100000` as the conservative context limit for now. Five concurrent gateway-path requests passed with visible content at approximately `29166`, `58210`, and `101776` prompt tokens, while the next tested tier at approximately `116298` prompt tokens was already borderline because one request fell just under the 256-token completion floor.

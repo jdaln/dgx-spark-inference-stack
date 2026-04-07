@@ -124,6 +124,248 @@ services:
         - import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5).read()
       start_period: 1800s
 
+  vllm-qwen35-122b-autoround:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+    container_name: vllm-qwen35-122b-autoround
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-autoround/run.sh
+    command:
+      - vllm
+      - serve
+      - Intel/Qwen3.5-122B-A10B-int4-AutoRound
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - qwen3.5-122b-a10b-int4-autoround
+      - --max-model-len
+      - auto
+      - --gpu-memory-utilization
+      - "${QWEN35_122B_AUTOROUND_GPU_MEMORY_UTILIZATION:-0.70}"
+      - --load-format
+      - fastsafetensors
+      - --enable-prefix-caching
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --max-num-batched-tokens
+      - "${QWEN35_122B_AUTOROUND_MAX_NUM_BATCHED_TOKENS:-8192}"
+      - --trust-remote-code
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3.5-autoround:/workspace/mods/fix-qwen3.5-autoround:ro
+    environment:
+      <<: *env-common
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-huihui-qwen35-35b-a3b-abliterated:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+    container_name: vllm-huihui-qwen35-35b-a3b-abliterated
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-moe-runtime/run.sh
+    command:
+      - vllm
+      - serve
+      - huihui-ai/Huihui-Qwen3.5-35B-A3B-abliterated
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - huihui-qwen3.5-35b-a3b-abliterated
+      - --max-model-len
+      - "${HUIHUI_QWEN35_35B_A3B_ABLITERATED_MAX_MODEL_LEN:-262144}"
+      - --max-num-batched-tokens
+      - "${HUIHUI_QWEN35_35B_A3B_ABLITERATED_MAX_NUM_BATCHED_TOKENS:-16384}"
+      - --gpu-memory-utilization
+      - "${HUIHUI_QWEN35_35B_A3B_ABLITERATED_GPU_MEMORY_UTILIZATION:-0.70}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - fastsafetensors
+      - --attention-backend
+      - flashinfer
+      - --enable-prefix-caching
+      - --chat-template
+      - /workspace/unsloth.jinja
+      - --tensor-parallel-size
+      - "1"
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3-coder-next:/workspace/mods/fix-qwen3-coder-next:ro
+      - ../mods/fix-qwen3.5-chat-template:/workspace/mods/fix-qwen3.5-chat-template:ro
+      - ../mods/fix-qwen3.5-moe-runtime:/workspace/mods/fix-qwen3.5-moe-runtime:ro
+    environment:
+      <<: *env-common
+      HF_HUB_CACHE: /models
+      HUGGINGFACE_HUB_CACHE: /models
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+      QWEN35_CHAT_TEMPLATE_MODEL_ID: huihui-ai/Huihui-Qwen3.5-35B-A3B-abliterated
+      QWEN35_CHAT_TEMPLATE_CACHE_ROOT: /models
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-jackrong-qwen35-35b-a3b-opus-distilled:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+    container_name: vllm-jackrong-qwen35-35b-a3b-opus-distilled
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-moe-runtime/run.sh
+    command:
+      - vllm
+      - serve
+      - Jackrong/Qwen3.5-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled
+      - --max-model-len
+      - "${JACKRONG_QWEN35_35B_A3B_OPUS_DISTILLED_MAX_MODEL_LEN:-262144}"
+      - --max-num-batched-tokens
+      - "${JACKRONG_QWEN35_35B_A3B_OPUS_DISTILLED_MAX_NUM_BATCHED_TOKENS:-32768}"
+      - --gpu-memory-utilization
+      - "${JACKRONG_QWEN35_35B_A3B_OPUS_DISTILLED_GPU_MEMORY_UTILIZATION:-0.80}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_xml
+      - --reasoning-parser
+      - qwen3
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - fastsafetensors
+      - --language-model-only
+      - --attention-backend
+      - flashinfer
+      - --enable-prefix-caching
+      - --chat-template
+      - /workspace/unsloth.jinja
+      - --tensor-parallel-size
+      - "1"
+      - --distributed-executor-backend
+      - ray
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3-coder-next:/workspace/mods/fix-qwen3-coder-next:ro
+      - ../mods/fix-qwen3.5-chat-template:/workspace/mods/fix-qwen3.5-chat-template:ro
+      - ../mods/fix-qwen3.5-moe-runtime:/workspace/mods/fix-qwen3.5-moe-runtime:ro
+    environment:
+      <<: *env-common
+      HF_HUB_CACHE: /models
+      HUGGINGFACE_HUB_CACHE: /models
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      RAY_memory_usage_threshold: "0.99"
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+      QWEN35_CHAT_TEMPLATE_MODEL_ID: Jackrong/Qwen3.5-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled
+      QWEN35_CHAT_TEMPLATE_CACHE_ROOT: /models
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-qwen3-coder-next-autoround:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+    container_name: vllm-qwen3-coder-next-autoround
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3-next-autoround/run.sh
+    command:
+      - vllm
+      - serve
+      - Intel/Qwen3-Coder-Next-int4-AutoRound
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - qwen3-coder-next-int4-autoround
+      - --max-model-len
+      - "${QWEN3_CODER_NEXT_INT4_AUTOROUND_MAX_MODEL_LEN:-1048576}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --gpu-memory-utilization
+      - "${QWEN3_CODER_NEXT_INT4_AUTOROUND_GPU_MEMORY_UTILIZATION:-0.70}"
+      - --load-format
+      - fastsafetensors
+      - --language-model-only
+      - --enable-prefix-caching
+      - --enable-chunked-prefill
+      - --max-num-batched-tokens
+      - "${QWEN3_CODER_NEXT_INT4_AUTOROUND_MAX_NUM_BATCHED_TOKENS:-49152}"
+      - --max-num-seqs
+      - "${QWEN3_CODER_NEXT_INT4_AUTOROUND_MAX_NUM_SEQS:-384}"
+      - --kv-cache-dtype
+      - fp8
+      - --optimization-level
+      - "${QWEN3_CODER_NEXT_INT4_AUTOROUND_OPTIMIZATION_LEVEL:-3}"
+      - --performance-mode
+      - throughput
+      - --mamba-cache-mode
+      - align
+      - --hf-overrides
+      - '{"rope_scaling": {"rope_type": "yarn", "factor": 4.0, "original_max_position_embeddings": 262144}}'
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3-next-autoround:/workspace/mods/fix-qwen3-next-autoround:ro
+    environment:
+      <<: *env-common
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+      VLLM_SLEEP_WHEN_IDLE: "0"
+      VLLM_ALLOW_LONG_MAX_MODEL_LEN: "1"
+      VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: "1"
+      SAFETENSORS_FAST_GPU: "1"
+      VLLM_USE_FLASHINFER_MOE_FP8: "1"
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
   vllm-qwen2.5-1.5b:
     # Legacy fallback small model. No longer the always-on utility helper.
     <<: *model-profiled

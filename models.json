@@ -166,6 +166,53 @@
     "sourceRecipe": "scitrera.ai:patrick-yi-qwen3.5-0.8b-sglang",
     "notes": "Validated utility helper for titles and lightweight classification tasks. This path is inspired by Patrick Yi / scitrera.ai's SGLang recipe for `Qwen/Qwen3.5-0.8B`, but the local utility role deliberately drops the standalone `mem-fraction-static` target to `0.05` and caps the served context at `32768` so it can coexist with the main-model lanes on this host. On the 2026-04-07 validation sweep, the `0.05` step was the cleanest low-footprint operating point: it reached healthy, answered requests, passed the 5-way utility soak, and cleared the full gateway smoke matrix while avoiding the counterproductive memory expansion seen at `0.06`. The upstream checkpoint itself is multimodal and supports thinking mode, but this repo currently keeps it as a validated utility-only helper rather than a promoted general chat model."
   },
+  "qwen3.5-122b-a10b-int4-autoround": {
+    "container": "vllm-qwen35-122b-autoround",
+    "port": 8000,
+    "maxModelLen": 262144,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "exclusive",
+    "sourceRecipe": "local-variant:raphael-amorim-qwen3.5-122b-a10b-int4-autoround",
+    "experimental": true,
+    "notes": "Experimental TF5-track single-GPU AutoRound variant for `Intel/Qwen3.5-122B-A10B-int4-AutoRound`. The current compose path follows Raphael Amorim's working recipe shape on this host: `tensor_parallel_size=1`, `gpu_memory_utilization=0.70`, `max_num_batched_tokens=8192`, and no chat-template override, plus a vendored local rope-validation patch instead of a startup-time network fetch. Hidden reasoning consumed the visible answer budget on the first gateway pass, so the validator now supplies non-thinking defaults for normal requests. Keep it exclusive until real coexistence and broader gateway-path behavior are validated."
+  },
+  "huihui-qwen3.5-35b-a3b-abliterated": {
+    "container": "vllm-huihui-qwen35-35b-a3b-abliterated",
+    "port": 8000,
+    "maxModelLen": 262144,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal",
+    "multimodal": true,
+    "sourceRecipe": "local-variant:huihui-qwen3.5-35b-a3b-abliterated",
+    "experimental": true,
+    "notes": "Experimental TF5-track single-GPU abliterated variant for `huihui-ai/Huihui-Qwen3.5-35B-A3B-abliterated`. The working local compose path follows the upstream Qwen3.5-35B-A3B recipe shape on this host with `tensor_parallel_size=1`, `gpu_memory_utilization=0.70`, `max_num_batched_tokens=16384`, the vendored Qwen3/Coder-Next runtime fixes, and the checkpoint's bundled `chat_template.jinja` installed as `/workspace/unsloth.jinja` while serving offline from the local `/models` cache. The repo's standard-track image tripped a Torch Inductor autotune failure (`CUDA driver error: operation not permitted`) during engine initialization on this host, so the working path uses the TF5 image instead. Normal lifecycle is now validated too: the healthy TF5 bring-up succeeded while the utility helper remained loaded. Direct and gateway plain-text chat both work once the validator applies non-thinking defaults for normal requests, structured `tool_calls` now surface correctly on both the direct and gateway paths with the bundled Qwen coder template, and the image-input path is verified too: gateway multimodal requests return visible descriptions under the validator's non-thinking default, while direct multimodal requests follow the same rule as direct text and need explicit non-thinking flags for visible final output. The long-context evidence is now strong on both narrow and richer probes: five-user gateway-path minimal retention probes stayed clean through roughly `134222`, `193866`, `238599`, and `253510` prompt tokens with visible `ok` replies and `finish_reason: \"stop\"`, while the richer five-user stack-summary soak also passed at roughly `59760`, `104493`, `149226`, `193959`, `238692`, and `253603` prompt tokens once `max_completion_tokens` was raised to `1024`. Manual reads at roughly `104493`, `193959`, and `238692` stayed coherent and on-topic, but they consistently simplified the mixed lifecycle story into a purely single-tenant one and sometimes drifted toward aspirational scaling advice instead of repo-grounded next changes. The shipped OpenCode config now exposes it as an explicitly experimental long-context general/tool lane with a conservative `200000` client ceiling. Treat about `250000` as the current practical manual ceiling for both narrow and richer prompts on this host, and keep the model experimental until that fidelity caveat is no longer material."
+  },
+  "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled": {
+    "container": "vllm-jackrong-qwen35-35b-a3b-opus-distilled",
+    "port": 8000,
+    "maxModelLen": 262144,
+    "toolSupport": "none",
+    "validatorProfile": "default",
+    "lifecycle": "exclusive",
+    "normalizeTextContent": true,
+    "sourceRecipe": "local-variant:jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled",
+    "experimental": true,
+    "notes": "Experimental TF5-track single-GPU reasoning variant for `Jackrong/Qwen3.5-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled`. The local compose path uses the vendored Qwen3/Coder-Next MoE crash/slowness workaround, installs the checkpoint's bundled chat template from the mounted local model cache as `/workspace/unsloth.jinja`, keeps the service offline against the local `/models` cache, and runs the text chat path with `reasoning-parser qwen3`, the XML-oriented `tool-call-parser qwen3_xml`, `kv-cache-dtype fp8`, and a 262144-token cap. The first successful local startup on this host also needed `--language-model-only` because the checkpoint does not ship the image processor files vLLM expects for multimodal initialization, plus `RAY_memory_usage_threshold=0.99` and a truly exclusive lane during compile/autotune startup. Plain text chat works on both the direct and gateway paths, but structured OpenAI-style `tool_calls` are not currently surfaced by vLLM for this checkpoint, so the stack treats it as text-only for now. The current long-context evidence is not yet promotable: the richer default stack-summary soak prompt already fails around `59758` prompt tokens because the model spends the completion budget on a generic reasoning preamble instead of the requested headings, and even a strict minimal `Reply with ok.` probe drifts into visible `Thinking Process` output. Treat the service as a wired text-only bring-up with no practical long-context ceiling established yet."
+  },
+  "qwen3-coder-next-int4-autoround": {
+    "container": "vllm-qwen3-coder-next-autoround",
+    "port": 8000,
+    "maxModelLen": 1048576,
+    "toolSupport": "force-required",
+    "validatorProfile": "coder-force-tools",
+    "lifecycle": "exclusive",
+    "normalizeTextContent": true,
+    "sourceRecipe": "local-variant:bjarke-bolding-qwen3-coder-next-int4-autoround-1m",
+    "experimental": true,
+    "notes": "Experimental TF5-track single-GPU 1M-context variant for `Intel/Qwen3-Coder-Next-int4-AutoRound`. The current compose path follows Bjarke Bolding's recipe shape on this host: `tensor_parallel_size=1`, `gpu_memory_utilization=0.70`, `max_model_len=1048576`, Yarn rope scaling via `--hf-overrides`, long-context enablement env vars, and a vendored local reverse patch for the Qwen3-Next AutoRound gate quantization regression. After correcting the local launcher so that the gate quantization patch actually applies, the model serves normal direct and gateway-path output again. The current long-context evidence is intentionally narrow: a five-user gateway-path minimal retention probe that asks the model to `Reply with ok.` after the bundled filler stayed clean through roughly `524382` prompt tokens with visible `ok` replies and `finish_reason: \"stop\"`. The richer default stack-summary soak prompt still loops into repeated headings / punctuation on this model even at low context, so broader long-context instruction quality is not yet characterized. The next tested tiers near the configured 1M window became impractically slow on this host and then hit either the hard `1048576` token cap or a gateway timeout, so treat about `524000` as the current practical manual client ceiling until a richer quality probe is proven."
+  },
   "qwen2.5-1.5b-instruct": {
     "container": "vllm-qwen2.5-1.5b",
     "port": 8000,

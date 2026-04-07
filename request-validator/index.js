@@ -30,7 +30,8 @@ const MODEL_CONFIG = Object.fromEntries(
       maxModelLen: entry.maxModelLen,
       toolSupport: entry.toolSupport,
       validatorProfile: entry.validatorProfile,
-      multimodal: entry.multimodal
+      multimodal: entry.multimodal,
+      normalizeTextContent: entry.normalizeTextContent
     }
   ])
 );
@@ -59,9 +60,17 @@ function shouldForceToolChoice(targetConfig) {
   return targetConfig.toolSupport === "force-required";
 }
 
+function shouldNormalizeTextContent(targetConfig) {
+  if (!targetConfig) return false;
+  if (targetConfig.multimodal) return false;
+  return targetConfig.normalizeTextContent === true;
+}
+
 const DEFAULT_NON_THINKING_MODELS = new Set([
   "glm-4.7-flash-awq",
-  "nemotron-3-nano-30b-nvfp4"
+  "nemotron-3-nano-30b-nvfp4",
+  "huihui-qwen3.5-35b-a3b-abliterated",
+  "qwen3.5-122b-a10b-int4-autoround"
 ]);
 
 function shouldDisableThinkingByDefault(targetConfig, data) {
@@ -132,13 +141,10 @@ function processBody(body, targetConfig, url) {
   try {
     const data = JSON.parse(body);
 
-    // Normalize multimodal content format to string for models with chat templates that don't support it
+    // Normalize array-based text content to a plain string for text models whose chat templates only accept strings
     // OpenCode sends: {"content": [{"type": "text", "text": "Hi"}]}
-    // Some chat templates (like Qwen3-Next) expect: {"content": "Hi"}
-    // Skip VL/multimodal models and models that work without (like gpt-oss)
-    const needsContentNormalization = data.model && (
-      data.model.includes("qwen3-next") && !data.model.includes("-vl")
-    );
+    // Some chat templates (like Qwen3-Next and the Qwen3.5 Unsloth template) expect: {"content": "Hi"}
+    const needsContentNormalization = shouldNormalizeTextContent(targetConfig);
     if (needsContentNormalization && Array.isArray(data.messages)) {
       for (const msg of data.messages) {
         if (Array.isArray(msg.content)) {
@@ -148,7 +154,7 @@ function processBody(body, targetConfig, url) {
             .map(part => part.text);
           if (textParts.length > 0) {
             msg.content = textParts.join("\n");
-            log(`Normalized multimodal content to string for ${data.model}`);
+            log(`Normalized array content to string for ${data.model}`);
           }
         }
       }

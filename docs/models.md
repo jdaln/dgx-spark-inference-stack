@@ -175,6 +175,14 @@ Choose the right model for your task to balance performance and speed.
   - **Best for:** manual-only quality experiments with the larger Gemma family
   - **Tradeoffs:** currently too slow for interactive use on this host, so it is intentionally omitted from the shipped OpenCode config
 
+### Experimental Qwen 3.5 variants
+
+- `vllm-huihui-qwen35-35b-a3b-abliterated` → served as **`huihui-qwen3.5-35b-a3b-abliterated`**
+  - **Type:** experimental Qwen 3.5 MoE multimodal/tool-capable variant on the TF5 lane
+  - **Best for:** opt-in long-context general chat and tool workflows when you want more headroom than the validated 131K-class defaults
+  - **Strengths:** gateway-path text, structured tool calling, and image input are all verified; richer five-user prompts stayed coherent through roughly `253603` prompt tokens
+  - **Tradeoffs:** still experimental; the shipped OpenCode guidance is a conservative `200000`, and manual reads still flatten some repo-specific details into a too-simple single-tenant story
+
 ### Coding specialists
 
 - `vllm-qwen3-coder-30b` → served as **`qwen3-coder-30b-a3b-instruct`**

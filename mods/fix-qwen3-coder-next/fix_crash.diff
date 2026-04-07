@@ -1,0 +1,14 @@
+diff --git a/vllm/v1/core/single_type_kv_cache_manager.py b/vllm/v1/core/single_type_kv_cache_manager.py
+index 0b6b7ed42ac1..b6e0305a312d 100644
+--- a/vllm/v1/core/single_type_kv_cache_manager.py
++++ b/vllm/v1/core/single_type_kv_cache_manager.py
+@@ -1000,7 +1000,8 @@ def cache_blocks(self, request: Request, num_tokens: int) -> None:
+             for block in self.req_to_blocks[request.request_id][
+                 num_cached_blocks_before:num_cached_blocks_after
+             ]:
+-                assert block.block_hash is not None
++                if block.is_null:
++                    continue
+                 self.cached_blocks_this_step.add(block.block_hash)
+ 
+     def new_step_starts(self) -> None:

@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # =============================================================================
 # Dockerfile for GPT-OSS-120B with MXFP4 on DGX Spark (SM121/GB10)
 # Author: Christopher Owen
@@ -148,7 +149,13 @@ RUN --mount=type=cache,id=git-vllm,target=/git-cache/vllm \
         git clone ${VLLM_REPO} /workspace/vllm && \
         cp -a /workspace/vllm /git-cache/vllm; \
     fi && \
-    cd /workspace/vllm && git checkout ${VLLM_SHA} && \
+    cd /workspace/vllm && \
+    if git cat-file -e ${VLLM_SHA}^{commit} 2>/dev/null || git fetch origin ${VLLM_SHA} --depth 1 2>/dev/null; then \
+        git checkout ${VLLM_SHA}; \
+    else \
+        echo "=== Pinned VLLM_SHA not found: ${VLLM_SHA} ===" >&2; \
+        exit 1; \
+    fi && \
     git submodule update --init --recursive
 
 # =============================================================================
@@ -165,7 +172,8 @@ RUN cd /workspace/vllm && \
     sed -i 's/"10.0a;10.1a;12.0a;12.1a"/"10.0a;10.1a"/g' CMakeLists.txt && \
     sed -i 's/"10.0a;10.1a;10.3a;12.0a;12.1a"/"10.0a;10.1a;10.3a"/g' CMakeLists.txt && \
     # Apply profiling patch
-    patch -p1 < /workspace/patches/nvtx_request_markers.patch
+    patch -p1 < /workspace/patches/nvtx_request_markers.patch || \
+    echo "=== NVTX profiling patch did not apply cleanly; continuing without it ==="
 
 # =============================================================================
 # Build FlashInfer
@@ -238,7 +246,7 @@ RUN pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python 
 # Create entrypoint script (validation only)
 # =============================================================================
 
-RUN cat > /workspace/entrypoint.sh << 'ENTRYPOINT_SCRIPT'
+RUN cat >/workspace/entrypoint.sh <<'ENTRYPOINT_SCRIPT'
 #!/bin/bash
 set -e
 

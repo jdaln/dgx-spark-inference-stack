@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # ============================================================================
 # DGX Spark Optimized vLLM - Built from main branch
 # Author: Thomas P. Braun (Avarok)
@@ -30,6 +31,19 @@ LABEL description="vLLM with non-gated activations support for Nemotron3-Nano on
 ARG VLLM_COMMIT=main
 ARG CACHEBUST_DEPS=1
 ARG CACHEBUST_VLLM=1
+ARG BUILD_JOBS=16
+
+# Keep the vLLM extension build parallel and cacheable. Without this, the first
+# Ninja target can sit for a long time and look frozen inside Docker logs.
+ENV MAX_JOBS=${BUILD_JOBS}
+ENV CMAKE_BUILD_PARALLEL_LEVEL=${BUILD_JOBS}
+ENV MAKEFLAGS="-j${BUILD_JOBS}"
+ENV PATH=/usr/lib/ccache:$PATH
+ENV CCACHE_DIR=/root/.ccache
+ENV CCACHE_MAXSIZE=20G
+ENV CCACHE_COMPRESS=1
+ENV CMAKE_CXX_COMPILER_LAUNCHER=ccache
+ENV CMAKE_CUDA_COMPILER_LAUNCHER=ccache
 
 # ============================================================================
 # System Dependencies
@@ -37,7 +51,7 @@ ARG CACHEBUST_VLLM=1
 RUN apt-get update && apt-get install -y \
     python3.12 python3.12-venv python3.12-dev python3-pip \
     git wget curl patch \
-    cmake build-essential ninja-build \
+    cmake build-essential ninja-build ccache \
     # InfiniBand/RDMA libraries for multi-node
     libibverbs1 libibverbs-dev ibverbs-providers rdma-core perftest \
     # Network utilities
@@ -90,8 +104,23 @@ RUN python3 use_existing_torch.py
 RUN sed -i "/flashinfer/d" requirements/cuda.txt || true
 RUN sed -i '/^triton\b/d' requirements/test.txt || true
 
-# Install build requirements
-RUN pip install -r requirements/build.txt
+# Install build requirements across old/new vLLM layouts
+RUN if [ -f requirements/build.txt ]; then \
+        pip install -r requirements/build.txt; \
+    elif [ -f requirements/common.txt ]; then \
+        pip install -r requirements/common.txt; \
+    elif [ -f requirements.txt ]; then \
+        pip install -r requirements.txt; \
+    else \
+        echo "No recognized vLLM requirements file found for build deps" >&2; \
+        exit 1; \
+    fi
+
+# Seed pyproject build backend deps when building without isolation
+RUN pip install setuptools_scm pybind11
+
+# Seed runtime deps that otherwise get built during vLLM install
+RUN pip install numba nvidia-cudnn-frontend fastsafetensors
 
 # ============================================================================
 # CMakeLists Patch for DGX Spark (GB10)
@@ -118,7 +147,10 @@ ENV TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas
 # ============================================================================
 # Build vLLM
 # ============================================================================
-RUN pip install --no-build-isolation . -v
+RUN --mount=type=cache,id=pip-cache,target=/root/.cache/pip \
+    --mount=type=cache,id=ccache,target=/root/.ccache \
+    --mount=type=cache,id=vllm-build,target=/workspace/vllm/build \
+    pip install --no-build-isolation --no-deps . -v
 
 # ============================================================================
 # Clean up source directory to avoid import conflicts

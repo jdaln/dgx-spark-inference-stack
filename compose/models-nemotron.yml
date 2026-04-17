@@ -35,7 +35,6 @@ services:
       - --load-format
       - fastsafetensors
       - --enforce-eager
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface

@@ -445,7 +445,6 @@ services:
       - "16"
       - --max-model-len
       - "128000"
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -481,7 +480,6 @@ services:
     networks:
       - default
       - vllm_internal
-
 
 
 

@@ -29,7 +29,6 @@ services:
       - modelopt_fp4
       - --kv-cache-dtype
       - fp8
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -99,7 +98,6 @@ services:
       - compressed-tensors
       - --kv-cache-dtype
       - fp8
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -169,7 +167,6 @@ services:
       - compressed-tensors
       - --kv-cache-dtype
       - fp8
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -209,4 +206,3 @@ services:
     networks:
       - default
       - vllm_internal
-

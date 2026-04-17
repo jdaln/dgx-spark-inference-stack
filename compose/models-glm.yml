@@ -28,7 +28,6 @@ services:
       - compressed-tensors
       - --kv-cache-dtype
       - fp8
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -99,7 +98,6 @@ services:
       - compressed-tensors
       - --kv-cache-dtype
       - fp8
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -169,7 +167,6 @@ services:
       - compressed-tensors
       - --kv-cache-dtype
       - fp8
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -237,7 +234,6 @@ services:
       - --max-num-seqs
       - "8"
       - --trust-remote-code
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface

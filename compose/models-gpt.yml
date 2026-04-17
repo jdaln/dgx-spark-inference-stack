@@ -40,7 +40,6 @@ services:
       - --load-format
       - fastsafetensors
       - --disable-log-stats
-      - --disable-log-requests
       - --enable-auto-tool-choice
       - --tool-call-parser
       - openai
@@ -136,7 +135,6 @@ services:
       - --load-format
       - fastsafetensors
       - --disable-log-stats
-      - --disable-log-requests
       - --enable-auto-tool-choice
       - --tool-call-parser
       - openai
@@ -190,4 +188,3 @@ services:
     networks:
       - default
       - vllm_internal
-

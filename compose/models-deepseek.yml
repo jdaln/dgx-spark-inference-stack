@@ -26,7 +26,6 @@ services:
       - "16"
       - --trust-remote-code
       - --enforce-eager
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -90,7 +89,6 @@ services:
       - "16"
       - --trust-remote-code
       - --enforce-eager
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -156,7 +154,6 @@ services:
       - "0"
       - --max-model-len
       - "32768"
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -193,4 +190,3 @@ services:
     networks:
       - default
       - vllm_internal
-

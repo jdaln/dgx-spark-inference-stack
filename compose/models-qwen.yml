@@ -31,7 +31,6 @@ services:
       - fp8
       - --max-model-len
       - "131072"
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -93,7 +92,6 @@ services:
       - bfloat16
       - --max-model-len
       - "8192"
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -156,7 +154,6 @@ services:
       - --max-model-len
       - "32768"
       - --trust-remote-code
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -223,7 +220,6 @@ services:
       - --tool-call-parser
       - hermes
       - --enforce-eager
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -288,7 +284,6 @@ services:
       - "16"
       - --max-model-len
       - "32768"
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -347,7 +342,6 @@ services:
       - "3"
       - --max-model-len
       - "4096"
-      - --disable-log-requests
       - --disable-log-stats
    # ports: ["8000:8000"]
     volumes:
@@ -408,7 +402,6 @@ services:
       - fastsafetensors
       - --max-model-len
       - "32768"
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -474,7 +467,6 @@ services:
       - --trust-remote-code
       - --quantization
       - modelopt_fp4
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface

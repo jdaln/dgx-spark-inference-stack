@@ -34,7 +34,6 @@ services:
       - --tool-call-parser
       - "hermes"
       - --enforce-eager
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -103,7 +102,6 @@ services:
       - --tool-call-parser
       - "hermes"
       - --enforce-eager
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -371,7 +369,6 @@ services:
       - modelopt_fp4
       - --enforce-eager
       - --trust-remote-code
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -446,7 +443,6 @@ services:
       - "{% for message in messages %}{{'<|' + message['role'] + '|>' + '\n' + message['content'] + '<|end|>\n' }}{% endfor %}{% if add_generation_prompt %}{{ '<|assistant|>\n' }}{% endif %}"
       - --enforce-eager
       - --trust-remote-code
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -526,7 +522,6 @@ services:
       # - nano_v3
       - --kv-cache-dtype
       - fp8
-      - --disable-log-requests
       - --disable-log-stats
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
@@ -621,4 +616,3 @@ services:
   #   networks:
   #     - default
   #     - vllm_internal
-

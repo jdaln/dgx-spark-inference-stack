@@ -105,12 +105,14 @@ Only after that should you tighten client-facing limits, update docs, or conside
 
 No changes to `gateway.conf` are needed for normal model additions. All `/v1/` traffic is routed through request-validator, which uses `models.json` plus the shared loader to resolve the target model.
 
-## Disabling Single-Tenant Mode
+## Changing Scheduler Policy
 
-To allow multiple models simultaneously:
-- Remove the busy check logic in `waker/index.js` (`getRunningManagedExcept`)
-- Ensure sufficient GPU memory for multiple models
-- Adjust `--gpu-memory-utilization` accordingly
+The current default is not pure single-tenancy. Waker ignores the configured `lifecycle: "utility"` container during busy checks, which means the small helper can coexist with one main model while the rest of the stack still behaves as a single main-model lane.
+
+If you want broader multi-model concurrency:
+- Rework the busy-check path in `waker/index.js`, not just one call site. The current behavior comes from the utility container being excluded from the managed set before `getRunningManagedExcept()` runs.
+- Re-validate per-model `--gpu-memory-utilization` totals first. On this host, the practical combined budget for concurrently loaded substantial main models is only about `0.94`.
+- Decide what should happen to the current `exclusive` and `utility` lifecycle rules before enabling concurrent main models.
 
 ## Persistent Model Keep-Alive
 

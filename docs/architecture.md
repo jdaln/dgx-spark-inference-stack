@@ -6,9 +6,9 @@ The stack consists of four main components:
 
 2. **Waker Service** (always running)
    - Node.js service that manages model container lifecycle.
-   - Implements single-tenant scheduling (one model at a time).
+   - Enforces one active main-model lane while ignoring the configured utility helper for busy checks.
    - Handles health checks and automatic startup/shutdown.
-   - **Priority Scheduling**: Configured "Exclusive" models (e.g., 120B) can automatically stop the current "Small/Utility" helper to free up resources in order to fit.
+   - **Priority Scheduling**: Configured "Exclusive" models can automatically stop the utility helper to free up resources when needed.
    - Provides debug endpoints for monitoring.
 
 3. **Request Validator** (always running)
@@ -51,7 +51,14 @@ The stack consists of four main components:
 │   ├── index.js                # Validation, token capping, model routing
 │   └── package.json
 ├── custom-docker-containers/   # Custom vLLM image build contexts
-├── debugging/                  # Debug tools (proxy, test scripts)
+├── tools/                      # Supported validation harness, probes, and workarounds
+│   ├── README.md
+│   ├── run-model.sh
+│   ├── smoke-gateway.sh
+│   ├── soak-context.mjs
+│   ├── test-model.py
+│   ├── streaming-proxy/
+│   └── legacy/
 ├── docs/                       # Documentation
 ├── models/                     # Model download cache (created at runtime)
 ├── vllm_cache_huggingface/     # HuggingFace cache (created at runtime)
@@ -67,7 +74,8 @@ The stack consists of four main components:
 2. Nginx proxies all `/v1/` traffic to the **request validator** (port 18081)
 3. Request validator reads the `model` field from the request body, then calls the **waker**: `POST /ensure/qwen-math`
 4. Waker checks:
-   - Is another model running? → Return 429 with detailed info
+   - Is another managed main-model container already running? → Return 429 with detailed info
+   - If the requested model is `lifecycle: "exclusive"` and the utility helper is running, stop the utility helper first
    - Is qwen-math already running? → Check health
    - Otherwise → Start container and wait for health
 5. If healthy: Waker returns 200, request validator fixes/validates the request (token capping, role alternation, tool stripping), then proxies to the vLLM container

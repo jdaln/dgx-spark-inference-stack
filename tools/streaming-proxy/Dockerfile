@@ -4,7 +4,7 @@ WORKDIR /app
 
 RUN apk add --no-cache curl
 
-RUN pip install --no-cache-dir fastapi uvicorn httpx
+RUN pip install --no-cache-dir fastapi httpx uvicorn
 
 COPY proxy.py .
 

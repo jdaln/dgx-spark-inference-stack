@@ -1,5 +1,7 @@
 # Troubleshooting & Monitoring
 
+Use [tools/README.md](../tools/README.md) for the maintained probe and validation commands. This page focuses on failure modes and what the outputs mean.
+
 ## Monitoring and Debugging
 
 ### Check waker state
@@ -175,3 +177,32 @@ sudo swapon -a
 - Verify the model is listed in `models.json`
 - If the model was added recently, run `bash tools/reload-control-plane.sh` so `waker` and `request-validator` reload `models.json`
 - If you changed which model is marked `lifecycle: "utility"`, use `bash tools/reload-control-plane.sh --stop-stale-utility` to also stop the old helper if it is still running
+
+#### Tool calls show up in `content` or `reasoning` instead of `tool_calls`
+- First confirm the behavior with a non-streaming probe before blaming the client transport:
+
+```bash
+python3 tools/test-model.py --model <model-id> --tool-call
+```
+
+- If the response contains raw `<tool_call>...</tool_call>` text in `message.content` or `message.reasoning` while `message.tool_calls` is empty, the model's emitted format does not match the configured parser.
+- In this repo, general instruct-family models that emit Hermes-style `<tool_call>` blocks, including the Qwen3-Next variants in `compose/models-experimental.yml`, should use `--tool-call-parser hermes`.
+- Reserve `qwen3_coder` or `qwen3_xml` for the Qwen coder / distilled families that actually emit those formats. The current compose files already split those cases that way.
+- If the payload is being captured inside `reasoning`, also verify that the configured `--reasoning-parser` is appropriate for that checkpoint before changing client code.
+- After changing parser flags, rerun `bash tools/validate-stack.sh` and a non-streaming tool-call probe before testing streaming clients again.
+
+#### Streaming client breaks while non-streaming works
+- Some clients are stricter about SSE delta shape for tool calls than the plain non-streaming OpenAI response.
+- First compare against a non-streaming probe. If non-streaming works and only streaming breaks, the problem may be client-side SSE/tool-call expectations rather than the model output itself.
+- The repo keeps an optional compatibility shim in `tools/streaming-proxy/` that converts a successful non-streaming tool-call response back into SSE.
+
+```bash
+docker build -t vllm-streaming-proxy -f tools/streaming-proxy/Dockerfile tools/streaming-proxy
+
+docker run --rm -p 9000:9000 \
+  --add-host host.docker.internal:host-gateway \
+  -e UPSTREAM_BASE=http://host.docker.internal:8009/v1 \
+  vllm-streaming-proxy
+```
+
+- Then point the affected client at `http://localhost:9000/v1` instead of the normal gateway.

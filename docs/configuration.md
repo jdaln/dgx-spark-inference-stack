@@ -47,6 +47,16 @@ For long first cold starts, also keep these distinctions in mind:
 - **Custom Tokenizers**: Support for custom tiktoken encodings
 - **Persistent Cache**: HuggingFace cache persisted to `./vllm_cache_huggingface`
 
+## Operational Entry Points
+
+Use these repo-level tools instead of one-off shell snippets when you are modifying or validating the stack:
+
+- `bash tools/validate-stack.sh` after structural changes to compose fragments or `models.json`
+- `bash tools/reload-control-plane.sh` after inventory or lifecycle changes that only affect `waker` or `request-validator`
+- `bash tools/run-model.sh --no-build <model-id>` for controlled manual bring-up under the current scheduler rules
+- `bash tools/smoke-gateway.sh` for the standard gateway-path smoke matrix
+- `node tools/soak-context.mjs ...` to establish a real prompt ceiling on this host
+
 ## Network Configuration
 
 The stack uses two Docker networks:

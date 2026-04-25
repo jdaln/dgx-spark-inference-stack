@@ -35,7 +35,7 @@ To use this stack with the [Cline](https://github.com/cline/cline) VS Code exten
 | `qwen2.5-vl-7b` | `32768` | Cheapest practical VL |
 | `glm-4-9b-chat` | `32768` | Cheap chat, lightweight assistant |
 | `qwen2.5-coder-7b-instruct` | `32768` | Budget coding assistant |
-| `qwen3.5-0.8b` | `8192` | Validated small utility helper for titles/classification |
+| `qwen3.5-0.8b` | `32768` | Validated small utility helper for titles/classification |
 | `qwen-math` | `4096` | Math specialist |
 
 > [!IMPORTANT]

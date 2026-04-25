@@ -3,7 +3,7 @@
 🌍 **Read this in other languages**:
 [Deutsch](README_DE.md) | [Español](README_ES.md) | [Français](README_FR.md) | [Italiano](README_IT.md) | [日本語](README_JA.md) | [简体中文](README_ZH_CN.md) | [繁體中文](README_ZH_TW.md) | [Русский](README_RU.md) | [Українська](README_UK.md) | [Português](README_PT.md) | [한국어](README_KO.md) | [العربية](README_AR.md) | [Tiếng Việt](README_VI.md) | [Türkçe](README_TR.md)
 
-Your Nvidia DGX Spark should not be another side project. Start using it! This is a Docker-based inference stack for serving large language models (LLMs) using NVIDIA vLLM with intelligent resource management. This stack provides on-demand model loading with automatic idle shutdown, single-tenant GPU scheduling, and a unified API gateway.
+Your Nvidia DGX Spark should not be another side project. Start using it! This is a Docker-based inference stack for serving large language models (LLMs) using NVIDIA vLLM with intelligent resource management. This stack provides on-demand model loading with automatic idle shutdown, a single main-model scheduling lane with an optional utility helper, and a unified API gateway.
 
 The goal of the project is to provide an inference server for your home. After testing this and adding new models for a month, I decided to release it for the community. Please understand that this is a hobby project and that concrete help to improve it is highly appreciated. It is based on information I found on the Internet and on the NVIDIA Forums, I really hope it helps driving forward homelabs. This is mainly focused on the single DGX Spark setup and must work on it by default but adding support for 2 is welcome.
 
@@ -16,6 +16,8 @@ The goal of the project is to provide an inference server for your home. After t
 - **[Security & Remote Access](docs/security.md)** - Hardening SSH and setting up restricted port forwarding.
 - **[Troubleshooting & Monitoring](docs/troubleshooting.md)** - Debugging, logs, and common error solutions.
 - **[Advanced Usage](docs/advanced.md)** - Adding new models, custom configurations, and persistent operation.
+- **[Runtime Baseline](docs/runtime-baseline.md)** - Which local image tracks the repo expects and how to rebuild them.
+- **[Tools & Validation Harness](tools/README.md)** - The supported smoke, soak, inspection, and manual probe scripts.
 - **[TODO Notes](TODO.md)** - Ideas I have for what to do next. 
 
 ## Quick Start
@@ -83,6 +85,20 @@ The goal of the project is to provide an inference server for your home. After t
        "messages": [{"role": "user", "content": "Hello!"}]
      }'
    ```
+
+7. **Use the supported validation harness**
+   After the first manual curl succeeds, switch to the repo's maintained bring-up flow instead of ad hoc scripts:
+   ```bash
+   bash tools/validate-stack.sh
+   bash tools/smoke-gateway.sh
+   ```
+   For model-specific bring-up, smoke, soak, and manual probe commands, see [tools/README.md](tools/README.md).
+
+## Start Here If You Are New
+
+- Read [README.md](README.md), then [docs/architecture.md](docs/architecture.md), then [tools/README.md](tools/README.md).
+- Treat [tools/README.md](tools/README.md) plus [models.json](models.json) as the current operational source of truth.
+- Treat models outside the validated set in this README as experimental until the harness says otherwise.
 
 ## Prerequisites
 - Docker 20.10+ with Docker Compose

@@ -118,6 +118,32 @@ Choose the right model for your task to balance performance and speed.
   - **Strengths:** better step-by-step reliability than the instruct version
   - **Tradeoffs:** typically uses more tokens / slower per answer
 
+### Qwen 3.6 official baselines
+
+- `vllm-qwen3.6-27b-fp8` → served as **`qwen3.6-27b-fp8`**
+  - **Type:** official Qwen 3.6 dense FP8 baseline
+  - **Best for:** upstream-tested general chat, coding, and tool-use experiments
+  - **Strengths:** mirrors Spark Arena's tested DGX Spark recipe shape closely, including the 262K context target, FP8 KV cache, FlashInfer attention, and Qwen tool/reasoning parsers; local gateway checks now confirm healthy startup, visible plain-text answers, structured `tool_calls`, and explicit thinking
+  - **Tradeoffs:** still experimental on this repo; the local mirror swaps the upstream nightly image for the repo's TF5 baseline, keeps non-thinking as the default gateway/OpenCode mode for reliable visible output, and needs a larger completion budget when deliberate thinking is enabled
+
+- `vllm-qwen3.6-27b-fp8-mtp` → served as **`qwen3.6-27b-fp8-mtp`**
+  - **Type:** official Qwen 3.6 dense FP8 baseline with MTP speculative decoding
+  - **Best for:** latency experiments against the 27B baseline without changing the base checkpoint
+  - **Strengths:** keeps the upstream-tested `mtp` speculative path with `2` speculative tokens, and the local gateway path now confirms visible plain-text answers, default tool calling, and explicit thinking
+  - **Tradeoffs:** still experimental and not yet benchmarked locally for latency wins; explicit thinking plus tool use needs a much larger completion budget because the model can spend hundreds of tokens on its reasoning trace before emitting the final tool call
+
+- `vllm-qwen3.6-35b-a3b-fp8` → served as **`qwen3.6-35b-a3b-fp8`**
+  - **Type:** official Qwen 3.6 A3B FP8 MoE baseline
+  - **Best for:** larger Qwen 3.6 chat / coding experiments using the tested Spark Arena recipe defaults
+  - **Strengths:** mirrors the tested 262K single-GPU recipe with the same Qwen parser stack and local runtime/template wrappers; local gateway checks now confirm healthy startup, visible plain-text answers, structured `tool_calls`, explicit high reasoning, an isolated 5-way soak at about `238644` prompt tokens, and successful coexistence with the `qwen3.5-0.8b` utility helper after the local memory envelope was tuned to `0.84`
+  - **Tradeoffs:** still experimental on this repo because the local memory envelope now intentionally diverges from the upstream `0.80` recipe and restart stability still needs more cycling; like the 27B lane, deliberate thinking needs a larger completion budget than plain non-thinking responses
+
+- `vllm-qwen3.6-35b-a3b-fp8-mtp` → served as **`qwen3.6-35b-a3b-fp8-mtp`**
+  - **Type:** official Qwen 3.6 A3B FP8 MoE baseline with MTP speculative decoding
+  - **Best for:** trying the upstream speculative-decoding recipe on the larger Qwen 3.6 A3B lane
+  - **Strengths:** preserves the upstream `mtp` decoding config while keeping the same local image and wrapper mapping as the non-MTP variant; local gateway checks now confirm healthy startup, visible plain-text answers, structured `tool_calls`, explicit high reasoning, an isolated 5-way soak at about `238644` prompt tokens, and coexistence with the `qwen3.5-0.8b` utility helper at the tuned `0.84` envelope; on the 5-way soak it cut average request time from about `87.6s` to `37.2s` and raised observed completion throughput from about `9.0` to `16.9` tokens/s, and on a simpler 1-way repeated benchmark it still beat the tuned baseline at about `20.7s` vs. `25.1s` and `33.0` vs. `28.9` completion tokens/s
+  - **Tradeoffs:** still experimental because the local memory envelope now intentionally diverges from the upstream `0.80` recipe and the observed win should still be rechecked after more restart cycling; deliberate thinking/tool use may still need a larger completion budget than the plain-text path
+
 ### Vision-Language (VL)
 
 - `vllm-qwen3-vl-32b-fp4` → served as **`qwen3-vl-32b-instruct-fp4`**

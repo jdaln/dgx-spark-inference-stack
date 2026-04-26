@@ -124,6 +124,266 @@ services:
         - import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5).read()
       start_period: 1800s
 
+  vllm-qwen3.6-27b-fp8:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+    container_name: vllm-qwen3.6-27b-fp8
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-moe-runtime/run.sh
+    command:
+      - vllm
+      - serve
+      - Qwen/Qwen3.6-27B-FP8
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - qwen3.6-27b-fp8
+      - --max-model-len
+      - "${QWEN36_27B_FP8_MAX_MODEL_LEN:-262144}"
+      - --max-num-batched-tokens
+      - "${QWEN36_27B_FP8_MAX_NUM_BATCHED_TOKENS:-32768}"
+      - --trust-remote-code
+      - --chat-template
+      - /workspace/unsloth.jinja
+      - --gpu-memory-utilization
+      - "${QWEN36_27B_FP8_GPU_MEMORY_UTILIZATION:-0.80}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - instanttensor
+      - --attention-backend
+      - flashinfer
+      - --disable-uvicorn-access-log
+      - --disable-log-stats
+      - --enable-prefix-caching
+      - --tensor-parallel-size
+      - "${QWEN36_27B_FP8_TENSOR_PARALLEL_SIZE:-1}"
+      - --pipeline-parallel-size
+      - "${QWEN36_27B_FP8_PIPELINE_PARALLEL_SIZE:-1}"
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3-coder-next:/workspace/mods/fix-qwen3-coder-next:ro
+      - ../mods/fix-qwen3.5-chat-template:/workspace/mods/fix-qwen3.5-chat-template:ro
+      - ../mods/fix-qwen3.5-moe-runtime:/workspace/mods/fix-qwen3.5-moe-runtime:ro
+    environment:
+      <<: *env-common
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+      QWEN35_CHAT_TEMPLATE_MODEL_ID: Qwen/Qwen3.5-0.8B
+      QWEN35_CHAT_TEMPLATE_CACHE_ROOT: /models
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-qwen3.6-27b-fp8-mtp:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+    container_name: vllm-qwen3.6-27b-fp8-mtp
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-moe-runtime/run.sh
+    command:
+      - vllm
+      - serve
+      - Qwen/Qwen3.6-27B-FP8
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - qwen3.6-27b-fp8-mtp
+      - --max-model-len
+      - "${QWEN36_27B_FP8_MTP_MAX_MODEL_LEN:-262144}"
+      - --max-num-batched-tokens
+      - "${QWEN36_27B_FP8_MTP_MAX_NUM_BATCHED_TOKENS:-32768}"
+      - --trust-remote-code
+      - --chat-template
+      - /workspace/unsloth.jinja
+      - --gpu-memory-utilization
+      - "${QWEN36_27B_FP8_MTP_GPU_MEMORY_UTILIZATION:-0.80}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - instanttensor
+      - --attention-backend
+      - flashinfer
+      - --disable-uvicorn-access-log
+      - --disable-log-stats
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":2}'
+      - --enable-prefix-caching
+      - --tensor-parallel-size
+      - "${QWEN36_27B_FP8_MTP_TENSOR_PARALLEL_SIZE:-1}"
+      - --pipeline-parallel-size
+      - "${QWEN36_27B_FP8_MTP_PIPELINE_PARALLEL_SIZE:-1}"
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3-coder-next:/workspace/mods/fix-qwen3-coder-next:ro
+      - ../mods/fix-qwen3.5-chat-template:/workspace/mods/fix-qwen3.5-chat-template:ro
+      - ../mods/fix-qwen3.5-moe-runtime:/workspace/mods/fix-qwen3.5-moe-runtime:ro
+    environment:
+      <<: *env-common
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+      QWEN35_CHAT_TEMPLATE_MODEL_ID: Qwen/Qwen3.5-0.8B
+      QWEN35_CHAT_TEMPLATE_CACHE_ROOT: /models
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-qwen3.6-35b-a3b-fp8:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+    container_name: vllm-qwen3.6-35b-a3b-fp8
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-moe-runtime/run.sh
+    command:
+      - vllm
+      - serve
+      - Qwen/Qwen3.6-35B-A3B-FP8
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - qwen3.6-35b-a3b-fp8
+      - --max-model-len
+      - "${QWEN36_35B_A3B_FP8_MAX_MODEL_LEN:-262144}"
+      - --max-num-batched-tokens
+      - "${QWEN36_35B_A3B_FP8_MAX_NUM_BATCHED_TOKENS:-32768}"
+      - --trust-remote-code
+      - --chat-template
+      - /workspace/unsloth.jinja
+      - --gpu-memory-utilization
+      - "${QWEN36_35B_A3B_FP8_GPU_MEMORY_UTILIZATION:-0.84}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - instanttensor
+      - --attention-backend
+      - flashinfer
+      - --disable-uvicorn-access-log
+      - --disable-log-stats
+      - --enable-prefix-caching
+      - --tensor-parallel-size
+      - "${QWEN36_35B_A3B_FP8_TENSOR_PARALLEL_SIZE:-1}"
+      - --pipeline-parallel-size
+      - "${QWEN36_35B_A3B_FP8_PIPELINE_PARALLEL_SIZE:-1}"
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3-coder-next:/workspace/mods/fix-qwen3-coder-next:ro
+      - ../mods/fix-qwen3.5-chat-template:/workspace/mods/fix-qwen3.5-chat-template:ro
+      - ../mods/fix-qwen3.5-moe-runtime:/workspace/mods/fix-qwen3.5-moe-runtime:ro
+    environment:
+      <<: *env-common
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+      QWEN35_CHAT_TEMPLATE_MODEL_ID: Qwen/Qwen3.5-0.8B
+      QWEN35_CHAT_TEMPLATE_CACHE_ROOT: /models
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-qwen3.6-35b-a3b-fp8-mtp:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+    container_name: vllm-qwen3.6-35b-a3b-fp8-mtp
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-moe-runtime/run.sh
+    command:
+      - vllm
+      - serve
+      - Qwen/Qwen3.6-35B-A3B-FP8
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - qwen3.6-35b-a3b-fp8-mtp
+      - --max-model-len
+      - "${QWEN36_35B_A3B_FP8_MTP_MAX_MODEL_LEN:-262144}"
+      - --max-num-batched-tokens
+      - "${QWEN36_35B_A3B_FP8_MTP_MAX_NUM_BATCHED_TOKENS:-32768}"
+      - --trust-remote-code
+      - --chat-template
+      - /workspace/unsloth.jinja
+      - --gpu-memory-utilization
+      - "${QWEN36_35B_A3B_FP8_MTP_GPU_MEMORY_UTILIZATION:-0.84}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - instanttensor
+      - --attention-backend
+      - flashinfer
+      - --disable-uvicorn-access-log
+      - --disable-log-stats
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":2}'
+      - --enable-prefix-caching
+      - --tensor-parallel-size
+      - "${QWEN36_35B_A3B_FP8_MTP_TENSOR_PARALLEL_SIZE:-1}"
+      - --pipeline-parallel-size
+      - "${QWEN36_35B_A3B_FP8_MTP_PIPELINE_PARALLEL_SIZE:-1}"
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3-coder-next:/workspace/mods/fix-qwen3-coder-next:ro
+      - ../mods/fix-qwen3.5-chat-template:/workspace/mods/fix-qwen3.5-chat-template:ro
+      - ../mods/fix-qwen3.5-moe-runtime:/workspace/mods/fix-qwen3.5-moe-runtime:ro
+    environment:
+      <<: *env-common
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+      QWEN35_CHAT_TEMPLATE_MODEL_ID: Qwen/Qwen3.5-0.8B
+      QWEN35_CHAT_TEMPLATE_CACHE_ROOT: /models
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
   vllm-qwen35-122b-autoround:
     <<: *model-profiled
     image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}

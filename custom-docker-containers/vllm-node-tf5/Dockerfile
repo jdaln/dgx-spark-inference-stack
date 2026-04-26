@@ -37,4 +37,5 @@ RUN rm -rf /tmp/vllm && \
     python3 /tmp/patch_cache_kernels.py /tmp/vllm && \
     python3 use_existing_torch.py && \
     uv pip install -r requirements/build.txt && \
-    uv pip install --no-build-isolation --no-deps .
+    uv pip install --no-build-isolation --no-deps . && \
+    uv pip install "instanttensor>=0.1.5"

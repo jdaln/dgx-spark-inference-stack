@@ -10,9 +10,11 @@
 // 8. Forces `tool_choice: required` for models that ignore tools with "auto" (Qwen3-Coder, Qwen2.5-Coder).
 // 9. Fixes role alternation for Gemma/Llama models requiring strict user/assistant turns.
 // 10. Disables hidden thinking by default for models whose reasoning parser otherwise consumes the visible answer budget.
-// 11. Proxies the final, validated request to the correct vLLM container.
+// 11. Translates OpenCode-style reasoning-effort controls into binary Qwen thinking flags on the Qwen 3.6 lanes.
+// 12. Proxies the final, validated request to the correct vLLM container.
 
 import http from "node:http";
+import { pathToFileURL } from "node:url";
 import { loadModelsConfig } from "../shared/models-config.mjs";
 
 const PORT = Number(process.env.PORT || 18081);
@@ -70,8 +72,128 @@ const DEFAULT_NON_THINKING_MODELS = new Set([
   "glm-4.7-flash-awq",
   "nemotron-3-nano-30b-nvfp4",
   "huihui-qwen3.5-35b-a3b-abliterated",
-  "qwen3.5-122b-a10b-int4-autoround"
+  "qwen3.5-122b-a10b-int4-autoround",
+  "qwen3.6-27b-fp8",
+  "qwen3.6-27b-fp8-mtp",
+  "qwen3.6-35b-a3b-fp8",
+  "qwen3.6-35b-a3b-fp8-mtp"
 ]);
+
+const OPENCODE_BINARY_REASONING_MODELS = new Set([
+  "qwen3.6-27b-fp8",
+  "qwen3.6-27b-fp8-mtp",
+  "qwen3.6-35b-a3b-fp8",
+  "qwen3.6-35b-a3b-fp8-mtp"
+]);
+
+const SMALL_CONTEXT_BUFFER_MODELS = new Set([
+  "qwen3.6-27b-fp8",
+  "qwen3.6-27b-fp8-mtp",
+  "qwen3.6-35b-a3b-fp8",
+  "qwen3.6-35b-a3b-fp8-mtp"
+]);
+
+const RECOGNIZED_REASONING_EFFORTS = new Set([
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "auto"
+]);
+
+function getRequestedReasoningEffort(data) {
+  if (!data || typeof data !== "object") {
+    return null;
+  }
+
+  if (typeof data.reasoning_effort === "string") {
+    return data.reasoning_effort.trim().toLowerCase();
+  }
+
+  if (typeof data.reasoningEffort === "string") {
+    return data.reasoningEffort.trim().toLowerCase();
+  }
+
+  if (
+    data.reasoning &&
+    typeof data.reasoning === "object" &&
+    !Array.isArray(data.reasoning) &&
+    typeof data.reasoning.effort === "string"
+  ) {
+    return data.reasoning.effort.trim().toLowerCase();
+  }
+
+  return null;
+}
+
+function stripReasoningEffortFields(data) {
+  delete data.reasoning_effort;
+  delete data.reasoningEffort;
+
+  if (data.reasoning && typeof data.reasoning === "object" && !Array.isArray(data.reasoning)) {
+    const { effort, ...rest } = data.reasoning;
+    if (effort !== undefined) {
+      if (Object.keys(rest).length === 0) {
+        delete data.reasoning;
+      } else {
+        data.reasoning = rest;
+      }
+    }
+  }
+}
+
+function applyOpenCodeReasoningEffort(targetConfig, data) {
+  const reasoningEffort = getRequestedReasoningEffort(data);
+  if (!reasoningEffort) {
+    return;
+  }
+
+  if (!targetConfig || !OPENCODE_BINARY_REASONING_MODELS.has(targetConfig.modelId)) {
+    return;
+  }
+
+  stripReasoningEffortFields(data);
+
+  if (data.thinking !== undefined) {
+    log(`Preserving explicit thinking flag for ${data.model}; ignoring reasoning_effort=${reasoningEffort}`);
+    return;
+  }
+
+  const chatTemplateKwargs =
+    data.chat_template_kwargs && typeof data.chat_template_kwargs === "object" && !Array.isArray(data.chat_template_kwargs)
+      ? data.chat_template_kwargs
+      : {};
+
+  if (chatTemplateKwargs.enable_thinking !== undefined || chatTemplateKwargs.thinking !== undefined) {
+    log(`Preserving explicit chat_template_kwargs thinking flags for ${data.model}; ignoring reasoning_effort=${reasoningEffort}`);
+    return;
+  }
+
+  if (!RECOGNIZED_REASONING_EFFORTS.has(reasoningEffort)) {
+    log(`Ignoring unsupported reasoning_effort=${reasoningEffort} for ${data.model}`);
+    return;
+  }
+
+  const enableThinking = reasoningEffort !== "none";
+  data.thinking = enableThinking;
+  data.chat_template_kwargs = {
+    ...chatTemplateKwargs,
+    enable_thinking: enableThinking,
+    thinking: enableThinking
+  };
+  log(`Mapped reasoning_effort=${reasoningEffort} to binary thinking=${enableThinking} for ${data.model}`);
+}
+
+function getTokenSafetyBuffer(targetConfig, maxModelLen) {
+  if (targetConfig && SMALL_CONTEXT_BUFFER_MODELS.has(targetConfig.modelId)) {
+    return 4096;
+  }
+
+  return Math.max(512, Math.floor(maxModelLen * 0.1));
+}
 
 function shouldDisableThinkingByDefault(targetConfig, data) {
   if (!targetConfig || !DEFAULT_NON_THINKING_MODELS.has(targetConfig.modelId)) {
@@ -275,7 +397,7 @@ function processBody(body, targetConfig, url) {
           const lastRole = fixedMessages[fixedMessages.length - 1].role;
           if (lastRole === msg.role) {
             // Insert a placeholder message to fix alternation
-            const placeholderRole = lastRole === "user" ? "assistant" : "user";
+            const placeholderRole = lastRoTestle === "user" ? "assistant" : "user";
             const placeholderContent = placeholderRole === "assistant" ? "Understood." : "Continue.";
             log(`Inserting ${placeholderRole} placeholder to fix alternation for ${data.model}`);
             fixedMessages.push({ role: placeholderRole, content: placeholderContent });
@@ -288,7 +410,7 @@ function processBody(body, targetConfig, url) {
 
     const maxModelLen = targetConfig?.maxModelLen || 131072; // Default fallback
     const estimatedInput = estimateInputTokens(data);
-    const safetyBuffer = Math.max(512, Math.floor(maxModelLen * 0.1));
+    const safetyBuffer = getTokenSafetyBuffer(targetConfig, maxModelLen);
     const availableTokens = maxModelLen - estimatedInput - safetyBuffer;
     const optimalMaxTokens = Math.max(1, availableTokens);
 
@@ -345,6 +467,8 @@ function processBody(body, targetConfig, url) {
       }
     }
 
+    applyOpenCodeReasoningEffort(targetConfig, data);
+
     if (shouldDisableThinkingByDefault(targetConfig, data)) {
       const chatTemplateKwargs =
         data.chat_template_kwargs && typeof data.chat_template_kwargs === "object" && !Array.isArray(data.chat_template_kwargs)
@@ -364,6 +488,14 @@ function processBody(body, targetConfig, url) {
     warn("Failed to parse or process JSON body:", e.message);
     return body; // Return original body on failure
   }
+}
+
+function isMainModule() {
+  if (!process.argv[1]) {
+    return false;
+  }
+
+  return import.meta.url === pathToFileURL(process.argv[1]).href;
 }
 
 // Proxy request to the final vLLM container
@@ -474,9 +606,13 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.setTimeout(0);
-server.listen(PORT, () => {
-  log(`Request validator listening on port ${PORT}`);
-  log(`Loaded models config from ${MODELS_CONFIG_PATH}`);
-  log(`Configured models: ${Object.keys(MODEL_CONFIG).length}`);
-});
+export { processBody };
+
+if (isMainModule()) {
+  server.setTimeout(0);
+  server.listen(PORT, () => {
+    log(`Request validator listening on port ${PORT}`);
+    log(`Loaded models config from ${MODELS_CONFIG_PATH}`);
+    log(`Configured models: ${Object.keys(MODEL_CONFIG).length}`);
+  });
+}

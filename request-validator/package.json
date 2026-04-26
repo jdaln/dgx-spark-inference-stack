@@ -5,7 +5,8 @@
   "description": "Request validator middleware to fix negative max_tokens",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node --test"
   },
   "keywords": [],
   "author": "",

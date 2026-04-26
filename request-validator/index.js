@@ -145,6 +145,7 @@ function stripReasoningEffortFields(data) {
   }
 }
 
+
 function applyOpenCodeReasoningEffort(targetConfig, data) {
   const reasoningEffort = getRequestedReasoningEffort(data);
   if (!reasoningEffort) {
@@ -152,6 +153,12 @@ function applyOpenCodeReasoningEffort(targetConfig, data) {
   }
 
   if (!targetConfig || !OPENCODE_BINARY_REASONING_MODELS.has(targetConfig.modelId)) {
+    return;
+  }
+
+  if (!RECOGNIZED_REASONING_EFFORTS.has(reasoningEffort)) {
+    stripReasoningEffortFields(data);
+    log(`Ignoring unsupported reasoning_effort=${reasoningEffort} for ${data.model}`);
     return;
   }
 
@@ -169,11 +176,6 @@ function applyOpenCodeReasoningEffort(targetConfig, data) {
 
   if (chatTemplateKwargs.enable_thinking !== undefined || chatTemplateKwargs.thinking !== undefined) {
     log(`Preserving explicit chat_template_kwargs thinking flags for ${data.model}; ignoring reasoning_effort=${reasoningEffort}`);
-    return;
-  }
-
-  if (!RECOGNIZED_REASONING_EFFORTS.has(reasoningEffort)) {
-    log(`Ignoring unsupported reasoning_effort=${reasoningEffort} for ${data.model}`);
     return;
   }
 

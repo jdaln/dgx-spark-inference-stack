@@ -105,6 +105,7 @@ test("Qwen camelCase reasoningEffort high enables thinking", () => {
   assert.equal(result.thinking, true);
   assert.equal(result.chat_template_kwargs.enable_thinking, true);
   assert.equal(result.chat_template_kwargs.thinking, true);
+  assert.deepEqual(result.messages, [{ role: "user", content: "Think, then reply with exactly HIGH" }]);
 });
 
 test("non-Qwen reasoning effort fields are preserved", () => {

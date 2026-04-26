@@ -85,6 +85,26 @@
                         "output": 8192
                     }
                 },
+                "qwen3.6-35b-a3b-fp8": {
+                    "name": "Qwen 3.6 35B A3B FP8",
+                    "reasoning": true,
+                    "tool_call": true,
+                    "experimental": true,
+                    "limit": {
+                        "context": 240000,
+                        "output": 8192
+                    }
+                },
+                "qwen3.6-35b-a3b-fp8-mtp": {
+                    "name": "Qwen 3.6 35B A3B FP8 MTP",
+                    "reasoning": true,
+                    "tool_call": true,
+                    "experimental": true,
+                    "limit": {
+                        "context": 240000,
+                        "output": 8192
+                    }
+                },
                 "qwen3-coder-next-int4-autoround": {
                     "name": "Qwen3 Coder-Next AutoRound",
                     "tool_call": true,

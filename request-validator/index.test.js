@@ -40,7 +40,7 @@ test("plain Qwen chat defaults to non-thinking mode", () => {
     max_tokens: 64
   });
 
-  assert.equal(result.thinking, false);
+  assert.equal(result.thinking, undefined);
   assert.equal(result.chat_template_kwargs.enable_thinking, false);
   assert.equal(result.chat_template_kwargs.thinking, false);
   assert.equal(result.max_tokens, 64);
@@ -74,7 +74,8 @@ test("Qwen tool calls are preserved under default non-thinking mode", () => {
     max_tokens: 128
   });
 
-  assert.equal(result.thinking, false);
+  assert.equal(result.thinking, undefined);
+  assert.equal(result.chat_template_kwargs.enable_thinking, false);
   assert.equal(result.tool_choice, "auto");
   assert.deepEqual(result.tools, tools);
 });
@@ -88,7 +89,7 @@ test("Qwen snake_case reasoning_effort none disables thinking", () => {
   });
 
   assert.equal(result.reasoning_effort, undefined);
-  assert.equal(result.thinking, false);
+  assert.equal(result.thinking, undefined);
   assert.equal(result.chat_template_kwargs.enable_thinking, false);
   assert.equal(result.chat_template_kwargs.thinking, false);
 });
@@ -102,10 +103,23 @@ test("Qwen camelCase reasoningEffort high enables thinking", () => {
   });
 
   assert.equal(result.reasoningEffort, undefined);
-  assert.equal(result.thinking, true);
+  assert.equal(result.thinking, undefined);
   assert.equal(result.chat_template_kwargs.enable_thinking, true);
   assert.equal(result.chat_template_kwargs.thinking, true);
   assert.deepEqual(result.messages, [{ role: "user", content: "Think, then reply with exactly HIGH" }]);
+});
+
+test("explicit top-level Qwen thinking is normalized into chat_template_kwargs", () => {
+  const result = runProcess({
+    model: "qwen3.6-27b-fp8",
+    messages: [{ role: "user", content: "Reply with exactly READY" }],
+    thinking: false,
+    max_tokens: 64
+  });
+
+  assert.equal(result.thinking, undefined);
+  assert.equal(result.chat_template_kwargs.enable_thinking, false);
+  assert.equal(result.chat_template_kwargs.thinking, false);
 });
 
 test("non-Qwen reasoning effort fields are preserved", () => {

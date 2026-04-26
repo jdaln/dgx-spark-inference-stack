@@ -36,6 +36,12 @@ x-healthcheck-default: &healthcheck-default
   timeout: 5s
   retries: 5
 
+x-huihui-qwen36-27b-build: &huihui-qwen36-27b-build
+  context: ..
+  dockerfile: ./custom-docker-containers/vllm-node-mxfp4-qwen35/Dockerfile
+  args:
+    BASE_IMAGE: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+
 services:
   # Qwen3-Next models moved to models-experimental.yml due to GB10/CUDA 12.1 crashes
   # See README.md "Known Issues" section for details
@@ -366,6 +372,69 @@ services:
       - "${QWEN36_35B_A3B_FP8_MTP_TENSOR_PARALLEL_SIZE:-1}"
       - --pipeline-parallel-size
       - "${QWEN36_35B_A3B_FP8_MTP_PIPELINE_PARALLEL_SIZE:-1}"
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3-coder-next:/workspace/mods/fix-qwen3-coder-next:ro
+      - ../mods/fix-qwen3.5-chat-template:/workspace/mods/fix-qwen3.5-chat-template:ro
+      - ../mods/fix-qwen3.5-moe-runtime:/workspace/mods/fix-qwen3.5-moe-runtime:ro
+    environment:
+      <<: *env-common
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+      QWEN35_CHAT_TEMPLATE_MODEL_ID: Qwen/Qwen3.5-0.8B
+      QWEN35_CHAT_TEMPLATE_CACHE_ROOT: /models
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-huihui-qwen36-27b-abliterated:
+    <<: *model-profiled
+    build: *huihui-qwen36-27b-build
+    image: ${HUIHUI_QWEN36_27B_ABLITERATED_IMAGE:-vllm-node-mxfp4-qwen35}
+    container_name: vllm-huihui-qwen36-27b-abliterated
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-moe-runtime/run.sh
+    command:
+      - vllm
+      - serve
+      - huihui-ai/Huihui-Qwen3.6-27B-abliterated
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - huihui-qwen3.6-27b-abliterated
+      - --max-model-len
+      - "${HUIHUI_QWEN36_27B_ABLITERATED_MAX_MODEL_LEN:-262144}"
+      - --max-num-batched-tokens
+      - "${HUIHUI_QWEN36_27B_ABLITERATED_MAX_NUM_BATCHED_TOKENS:-16384}"
+      - --gpu-memory-utilization
+      - "${HUIHUI_QWEN36_27B_ABLITERATED_GPU_MEMORY_UTILIZATION:-0.70}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --kv-cache-dtype
+      - auto
+      - --load-format
+      - fastsafetensors
+      - --attention-backend
+      - flashinfer
+      - --enforce-eager
+      - --disable-uvicorn-access-log
+      - --disable-log-stats
+      - --enable-prefix-caching
+      - --chat-template
+      - /workspace/unsloth.jinja
+      - --tensor-parallel-size
+      - "1"
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
       - ../models:/models

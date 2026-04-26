@@ -72,6 +72,7 @@ const DEFAULT_NON_THINKING_MODELS = new Set([
   "glm-4.7-flash-awq",
   "nemotron-3-nano-30b-nvfp4",
   "huihui-qwen3.5-35b-a3b-abliterated",
+  "huihui-qwen3.6-27b-abliterated",
   "qwen3.5-122b-a10b-int4-autoround",
   "qwen3.6-27b-fp8",
   "qwen3.6-27b-fp8-mtp",
@@ -80,6 +81,7 @@ const DEFAULT_NON_THINKING_MODELS = new Set([
 ]);
 
 const OPENCODE_BINARY_REASONING_MODELS = new Set([
+  "huihui-qwen3.6-27b-abliterated",
   "qwen3.6-27b-fp8",
   "qwen3.6-27b-fp8-mtp",
   "qwen3.6-35b-a3b-fp8",
@@ -87,6 +89,7 @@ const OPENCODE_BINARY_REASONING_MODELS = new Set([
 ]);
 
 const SMALL_CONTEXT_BUFFER_MODELS = new Set([
+  "huihui-qwen3.6-27b-abliterated",
   "qwen3.6-27b-fp8",
   "qwen3.6-27b-fp8-mtp",
   "qwen3.6-35b-a3b-fp8",
@@ -162,10 +165,34 @@ function applyOpenCodeReasoningEffort(targetConfig, data) {
     return;
   }
 
+  const chatTemplateKwargs =
+    data.chat_template_kwargs && typeof data.chat_template_kwargs === "object" && !Array.isArray(data.chat_template_kwargs)
+      ? data.chat_template_kwargs
+      : {};
+
+  if (chatTemplateKwargs.enable_thinking !== undefined || chatTemplateKwargs.thinking !== undefined) {
+    stripReasoningEffortFields(data);
+    log(`Preserving explicit chat_template_kwargs thinking flags for ${data.model}; ignoring reasoning_effort=${reasoningEffort}`);
+    return;
+  }
+
   stripReasoningEffortFields(data);
 
-  if (data.thinking !== undefined) {
-    log(`Preserving explicit thinking flag for ${data.model}; ignoring reasoning_effort=${reasoningEffort}`);
+  const enableThinking = reasoningEffort !== "none";
+  data.chat_template_kwargs = {
+    ...chatTemplateKwargs,
+    enable_thinking: enableThinking,
+    thinking: enableThinking
+  };
+  log(`Mapped reasoning_effort=${reasoningEffort} to chat_template_kwargs thinking=${enableThinking} for ${data.model}`);
+}
+
+function normalizeQwenThinkingFlag(targetConfig, data) {
+  if (!targetConfig || !OPENCODE_BINARY_REASONING_MODELS.has(targetConfig.modelId)) {
+    return;
+  }
+
+  if (typeof data.thinking !== "boolean") {
     return;
   }
 
@@ -174,19 +201,14 @@ function applyOpenCodeReasoningEffort(targetConfig, data) {
       ? data.chat_template_kwargs
       : {};
 
-  if (chatTemplateKwargs.enable_thinking !== undefined || chatTemplateKwargs.thinking !== undefined) {
-    log(`Preserving explicit chat_template_kwargs thinking flags for ${data.model}; ignoring reasoning_effort=${reasoningEffort}`);
-    return;
-  }
-
-  const enableThinking = reasoningEffort !== "none";
-  data.thinking = enableThinking;
   data.chat_template_kwargs = {
     ...chatTemplateKwargs,
-    enable_thinking: enableThinking,
-    thinking: enableThinking
+    enable_thinking: chatTemplateKwargs.enable_thinking ?? data.thinking,
+    thinking: chatTemplateKwargs.thinking ?? data.thinking
   };
-  log(`Mapped reasoning_effort=${reasoningEffort} to binary thinking=${enableThinking} for ${data.model}`);
+
+  delete data.thinking;
+  log(`Normalized top-level thinking into chat_template_kwargs for ${data.model}`);
 }
 
 function getTokenSafetyBuffer(targetConfig, maxModelLen) {
@@ -199,10 +221,6 @@ function getTokenSafetyBuffer(targetConfig, maxModelLen) {
 
 function shouldDisableThinkingByDefault(targetConfig, data) {
   if (!targetConfig || !DEFAULT_NON_THINKING_MODELS.has(targetConfig.modelId)) {
-    return false;
-  }
-
-  if (data.thinking !== undefined) {
     return false;
   }
 
@@ -469,6 +487,7 @@ function processBody(body, targetConfig, url) {
       }
     }
 
+    normalizeQwenThinkingFlag(targetConfig, data);
     applyOpenCodeReasoningEffort(targetConfig, data);
 
     if (shouldDisableThinkingByDefault(targetConfig, data)) {
@@ -476,7 +495,6 @@ function processBody(body, targetConfig, url) {
         data.chat_template_kwargs && typeof data.chat_template_kwargs === "object" && !Array.isArray(data.chat_template_kwargs)
           ? data.chat_template_kwargs
           : {};
-      data.thinking = false;
       data.chat_template_kwargs = {
         ...chatTemplateKwargs,
         enable_thinking: false,

@@ -76,13 +76,14 @@ To use this stack with [OpenCode](https://github.com/opencode-ai/opencode), foll
            "apiKey": "63TestTOKEN0REPLACEME"
          },
          "models": {
+           "gemma4-26b-a4b": { "name": "Gemma 4 26B A4B", "reasoning": true, "tool_call": true, "experimental": true, "limit": { "context": 240000, "output": 8192 } },
            "gpt-oss-20b": { "name": "GPT-OSS 20B", "limit": { "context": 108000, "output": 8192 } },
            "glm-4.7-flash-awq": { "name": "GLM-4.7 Flash AWQ", "limit": { "context": 108000, "output": 8192 } }
            // ... (see opencode.json in project root for full model list)
          }
        }
      },
-     "model": "dgx/gpt-oss-20b",
+     "model": "dgx/gemma4-26b-a4b",
     "small_model": "dgx/qwen3.5-0.8b",
      "compaction": { "auto": false },
      "logLevel": "INFO"
@@ -95,9 +96,9 @@ To switch the active models, edit the `model` and `small_model` fields in `openc
 
 | Role | Recommended Model | Context | Use Case |
 |------|-------------------|---------|----------|
-| `model` | `dgx/gpt-oss-20b` | `108000` | Balanced quality/speed for general tasks |
+| `model` | `dgx/gemma4-26b-a4b` | `240000` | Current default Gemma path with verified image input, tool calling, and a much higher interactive ceiling |
+| `model` | `dgx/gpt-oss-20b` | `108000` | Balanced quality/speed fallback for general tasks |
 | `model` | `dgx/gpt-oss-120b` | `108000` | Higher-quality default when you want a larger model |
-| `model` | `dgx/gemma4-26b-a4b` | `240000` | Experimental Gemma path with verified image input, tool calling, and a much higher multi-user-tested interactive ceiling |
 | `model` | `dgx/glm-4.7-flash-awq` | `108000` | Best current long-context coding path in OpenCode |
 | `model` | `dgx/huihui-qwen3.5-35b-a3b-abliterated` | `200000` | Experimental long-context general/tool model with much stronger richer-prompt evidence than the other experimental Qwen variants |
 | `model` | `dgx/qwen3.6-27b-fp8` | `240000` | Experimental Qwen 3.6 baseline model with validated plain chat, tool calling, explicit thinking, and a much larger 262k-class context target |

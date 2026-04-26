@@ -49,6 +49,21 @@
                         "top_k": 64
                     }
                 },
+                "huihui-gemma4-e2b-abliterated": {
+                    "name": "Huihui Gemma 4 E2B Abliterated",
+                    "reasoning": true,
+                    "tool_call": true,
+                    "experimental": true,
+                    "limit": {
+                        "context": 120000,
+                        "output": 8192
+                    },
+                    "options": {
+                        "temperature": 1,
+                        "top_p": 0.95,
+                        "top_k": 64
+                    }
+                },
                 "glm-4.7-flash-awq": {
                     "name": "GLM-4.7 Flash AWQ",
                     "limit": {
@@ -124,7 +139,7 @@
             }
         }
     },
-    "model": "dgx/gpt-oss-20b",
+    "model": "dgx/gemma4-26b-a4b",
     "small_model": "dgx/qwen3.5-0.8b",
     "compaction": {
         "auto": false

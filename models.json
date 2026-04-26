@@ -39,7 +39,7 @@
     "sourceRecipe": "spark-vllm-docker:gemma4-26b-a4b",
     "multimodal": true,
     "experimental": true,
-    "notes": "An exact gemma4-26b-a4b eugr-style TF5 baseline is built locally as `vllm-node-tf5`; see docs/runtime-baseline.md for the reproducible upstream helper build flow. The eugr `tensor_parallel_size=2` default is not viable on this one-GPU machine, so the local default remains `1`. On this shared-memory host, the preferred mitigation for Gemma's large compile and CUDA-graph-capture startup spike is a persistent `/swap.img`, plus a Gemma-local `RAY_memory_usage_threshold=0.99` so Ray does not kill the worker at the default `0.95` threshold before swap-backed headroom can absorb the first-request spike. Gateway-path checks on 2026-04-06 also confirmed that image input and tool calling both work on this stack. The earlier five-user soak at a `256` completion cap was too conservative: once `max_completion_tokens` is raised to `1024`, richer five-user stack-summary probes pass at roughly `145990`, `194614`, and `243238` prompt tokens with visible final answers and `finish_reason: \"stop\"`. Manual reads at the higher tiers stay coherent, though they still simplify some repo details into a more purely single-tenant story than the actual mixed lifecycle behavior. Gemma 4 is a thinking-capable family upstream, but explicit thinking should stay deliberate here because it can consume the completion budget quickly. Treat `240000` as the current experimental OpenCode ceiling on this host."
+    "notes": "A dedicated Gemma 4-capable TF5 overlay image is now built locally as `vllm-node-tf5-gemma4`; it keeps the repo's TF5 vLLM runtime and CUTLASS guard patch while pinning a newer upstream Transformers/Hugging Face Hub layer so `gemma4` checkpoints are recognized reproducibly. The eugr `tensor_parallel_size=2` default is not viable on this one-GPU machine, so the local default remains `1`. On this shared-memory host, the preferred mitigation for Gemma's large compile and CUDA-graph-capture startup spike is a persistent `/swap.img`, plus a Gemma-local `RAY_memory_usage_threshold=0.99` so Ray does not kill the worker at the default `0.95` threshold before swap-backed headroom can absorb the first-request spike. Gateway-path checks on 2026-04-06 also confirmed that image input and tool calling both work on this stack. The earlier five-user soak at a `256` completion cap was too conservative: once `max_completion_tokens` is raised to `1024`, richer five-user stack-summary probes pass at roughly `145990`, `194614`, and `243238` prompt tokens with visible final answers and `finish_reason: \"stop\"`. Manual reads at the higher tiers stay coherent, though they still simplify some repo details into a more purely single-tenant story than the actual mixed lifecycle behavior. Gemma 4 is a thinking-capable family upstream, but explicit thinking should stay deliberate here because it can consume the completion budget quickly. Treat `240000` as the current experimental OpenCode ceiling on this host."
   },
   "gemma4-31b": {
     "container": "vllm-gemma4-31b",
@@ -52,6 +52,18 @@
     "experimental": true,
     "notes": "Does not work - hangs. Either too long to answer or has problems."
 },
+  "huihui-gemma4-e2b-abliterated": {
+    "container": "vllm-huihui-gemma4-e2b-abliterated",
+    "port": 8000,
+    "maxModelLen": 131072,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal",
+    "sourceRecipe": "local-variant:huihui-gemma-4-e2b-it-abliterated",
+    "multimodal": true,
+    "experimental": true,
+    "notes": "Experimental Huihui abliterated variant of `google/gemma-4-E2B-it`. The integrated local path uses the repo's dedicated Gemma 4-capable TF5 overlay image rather than the Qwen-specific custom runtime work: `vllm-node-tf5-gemma4`, Gemma 4 tool/reasoning parsers, single-GPU tensor parallelism, Ray executor backend, `load_format=fastsafetensors`, and a conservative `kv_cache_dtype=auto` / `gpu_memory_utilization=0.70` host-safe default. The downloaded checkpoint metadata shows a multimodal `Gemma4ForConditionalGeneration` BF16 model with a native `131072` context window, so the local mirror stays at that limit instead of the larger `262144` window used by the shipped Gemma 4 26B lane. Runtime validation is now in place on this host too: healthy startup, gateway-path plain text, structured tool calling, and image input all work. Explicit high-reasoning requests currently behave like the shipped Gemma lane here by returning the final answer in visible assistant content without a separate `message.reasoning` block. Treat `120000` as the current conservative OpenCode context ceiling until long-context soak coverage is added."
+  },
   "glm-4-9b-chat": {
     "container": "vllm-glm4-9b",
     "port": 8000,
@@ -209,6 +221,17 @@
     "sourceRecipe": "spark-arena/recipe-registry:official-qwen3.6-35b-a3b-fp8-mtp-vllm",
     "experimental": true,
     "notes": "Experimental local mirror of Spark Arena's tested official `qwen3.6-35b-a3b-fp8-mtp-vllm` recipe for `Qwen/Qwen3.6-35B-A3B-FP8`. It preserves the upstream MTP setting (`speculative_config={\"method\":\"mtp\",\"num_speculative_tokens\":2}`) on top of the same TF5-track and wrapper mapping used for `qwen3.6-35b-a3b-fp8`, including the generic `Qwen/Qwen3.5-0.8B` chat-template bootstrap needed for cold starts on this repo, and it shares the same locally tuned `gpu_memory_utilization=0.84` envelope. Local startup and gateway checks now confirm healthy bring-up, visible plain-text answers, structured tool calling, and explicit `reasoning_effort=high` behavior on this host. An isolated 5-way long-context soak also passed at roughly `238644` prompt tokens on this machine, and on that workload the MTP lane cut average request time from about `87.6s` to `37.2s` while raising observed completion throughput from about `9.0` to `16.9` tokens/s versus the non-MTP baseline. The tuned `0.84` envelope also allows the `qwen3.5-0.8b` utility helper to remain loaded while the MTP lane and its gateway path stay healthy, and a simpler 1-way repeated long-context benchmark still favored MTP over the tuned baseline at the same prompt depth (`20.7s` vs. `25.1s`, `33.0` vs. `28.9` completion tokens/s). Keep it experimental because the local memory envelope now intentionally diverges from the upstream `0.80` recipe and the observed wins should still be rechecked after more restart cycling."
+  },
+  "huihui-qwen3.6-27b-abliterated": {
+    "container": "vllm-huihui-qwen36-27b-abliterated",
+    "port": 8000,
+    "maxModelLen": 262144,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal",
+    "sourceRecipe": "local-variant:huihui-qwen3.6-27b-abliterated",
+    "experimental": true,
+    "notes": "Experimental single-GPU abliterated variant for `huihui-ai/Huihui-Qwen3.6-27B-abliterated`, a BF16 fine-tune of `Qwen/Qwen3.6-27B`. The working local compose path follows a conservative community-Qwen shape on this host rather than an official FP8 lane: `tensor_parallel_size=1`, `gpu_memory_utilization=0.70`, `max_num_batched_tokens=16384`, `kv_cache_dtype=auto`, `load_format=fastsafetensors`, `--enforce-eager`, and the vendored Qwen runtime/template wrappers. Unlike the repo's standard images, this service uses a dedicated TF5-based image that keeps the known-good compiled vLLM runtime, pins upstream `huggingface/transformers` at `eb981ae8688d459f40f35b0e0c352b5ca3cb3613` plus `huggingface_hub==1.5.0`, and applies a small local `w8a8_utils.py` guard so the checkpoint's `qwen3_5` model type works reproducibly from a clean clone without rebuilding vLLM itself. Because this checkpoint is not guaranteed to be cached before the first startup, the cold-start template bootstrap still points at the already-cached generic `Qwen/Qwen3.5-0.8B` snapshot rather than the target model itself. Live validation is now in place on this harness too: healthy bring-up, visible default gateway chat, structured gateway `tool_calls`, and explicit `reasoning_effort=high` behavior all work once the validator maps non-thinking control through `chat_template_kwargs` instead of the model's broken top-level `thinking` flag. Keep it experimental until restart cycling and broader long-context soak coverage are rechecked on this path."
   },
   "qwen3.5-122b-a10b-int4-autoround": {
     "container": "vllm-qwen35-122b-autoround",

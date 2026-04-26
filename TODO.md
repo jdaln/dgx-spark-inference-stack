@@ -52,10 +52,13 @@ At the moment, we limit to 1 model + 1 utility one but in the future, it would b
 ## Integrate more niche models - to check if useful and functional
 
 Possible general models:
-https://huggingface.co/Firworks/GLM-4.6V-Flash-nvfp4
 https://huggingface.co/HuggingFaceTB
 https://huggingface.co/Firworks/SERA-32B-GA-nvfp4
 https://huggingface.co/Firworks/SERA-32B-nvfp4
+https://huggingface.co/hesamation/Qwen3.6-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled
+https://huggingface.co/huihui-ai/Huihui-Qwen3.6-27B-abliterated
+https://huggingface.co/huihui-ai/Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated
+https://huggingface.co/huihui-ai/Huihui-gemma-4-E2B-it-abliterated
 
 Possible replacements for  tiny utility models:
 https://huggingface.co/Firworks/LFM2.5-1.2B-Instruct-nvfp4

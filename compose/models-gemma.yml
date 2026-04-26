@@ -36,10 +36,17 @@ x-healthcheck-default: &healthcheck-default
   timeout: 5s
   retries: 5
 
+x-gemma4-build: &gemma4-build
+  context: ..
+  dockerfile: ./custom-docker-containers/vllm-node-tf5-gemma4/Dockerfile
+  args:
+    BASE_IMAGE: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+
 services:
   vllm-gemma4-26b-a4b:
     <<: *model-profiled
-    image: vllm-node-tf5
+    build: *gemma4-build
+    image: ${GEMMA4_IMAGE:-vllm-node-tf5-gemma4}
     container_name: vllm-gemma4-26b-a4b
     entrypoint: []
     command:
@@ -89,9 +96,61 @@ services:
       <<: *healthcheck-default
       start_period: 1800s
 
+  vllm-huihui-gemma4-e2b-abliterated:
+    <<: *model-profiled
+    build: *gemma4-build
+    image: ${GEMMA4_IMAGE:-vllm-node-tf5-gemma4}
+    container_name: vllm-huihui-gemma4-e2b-abliterated
+    entrypoint: []
+    command:
+      - vllm
+      - serve
+      - huihui-ai/Huihui-gemma-4-E2B-it-abliterated
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - huihui-gemma4-e2b-abliterated
+      - --max-model-len
+      - "${HUIHUI_GEMMA4_E2B_MAX_MODEL_LEN:-131072}"
+      - --gpu-memory-utilization
+      - "${HUIHUI_GEMMA4_E2B_GPU_MEMORY_UTILIZATION:-0.70}"
+      - --load-format
+      - fastsafetensors
+      - --enable-prefix-caching
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - gemma4
+      - --reasoning-parser
+      - gemma4
+      - --kv-cache-dtype
+      - auto
+      - --max-num-batched-tokens
+      - "${HUIHUI_GEMMA4_E2B_MAX_NUM_BATCHED_TOKENS:-8192}"
+      - --tensor-parallel-size
+      - "${HUIHUI_GEMMA4_E2B_TENSOR_PARALLEL_SIZE:-1}"
+      - --distributed-executor-backend
+      - ray
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+    environment:
+      <<: *env-common
+      RAY_memory_usage_threshold: "${HUIHUI_GEMMA4_E2B_RAY_MEMORY_USAGE_THRESHOLD:-0.99}"
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
   vllm-gemma4-31b:
     <<: *model-profiled
-    image: vllm-node-tf5
+    build: *gemma4-build
+    image: ${GEMMA4_IMAGE:-vllm-node-tf5-gemma4}
     container_name: vllm-gemma4-31b
     entrypoint: []
     command:

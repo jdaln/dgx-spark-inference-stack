@@ -201,7 +201,19 @@ Choose the right model for your task to balance performance and speed.
   - **Best for:** manual-only quality experiments with the larger Gemma family
   - **Tradeoffs:** currently too slow for interactive use on this host, so it is intentionally omitted from the shipped OpenCode config
 
-### Experimental Qwen 3.5 variants
+- `vllm-huihui-gemma4-e2b-abliterated` → served as **`huihui-gemma4-e2b-abliterated`**
+  - **Type:** experimental Huihui Gemma 4 E2B multimodal abliterated variant on a dedicated Gemma-capable TF5 overlay image
+  - **Best for:** opt-in uncensored Gemma-family chat, vision, and tool experiments when you want the standard Gemma runtime shape with the Huihui abliterated weights
+  - **Strengths:** healthy startup is now verified on this host; gateway-path plain text, structured `tool_calls`, and image input all work, and explicit reasoning requests behave like the shipped Gemma lane by returning the final answer in visible content. It also reuses the repo's existing Gemma 4 parser/runtime shape while pinning a Gemma-capable Transformers overlay instead of introducing a model-specific vLLM fork.
+  - **Tradeoffs:** still experimental; this checkpoint is a BF16 `Gemma4ForConditionalGeneration` model with a native `131072` context window, so it cannot inherit the larger `240000`-class client ceiling used by the validated Gemma 4 26B lane. Treat `120000` as the current conservative client limit until long-context soak coverage exists.
+
+### Experimental Qwen variants
+
+- `vllm-huihui-qwen36-27b-abliterated` → served as **`huihui-qwen3.6-27b-abliterated`**
+  - **Type:** experimental Huihui Qwen 3.6 BF16 abliterated variant on a dedicated TF5-based `qwen3_5` runtime with pinned Transformers/Hugging Face Hub overlays
+  - **Best for:** opt-in uncensored Qwen 3.6 chat and tool experiments when you want the Qwen parser stack and a live-validated gateway path
+  - **Strengths:** healthy local startup is now verified on this host; gateway plain-text chat returns visible answers by default, structured `tool_calls` work, and explicit `reasoning_effort=high` also works once you give it enough completion budget. The dedicated image keeps the repo's known-good TF5 vLLM runtime while pinning the upstream Transformers/HF Hub layer so `qwen3_5` support is reproducible from a clean clone.
+  - **Tradeoffs:** still experimental; it currently runs the conservative single-GPU BF16/eager profile (`gpu_memory_utilization=0.70`, `max_num_batched_tokens=16384`, `kv_cache_dtype=auto`, `--enforce-eager`) instead of an official FP8 recipe, and practical long-context headroom still needs broader soak coverage
 
 - `vllm-huihui-qwen35-35b-a3b-abliterated` → served as **`huihui-qwen3.5-35b-a3b-abliterated`**
   - **Type:** experimental Qwen 3.5 MoE multimodal/tool-capable variant on the TF5 lane

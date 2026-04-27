@@ -1,0 +1,26 @@
+name: Waker Smoke Test
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/waker-smoke.yml
+      - waker/**
+      - shared/models-config.mjs
+  workflow_dispatch:
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run waker smoke test in container
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE":/workspace \
+            -w /workspace/waker \
+            node:20-alpine \
+            sh -lc "npm ci && npm test"

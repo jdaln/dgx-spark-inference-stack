@@ -3,15 +3,12 @@
 import http from "node:http";
 import https from "node:https";
 import { URL } from "node:url";
+import { loadModelsConfig, resolveHealthUrl as resolveConfiguredHealthUrl } from "../shared/models-config.mjs";
 import { startMonitoring, getModelStats, getAllStats } from "./gpu-monitor.js";
 
 // -------- config --------
 const PORT = Number(process.env.PORT || 18080);
 const MANAGE_PREFIX = process.env.MANAGE_PREFIX || "vllm-";
-const IGNORE = new Set(
-  (process.env.IGNORE_NAMES || "vllm-gateway,vllm-waker,vllm-request-validator")
-    .split(",").map(s => s.trim()).filter(Boolean)
-);
 const IDLE_STOP_SECONDS = Number(process.env.IDLE_STOP_SECONDS || 0); // 0=disabled
 const NO_STOP_BEFORE_SECONDS = Number(process.env.NO_STOP_BEFORE_SECONDS || 30);
 const HEALTH_TIMEOUT_MS = Number(process.env.HEALTH_TIMEOUT_MS || 900_000);
@@ -19,42 +16,55 @@ const DOCKER_STOP_TIMEOUT_SECONDS = Number(process.env.DOCKER_STOP_TIMEOUT_SECON
 const TICK_MS = Number(process.env.TICK_MS || 1000);
 const STOP_DEBOUNCE_MS = Number(process.env.STOP_DEBOUNCE_MS || 20_000);
 const BUSY_STATUS_CODE = Number(process.env.BUSY_STATUS_CODE || 409); // 409 = Conflict
-const UTILITY_CONTAINER = process.env.UTILITY_CONTAINER || process.env.GEMMA_CONTAINER || "vllm-qwen2.5-1.5b";
-const EXCLUSIVE_CONTAINERS = new Set(
-  (process.env.EXCLUSIVE_CONTAINERS || process.env.EXCLUSIVE_CONTAINER || "vllm-oss120b")
-    .split(",").map(s => s.trim()).filter(Boolean)
-);
-
-const MODEL_HEALTH_URL_TEMPLATE = process.env.MODEL_HEALTH_URL_TEMPLATE || "http://{name}:8001/health";
+const MODELS_CONFIG_PATH = process.env.MODELS_CONFIG_PATH || "/config/models.json";
+const MODEL_HEALTH_URL_TEMPLATE = process.env.MODEL_HEALTH_URL_TEMPLATE || "http://{name}:8000/health";
 
 const DOCKER_HOST = process.env.DOCKER_HOST || "unix:///var/run/docker.sock";
-const DOCKER_API_VERSION = process.env.DOCKER_API_VERSION || "v1.43";
+const DOCKER_API_VERSION = process.env.DOCKER_API_VERSION || "";
 
 const VERBOSE = (process.env.VERBOSE || "1") !== "0";
-
-// Parse MODELS_JSON for model name -> container name mapping
-let MODELS_MAP = {};
-try {
-  const modelsJson = process.env.MODELS_JSON || "{}";
-  const models = JSON.parse(modelsJson);
-  for (const [key, config] of Object.entries(models)) {
-    if (config.container) {
-      MODELS_MAP[key] = config.container;
-    }
-  }
-  log("[waker] Models mapping:", MODELS_MAP);
-} catch (e) {
-  warn("[waker] Failed to parse MODELS_JSON:", e.message);
-}
 
 // -------- tiny utils --------
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const now = () => Date.now();
 const fmtS = (ms) => `${Math.floor(ms / 1000)}s`;
-const isManaged = (n) => n.startsWith(MANAGE_PREFIX) && !IGNORE.has(n);
 function log(...a) { if (VERBOSE) console.log(...a); }
 function warn(...a) { console.warn(...a); }
 function err(...a) { console.error(...a); }
+
+const MODELS_CONFIG = loadModelsConfig(MODELS_CONFIG_PATH);
+const MODELS_MAP = MODELS_CONFIG.modelMap;
+const UTILITY_CONTAINER = MODELS_CONFIG.utilityContainer;
+const EXCLUSIVE_CONTAINERS = new Set(MODELS_CONFIG.exclusiveContainers);
+const IGNORE = new Set(
+  (process.env.IGNORE_NAMES || "vllm-gateway,vllm-waker,vllm-request-validator")
+    .split(",").map(s => s.trim()).filter(Boolean)
+);
+if (UTILITY_CONTAINER) {
+  IGNORE.add(UTILITY_CONTAINER);
+}
+const isManaged = (n) => n.startsWith(MANAGE_PREFIX) && !IGNORE.has(n);
+
+function resolveModelEntry(modelKey) {
+  return MODELS_CONFIG.byModel[modelKey] || null;
+}
+
+function resolveContainerName(modelKey) {
+  const entry = resolveModelEntry(modelKey);
+  if (entry) return entry.container;
+  return modelKey.startsWith(MANAGE_PREFIX) ? modelKey : `${MANAGE_PREFIX}${modelKey}`;
+}
+
+function resolveHealthUrl(modelKey, containerName) {
+  return resolveConfiguredHealthUrl(MODELS_CONFIG, modelKey, containerName, MODEL_HEALTH_URL_TEMPLATE);
+}
+
+log("[waker] Loaded models config:", {
+  path: MODELS_CONFIG_PATH,
+  models: Object.keys(MODELS_MAP).length,
+  utilityContainer: UTILITY_CONTAINER,
+  exclusiveContainers: [...EXCLUSIVE_CONTAINERS]
+});
 
 // -------- Docker Engine API (socket HTTP) --------
 function dockerRequest(method, path, body) {
@@ -93,7 +103,7 @@ function dockerRequest(method, path, body) {
     rq.end();
   });
 }
-const d = (p) => `/${DOCKER_API_VERSION}${p}`;
+const d = (p) => (DOCKER_API_VERSION ? `/${DOCKER_API_VERSION}${p}` : p);
 const listContainers = (all = true) => dockerRequest("GET", d(`/containers/json?all=${all ? 1 : 0}`));
 const inspectContainer = (name) => dockerRequest("GET", d(`/containers/${encodeURIComponent(name)}/json`));
 const startContainer = (name) => dockerRequest("POST", d(`/containers/${encodeURIComponent(name)}/start`));
@@ -131,6 +141,7 @@ async function waitHttpOk(url, deadlineMs) {
 const startAtMs = new Map();
 const lastSeenMs = new Map();
 const lastStopMs = new Map();
+const healthyOnce = new Set();
 
 // -------- busy helper --------
 class BusyError extends Error {
@@ -183,7 +194,7 @@ async function getContainerSummary(name) {
       lastSeenISO: lastSeen ? new Date(lastSeen).toISOString() : null,
       timeUntilReleaseSec,
       willAutoStop,
-      healthUrl: MODEL_HEALTH_URL_TEMPLATE.replace("{name}", name),
+      healthUrl: resolveHealthUrl(name, name),
       state: insp?.State?.Status || insp?.State?.State || "unknown"
     };
   } catch {
@@ -193,8 +204,7 @@ async function getContainerSummary(name) {
 
 // -------- ensure (start + wait) --------
 async function ensureModel(modelKey) {
-  const name = MODELS_MAP[modelKey] ||
-    (modelKey.startsWith(MANAGE_PREFIX) ? modelKey : `${MANAGE_PREFIX}${modelKey}`);
+  const name = resolveContainerName(modelKey);
   log(`[waker] ensure request for model key: ${modelKey} -> container: ${name}`);
 
   // Set starting state immediately to prevent tick() race
@@ -249,11 +259,12 @@ async function ensureModel(modelKey) {
     startAtMs.set(name, started);
     lastSeenMs.set(name, started);
 
-    const url = MODEL_HEALTH_URL_TEMPLATE.replace("{name}", name);
+    const url = resolveHealthUrl(modelKey, name);
     log(`[waker] waiting health ${url} up to ${fmtS(HEALTH_TIMEOUT_MS)}`);
     await waitHttpOk(url, now() + HEALTH_TIMEOUT_MS);
 
     lastSeenMs.set(name, now());
+    healthyOnce.add(name);
     log(`[waker] ${name} is healthy`);
     return { name, healthUrl: url };
   } finally {
@@ -266,7 +277,7 @@ async function ensureModel(modelKey) {
 const starting = new Map();
 
 async function checkModel(modelKey) {
-  const name = MODELS_MAP[modelKey] || (modelKey.startsWith(MANAGE_PREFIX) ? modelKey : `${MANAGE_PREFIX}${modelKey}`);
+  const name = resolveContainerName(modelKey);
   log(`[waker] check request for model key: ${modelKey} -> container: ${name}`);
 
   // 1. Single-tenant guard: check if another model is running.
@@ -288,10 +299,11 @@ async function checkModel(modelKey) {
 
   // 3. If it's already running, check its health.
   if (insp?.State?.Running) {
-    const healthUrl = MODEL_HEALTH_URL_TEMPLATE.replace("{name}", name);
+    const healthUrl = resolveHealthUrl(modelKey, name);
     const isHealthy = await httpOk(healthUrl, 2000); // Quick 2s timeout for check.
     if (isHealthy) {
       log(`[waker] READY on check: ${name} is running and healthy.`);
+      healthyOnce.add(name);
       lastSeenMs.set(name, now()); // Touch the model to keep it alive.
       return { status: "ready", name };
     } else {
@@ -345,8 +357,19 @@ async function tick() {
       const prev = startAtMs.get(name);
       if (!prev || prev !== started) {
         startAtMs.set(name, started);
-        lastSeenMs.set(name, started);
+        lastSeenMs.set(name, now());
+        healthyOnce.delete(name);
         continue; // grace on fresh start
+      }
+
+      const healthStatus = insp?.State?.Health?.Status || "";
+      if (healthStatus === "healthy") {
+        healthyOnce.add(name);
+      }
+
+      if (starting.has(name) || healthStatus === "starting" || (healthStatus === "unhealthy" && !healthyOnce.has(name))) {
+        lastSeenMs.set(name, now());
+        continue;
       }
 
       if (IDLE_STOP_SECONDS <= 0) continue;
@@ -443,8 +466,13 @@ const server = http.createServer(async (req, res) => {
           PORT, MANAGE_PREFIX, IGNORE: [...IGNORE],
           IDLE_STOP_SECONDS, NO_STOP_BEFORE_SECONDS,
           HEALTH_TIMEOUT_MS, DOCKER_STOP_TIMEOUT_SECONDS,
-          TICK_MS, STOP_DEBOUNCE_MS,
+          TICK_MS, STOP_DEBOUNCE_MS, MODELS_CONFIG_PATH,
           DOCKER_HOST, DOCKER_API_VERSION
+        },
+        modelsConfig: {
+          utilityContainer: UTILITY_CONTAINER,
+          exclusiveContainers: [...EXCLUSIVE_CONTAINERS],
+          modelMap: MODELS_MAP
         },
         startAtMs: Object.fromEntries(startAtMs),
         lastSeenMs: Object.fromEntries(lastSeenMs),

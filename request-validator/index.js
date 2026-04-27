@@ -9,46 +9,34 @@
 // 7. Strips tool parameters from models that don't support tool calling (small, VL, math).
 // 8. Forces `tool_choice: required` for models that ignore tools with "auto" (Qwen3-Coder, Qwen2.5-Coder).
 // 9. Fixes role alternation for Gemma/Llama models requiring strict user/assistant turns.
-// 10. Proxies the final, validated request to the correct vLLM container.
+// 10. Disables hidden thinking by default for models whose reasoning parser otherwise consumes the visible answer budget.
+// 11. Translates OpenCode-style reasoning-effort controls into binary Qwen thinking flags on the Qwen 3.6 lanes.
+// 12. Proxies the final, validated request to the correct vLLM container.
 
 import http from "node:http";
+import { pathToFileURL } from "node:url";
+import { loadModelsConfig } from "../shared/models-config.mjs";
 
 const PORT = Number(process.env.PORT || 18081);
 const VERBOSE = (process.env.VERBOSE || "0") !== "0";
 const WAKER_URL = process.env.WAKER_URL || "http://waker:18080";
-
-// Model configuration: Maps the served model name to its container host and context window size.
-const MODEL_CONFIG = {
-  "gpt-oss-20b": { host: "vllm-oss20b", port: 8000, maxModelLen: 131072 },
-  "gpt-oss-120b": { host: "vllm-oss120b", port: 8000, maxModelLen: 131072 },
-  "qwen3-next-80b-a3b-instruct-fp4": { host: "vllm-qwen3-next-80b-fp4", port: 8000, maxModelLen: 131072 },
-  "qwen3-next-80b-a3b-thinking-fp4": { host: "vllm-qwen3-next-80b-thinking-fp4", port: 8000, maxModelLen: 131072 },
-  "qwen3-vl-32b-instruct-fp4": { host: "vllm-qwen3-vl-32b-fp4", port: 8000, maxModelLen: 131072 },
-  "glm-4.5-air-fp4": { host: "vllm-glm-4.5-air-fp4", port: 8000, maxModelLen: 131072 },
-  "glm-4.6v-flash-fp4": { host: "vllm-glm-4.6v-flash-fp4", port: 8000, maxModelLen: 131072 },
-  "glm-4.5-air-derestricted-fp4": { host: "vllm-glm-4.5-air-derestricted-fp4", port: 8000, maxModelLen: 131072 },
-  "llama-3.3-70b-joyous-fp4": { host: "vllm-llama-3.3-70b-joyous-fp4", port: 8000, maxModelLen: 131072 },
-  "llama-3.3-70b-instruct-fp4": { host: "vllm-llama-3.3-70b-instruct-fp4", port: 8000, maxModelLen: 131072 },
-  "eurollm-22b-instruct-fp4": { host: "vllm-eurollm-22b-fp4", port: 8000, maxModelLen: 32768 },
-  "qwen2.5-1.5b-instruct": { host: "vllm-qwen2.5-1.5b", port: 8000, maxModelLen: 8192 },
-  "phi-4-multimodal-instruct-fp4": { host: "vllm-phi-4-multimodal-fp4", port: 8000, maxModelLen: 32768 },
-  "nemotron-3-nano-30b-fp8": { host: "vllm-nemotron-3-nano-30b-fp8", port: 8000, maxModelLen: 131072 },
-  "phi-4-reasoning-plus-fp4": { host: "vllm-phi-4-reasoning-plus-fp4", port: 8000, maxModelLen: 32768 },
-  "qwen2.5-vl-7b": { host: "vllm-qwen25-vl-7b", port: 8000, maxModelLen: 32768 },
-
-  "glm-4-9b-chat": { host: "vllm-glm4-9b", port: 8000, maxModelLen: 32768 },
-  "qwen3-coder-30b-a3b-instruct": { host: "vllm-qwen3-coder-30b", port: 8000, maxModelLen: 65536 },
-  "qwen2.5-coder-7b-instruct": { host: "vllm-qwen25-coder-7b", port: 8000, maxModelLen: 32768 },
-  "gemma-3-4b-it-qat": { host: "vllm-gemma3-4b", port: 8000, maxModelLen: 32768 },
-  "gemma-2-27b-it": { host: "vllm-gemma2-27b", port: 8000, maxModelLen: 32768 },
-  "gemma-2-9b-it": { host: "vllm-gemma2-9b", port: 8000, maxModelLen: 32768 },
-  "qwen-math": { host: "vllm-qwen-math", port: 8000, maxModelLen: 4096 },
-  "nemotron-nano-12b-v2-vl": { host: "vllm-nemotron", port: 8000, maxModelLen: 131072 },
-
-  "mistral-nemo-instruct-2407": { host: "vllm-mistral-nemo-12b", port: 8000, maxModelLen: 128000 },
-  "qwen3-vl-30b-instruct": { host: "vllm-qwen3-vl-30b", port: 8000, maxModelLen: 65536 },
-  "qwen3-vl-30b-thinking-instruct": { host: "vllm-qwen3-vl-30b-thinking", port: 8000, maxModelLen: 65536 },
-};
+const MODELS_CONFIG_PATH = process.env.MODELS_CONFIG_PATH || "/config/models.json";
+const MODELS_CONFIG = loadModelsConfig(MODELS_CONFIG_PATH);
+const MODEL_CONFIG = Object.fromEntries(
+  MODELS_CONFIG.entries.map((entry) => [
+    entry.model,
+    {
+      modelId: entry.model,
+      host: entry.container,
+      port: entry.port,
+      maxModelLen: entry.maxModelLen,
+      toolSupport: entry.toolSupport,
+      validatorProfile: entry.validatorProfile,
+      multimodal: entry.multimodal,
+      normalizeTextContent: entry.normalizeTextContent
+    }
+  ])
+);
 
 function log(...args) {
   if (VERBOSE) console.log("[validator]", ...args);
@@ -58,16 +46,208 @@ function warn(...args) {
   console.warn("[validator]", ...args);
 }
 
+function shouldStripTools(targetConfig) {
+  if (!targetConfig) return false;
+  if (targetConfig.validatorProfile === "small-no-tools" || targetConfig.validatorProfile === "vl") {
+    return true;
+  }
+  return targetConfig.toolSupport === "none";
+}
+
+function shouldForceToolChoice(targetConfig) {
+  if (!targetConfig) return false;
+  if (targetConfig.validatorProfile === "coder-force-tools") {
+    return true;
+  }
+  return targetConfig.toolSupport === "force-required";
+}
+
+function shouldNormalizeTextContent(targetConfig) {
+  if (!targetConfig) return false;
+  if (targetConfig.multimodal) return false;
+  return targetConfig.normalizeTextContent === true;
+}
+
+const DEFAULT_NON_THINKING_MODELS = new Set([
+  "glm-4.7-flash-awq",
+  "nemotron-3-nano-30b-nvfp4",
+  "huihui-qwen3.5-35b-a3b-abliterated",
+  "huihui-qwen3.6-27b-abliterated",
+  "qwen3.5-122b-a10b-int4-autoround",
+  "qwen3.6-27b-fp8",
+  "qwen3.6-27b-fp8-mtp",
+  "qwen3.6-35b-a3b-fp8",
+  "qwen3.6-35b-a3b-fp8-mtp"
+]);
+
+const OPENCODE_BINARY_REASONING_MODELS = new Set([
+  "huihui-qwen3.6-27b-abliterated",
+  "qwen3.6-27b-fp8",
+  "qwen3.6-27b-fp8-mtp",
+  "qwen3.6-35b-a3b-fp8",
+  "qwen3.6-35b-a3b-fp8-mtp"
+]);
+
+const SMALL_CONTEXT_BUFFER_MODELS = new Set([
+  "huihui-qwen3.6-27b-abliterated",
+  "qwen3.6-27b-fp8",
+  "qwen3.6-27b-fp8-mtp",
+  "qwen3.6-35b-a3b-fp8",
+  "qwen3.6-35b-a3b-fp8-mtp"
+]);
+
+const RECOGNIZED_REASONING_EFFORTS = new Set([
+  "none",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "auto"
+]);
+
+function getRequestedReasoningEffort(data) {
+  if (!data || typeof data !== "object") {
+    return null;
+  }
+
+  if (typeof data.reasoning_effort === "string") {
+    return data.reasoning_effort.trim().toLowerCase();
+  }
+
+  if (typeof data.reasoningEffort === "string") {
+    return data.reasoningEffort.trim().toLowerCase();
+  }
+
+  if (
+    data.reasoning &&
+    typeof data.reasoning === "object" &&
+    !Array.isArray(data.reasoning) &&
+    typeof data.reasoning.effort === "string"
+  ) {
+    return data.reasoning.effort.trim().toLowerCase();
+  }
+
+  return null;
+}
+
+function stripReasoningEffortFields(data) {
+  delete data.reasoning_effort;
+  delete data.reasoningEffort;
+
+  if (data.reasoning && typeof data.reasoning === "object" && !Array.isArray(data.reasoning)) {
+    const { effort, ...rest } = data.reasoning;
+    if (effort !== undefined) {
+      if (Object.keys(rest).length === 0) {
+        delete data.reasoning;
+      } else {
+        data.reasoning = rest;
+      }
+    }
+  }
+}
+
+
+function applyOpenCodeReasoningEffort(targetConfig, data) {
+  const reasoningEffort = getRequestedReasoningEffort(data);
+  if (!reasoningEffort) {
+    return;
+  }
+
+  if (!targetConfig || !OPENCODE_BINARY_REASONING_MODELS.has(targetConfig.modelId)) {
+    return;
+  }
+
+  if (!RECOGNIZED_REASONING_EFFORTS.has(reasoningEffort)) {
+    stripReasoningEffortFields(data);
+    log(`Ignoring unsupported reasoning_effort=${reasoningEffort} for ${data.model}`);
+    return;
+  }
+
+  const chatTemplateKwargs =
+    data.chat_template_kwargs && typeof data.chat_template_kwargs === "object" && !Array.isArray(data.chat_template_kwargs)
+      ? data.chat_template_kwargs
+      : {};
+
+  if (chatTemplateKwargs.enable_thinking !== undefined || chatTemplateKwargs.thinking !== undefined) {
+    stripReasoningEffortFields(data);
+    log(`Preserving explicit chat_template_kwargs thinking flags for ${data.model}; ignoring reasoning_effort=${reasoningEffort}`);
+    return;
+  }
+
+  stripReasoningEffortFields(data);
+
+  const enableThinking = reasoningEffort !== "none";
+  data.chat_template_kwargs = {
+    ...chatTemplateKwargs,
+    enable_thinking: enableThinking,
+    thinking: enableThinking
+  };
+  log(`Mapped reasoning_effort=${reasoningEffort} to chat_template_kwargs thinking=${enableThinking} for ${data.model}`);
+}
+
+function normalizeQwenThinkingFlag(targetConfig, data) {
+  if (!targetConfig || !OPENCODE_BINARY_REASONING_MODELS.has(targetConfig.modelId)) {
+    return;
+  }
+
+  if (typeof data.thinking !== "boolean") {
+    return;
+  }
+
+  const chatTemplateKwargs =
+    data.chat_template_kwargs && typeof data.chat_template_kwargs === "object" && !Array.isArray(data.chat_template_kwargs)
+      ? data.chat_template_kwargs
+      : {};
+
+  data.chat_template_kwargs = {
+    ...chatTemplateKwargs,
+    enable_thinking: chatTemplateKwargs.enable_thinking ?? data.thinking,
+    thinking: chatTemplateKwargs.thinking ?? data.thinking
+  };
+
+  delete data.thinking;
+  log(`Normalized top-level thinking into chat_template_kwargs for ${data.model}`);
+}
+
+function getTokenSafetyBuffer(targetConfig, maxModelLen) {
+  if (targetConfig && SMALL_CONTEXT_BUFFER_MODELS.has(targetConfig.modelId)) {
+    return 4096;
+  }
+
+  return Math.max(512, Math.floor(maxModelLen * 0.1));
+}
+
+function shouldDisableThinkingByDefault(targetConfig, data) {
+  if (!targetConfig || !DEFAULT_NON_THINKING_MODELS.has(targetConfig.modelId)) {
+    return false;
+  }
+
+  const chatTemplateKwargs = data.chat_template_kwargs;
+  if (chatTemplateKwargs === undefined || chatTemplateKwargs === null) {
+    return true;
+  }
+
+  if (typeof chatTemplateKwargs !== "object" || Array.isArray(chatTemplateKwargs)) {
+    return true;
+  }
+
+  return chatTemplateKwargs.enable_thinking === undefined && chatTemplateKwargs.thinking === undefined;
+}
+
 function json(res, code, obj, headers = {}) {
   res.writeHead(code, { ...headers, "Content-Type": "application/json" });
   res.end(JSON.stringify(obj));
 }
 
-// Rough estimate of tokens from text
-// Using ~2.5 chars per token (conservative for code/technical text which tokenizes more densely)
+// Rough estimate of tokens from text.
+// Use a standard ~4 chars/token heuristic and keep the separate safety buffer below;
+// the older 2.5 chars/token estimate was over-capping large code prompts long before
+// the actual model context limit on GLM 4.7.
 function estimateTokens(text) {
   if (typeof text !== "string") return 0;
-  return Math.ceil(text.length / 2.5);
+  return Math.ceil(text.length / 4);
 }
 
 // Estimate total input tokens from messages
@@ -103,13 +283,10 @@ function processBody(body, targetConfig, url) {
   try {
     const data = JSON.parse(body);
 
-    // Normalize multimodal content format to string for models with chat templates that don't support it
+    // Normalize array-based text content to a plain string for text models whose chat templates only accept strings
     // OpenCode sends: {"content": [{"type": "text", "text": "Hi"}]}
-    // Some chat templates (like Qwen3-Next) expect: {"content": "Hi"}
-    // Skip VL/multimodal models and models that work without (like gpt-oss)
-    const needsContentNormalization = data.model && (
-      data.model.includes("qwen3-next") && !data.model.includes("-vl")
-    );
+    // Some chat templates (like Qwen3-Next and the Qwen3.5 Unsloth template) expect: {"content": "Hi"}
+    const needsContentNormalization = shouldNormalizeTextContent(targetConfig);
     if (needsContentNormalization && Array.isArray(data.messages)) {
       for (const msg of data.messages) {
         if (Array.isArray(msg.content)) {
@@ -119,7 +296,7 @@ function processBody(body, targetConfig, url) {
             .map(part => part.text);
           if (textParts.length > 0) {
             msg.content = textParts.join("\n");
-            log(`Normalized multimodal content to string for ${data.model}`);
+            log(`Normalized array content to string for ${data.model}`);
           }
         }
       }
@@ -240,7 +417,7 @@ function processBody(body, targetConfig, url) {
           const lastRole = fixedMessages[fixedMessages.length - 1].role;
           if (lastRole === msg.role) {
             // Insert a placeholder message to fix alternation
-            const placeholderRole = lastRole === "user" ? "assistant" : "user";
+            const placeholderRole = lastRoTestle === "user" ? "assistant" : "user";
             const placeholderContent = placeholderRole === "assistant" ? "Understood." : "Continue.";
             log(`Inserting ${placeholderRole} placeholder to fix alternation for ${data.model}`);
             fixedMessages.push({ role: placeholderRole, content: placeholderContent });
@@ -253,7 +430,7 @@ function processBody(body, targetConfig, url) {
 
     const maxModelLen = targetConfig?.maxModelLen || 131072; // Default fallback
     const estimatedInput = estimateInputTokens(data);
-    const safetyBuffer = Math.max(512, Math.floor(maxModelLen * 0.1));
+    const safetyBuffer = getTokenSafetyBuffer(targetConfig, maxModelLen);
     const availableTokens = maxModelLen - estimatedInput - safetyBuffer;
     const optimalMaxTokens = Math.max(1, availableTokens);
 
@@ -282,18 +459,11 @@ function processBody(body, targetConfig, url) {
     // Strip tool parameters for models that don't support tool calling
     // - Small utility models (270m, 1.5b, qwen-math)
     // - Vision/VL models (they don't have tool parsers configured)
-    const noToolSupport = data.model && (
-      data.model.includes("270m") ||
-      data.model.includes("1.5b") ||
-      data.model.includes("qwen-math") ||
-      data.model.includes("-vl-") ||
-      data.model.includes("-vl")
-    );
-    if (noToolSupport) {
+    if (shouldStripTools(targetConfig)) {
       const toolParams = ["tool_choice", "tools", "functions", "function_call", "parallel_tool_calls"];
       for (const param of toolParams) {
         if (data[param] !== undefined) {
-          log(`Stripping ${param} from small model ${data.model}`);
+          log(`Stripping ${param} for ${data.model} (${targetConfig.validatorProfile})`);
           delete data[param];
         }
       }
@@ -309,17 +479,28 @@ function processBody(body, targetConfig, url) {
     // WORKING MODELS:
     // - qwen3-coder: Works with tool_choice="required"
     // - qwen2.5-coder: Works with tool_choice="required"
-    const needsToolForcing = data.model && (
-      data.model.includes("qwen3-coder") ||
-      data.model.includes("qwen2.5-coder")
-      // data.model.includes("qwen3-next")  // DISABLED: xgrammar crashes on GB10
-    );
     const hasToolResults = Array.isArray(data.messages) && data.messages.some(m => m.role === "tool");
-    if (needsToolForcing && data.tools && data.tools.length > 0 && !hasToolResults) {
+    if (shouldForceToolChoice(targetConfig) && data.tools && data.tools.length > 0 && !hasToolResults) {
       if (!data.tool_choice || data.tool_choice === "auto") {
         data.tool_choice = "required";
-        log(`Forced tool_choice to required for ${data.model}`);
+        log(`Forced tool_choice to required for ${data.model} (${targetConfig.validatorProfile})`);
       }
+    }
+
+    normalizeQwenThinkingFlag(targetConfig, data);
+    applyOpenCodeReasoningEffort(targetConfig, data);
+
+    if (shouldDisableThinkingByDefault(targetConfig, data)) {
+      const chatTemplateKwargs =
+        data.chat_template_kwargs && typeof data.chat_template_kwargs === "object" && !Array.isArray(data.chat_template_kwargs)
+          ? data.chat_template_kwargs
+          : {};
+      data.chat_template_kwargs = {
+        ...chatTemplateKwargs,
+        enable_thinking: false,
+        thinking: false
+      };
+      log(`Disabled thinking by default for ${data.model} to preserve visible final answers`);
     }
 
     return JSON.stringify(data);
@@ -327,6 +508,14 @@ function processBody(body, targetConfig, url) {
     warn("Failed to parse or process JSON body:", e.message);
     return body; // Return original body on failure
   }
+}
+
+function isMainModule() {
+  if (!process.argv[1]) {
+    return false;
+  }
+
+  return import.meta.url === pathToFileURL(process.argv[1]).href;
 }
 
 // Proxy request to the final vLLM container
@@ -437,8 +626,13 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.setTimeout(0);
-server.listen(PORT, () => {
-  log(`Request validator listening on port ${PORT}`);
-  log(`Configured models: ${Object.keys(MODEL_CONFIG).length}`);
-});
+export { processBody };
+
+if (isMainModule()) {
+  server.setTimeout(0);
+  server.listen(PORT, () => {
+    log(`Request validator listening on port ${PORT}`);
+    log(`Loaded models config from ${MODELS_CONFIG_PATH}`);
+    log(`Configured models: ${Object.keys(MODEL_CONFIG).length}`);
+  });
+}

@@ -3,7 +3,7 @@
 🌍 **Read this in other languages**:
 [Deutsch](README_DE.md) | [Español](README_ES.md) | [Français](README_FR.md) | [Italiano](README_IT.md) | [日本語](README_JA.md) | [简体中文](README_ZH_CN.md) | [繁體中文](README_ZH_TW.md) | [Русский](README_RU.md) | [Українська](README_UK.md) | [Português](README_PT.md) | [한국어](README_KO.md) | [العربية](README_AR.md) | [Tiếng Việt](README_VI.md) | [Türkçe](README_TR.md)
 
-Your Nvidia DGX Spark should not be another side project. Start using it! This is a Docker-based inference stack for serving large language models (LLMs) using NVIDIA vLLM with intelligent resource management. This stack provides on-demand model loading with automatic idle shutdown, single-tenant GPU scheduling, and a unified API gateway.
+Your Nvidia DGX Spark should not be another side project. Start using it! This is a Docker-based inference stack for serving large language models (LLMs) using NVIDIA vLLM with intelligent resource management. This stack provides on-demand model loading with automatic idle shutdown, a single main-model scheduling lane with an optional utility helper, and a unified API gateway.
 
 The goal of the project is to provide an inference server for your home. After testing this and adding new models for a month, I decided to release it for the community. Please understand that this is a hobby project and that concrete help to improve it is highly appreciated. It is based on information I found on the Internet and on the NVIDIA Forums, I really hope it helps driving forward homelabs. This is mainly focused on the single DGX Spark setup and must work on it by default but adding support for 2 is welcome.
 
@@ -16,6 +16,8 @@ The goal of the project is to provide an inference server for your home. After t
 - **[Security & Remote Access](docs/security.md)** - Hardening SSH and setting up restricted port forwarding.
 - **[Troubleshooting & Monitoring](docs/troubleshooting.md)** - Debugging, logs, and common error solutions.
 - **[Advanced Usage](docs/advanced.md)** - Adding new models, custom configurations, and persistent operation.
+- **[Runtime Baseline](docs/runtime-baseline.md)** - Which local image tracks the repo expects and how to rebuild them.
+- **[Tools & Validation Harness](tools/README.md)** - The supported smoke, soak, inspection, and manual probe scripts.
 - **[TODO Notes](TODO.md)** - Ideas I have for what to do next. 
 
 ## Quick Start
@@ -49,30 +51,54 @@ The goal of the project is to provide an inference server for your home. After t
        # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream
        docker build -t avarok/vllm-dgx-spark:v11 custom-docker-containers/avarok
 
-       # Build Christopher Owen image (MXFP4 Optimized)
-       docker build -t christopherowen/vllm-dgx-spark:v12 custom-docker-containers/christopherowen
+      # Build the repo MXFP4 track used by GPT-OSS.
+      # This bakes the manually downloaded tiktoken files into the image.
+      docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dockerfile .
+
+      # Build the refreshed TF5 track used by GLM 4.7.
+      docker build -t local/vllm-node-tf5:cu131 -f custom-docker-containers/vllm-node-tf5/Dockerfile .
+
+      # Build the upstream-style TF5 track used by Gemma 4 and newer TF5 recipe imports.
+      # The active Gemma compose services expect this exact local image tag.
+      git clone https://github.com/eugr/spark-vllm-docker tmp/spark-vllm-docker 2>/dev/null || git -C tmp/spark-vllm-docker pull --ff-only
+      (cd tmp/spark-vllm-docker && bash build-and-copy.sh --pre-tf)
        ```
+   *   **Note:** `vllm-node-tf5` is not built from a repo-local Dockerfile today. If you plan to run Gemma 4 or the newer TF5-track Qwen follow-ons, build it explicitly with the upstream helper flow above. See [docs/runtime-baseline.md](docs/runtime-baseline.md) for the exact reproduction notes and build-time network requirements.
 
 5. **Start the stack**
    ```bash
    # Start gateway and waker only (models start on-demand)
    docker compose up -d
 
-   # Pre-create all enabled model containers (recommended)
+   # Pre-create all enabled model containers once the required local track images exist
    docker compose --profile models up --no-start
    ```
 
 6. **Test the API**
    ```bash
-   # Request to qwen2.5-1.5b (will auto-start)
-   curl -X POST http://localhost:8009/v1/qwen2.5-1.5b-instruct/chat/completions \
+    # Request to the shipped utility helper
+    curl -X POST http://localhost:8009/v1/qwen3.5-0.8b/chat/completions \
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}" \
      -d '{
-       "model": "qwen2.5-1.5b-instruct",
+          "model": "qwen3.5-0.8b",
        "messages": [{"role": "user", "content": "Hello!"}]
      }'
    ```
+
+7. **Use the supported validation harness**
+   After the first manual curl succeeds, switch to the repo's maintained bring-up flow instead of ad hoc scripts:
+   ```bash
+   bash tools/validate-stack.sh
+   bash tools/smoke-gateway.sh
+   ```
+   For model-specific bring-up, smoke, soak, and manual probe commands, see [tools/README.md](tools/README.md).
+
+## Start Here If You Are New
+
+- Read [README.md](README.md), then [docs/architecture.md](docs/architecture.md), then [tools/README.md](tools/README.md).
+- Treat [tools/README.md](tools/README.md) plus [models.json](models.json) as the current operational source of truth.
+- Treat models outside the validated set in this README as experimental until the harness says otherwise.
 
 ## Prerequisites
 - Docker 20.10+ with Docker Compose
@@ -85,6 +111,18 @@ Pull requests very welcome. :)
 However, to ensure stability, I enforce a strict **Pull Request Template**.
 
 ## ⚠️ Known Issues
+
+### Current Validation Status
+
+With the current harness and repo defaults, the only **validated main models** right now are:
+
+- **`gpt-oss-20b`**
+- **`gpt-oss-120b`**
+- **`glm-4.7-flash-awq`**
+
+The shipped `qwen3.5-0.8b` small helper is now the **validated utility helper** for titles/session metadata, but it is not part of that validated main-model set.
+
+Other available models may still work, but beyond that validated utility helper they should be treated as **experimental** rather than recommended defaults until they are re-tested with the current tooling.
 
 ### Experimental Models (GB10/CUDA 12.1 Compatibility)
 
@@ -99,8 +137,10 @@ The following models are marked as **experimental** due to sporadic crashes on D
 
 ### Nemotron 3 Nano 30B (NVFP4)
 
-The **`nemotron-3-nano-30b-nvfp4`** model is currently disabled.
-**Reason:** Incompatible with current vLLM build on GB10. Requires proper V1 engine support or updated backend implementation.
+The **`nemotron-3-nano-30b-nvfp4`** model is now re-enabled on the refreshed `vllm-node` standard-track path, but it should still be treated as **experimental** on the current harness.
+**Current status:** It now loads and answers requests on the refreshed runtime, but it is not part of the validated main-model set or the shipped OpenCode config yet.
+**Important behavior:** Visible assistant content depends on the non-thinking request shape. The request validator now injects that default for normal gateway requests.
+**Current conservative client ceiling:** About `100000` prompt tokens for manual OpenCode/Cline-style use. The active-stack five-way soak passes cleanly at roughly `101776` prompt tokens and is already borderline by roughly `116298`.
 
 
 ### OpenCode Image/Screenshot Support on Linux
@@ -132,16 +172,7 @@ Special thanks to the community members who made optimized Docker images used in
 - **Thomas P. Braun from Avarok**: For the general-purpose vLLM image (`avarok/vllm-dgx-spark`) with support for non-gated activations (Nemotron) and hybrid models and posts like this https://blog.avarok.net/dgx-spark-nemotron3-and-nvfp4-getting-to-65-tps-8c5569025eb6.
 - **Christopher Owen**: For the MXFP4-optimized vLLM image (`christopherowen/vllm-dgx-spark`) enabling high-performance inference on DGX Spark.
 - **eugr**: For all the work on the original vLLM image (`eugr/vllm-dgx-spark`) customizations and the great postings on NVIDIA Forums.
-
-### Model Providers
-
-Huge thanks to the organizations optimizing these models for FP4/FP8 inference:
-
-- **Firworks AI** (`Firworks`): For a wide range of optimized models including GLM-4.5, Llama 3.3, and Ministral.
-- **NVIDIA**: For Qwen3-Next, Nemotron, and standard FP4 implementations.
-- **RedHat**: For Qwen3-VL and Mistral Small.
-- **QuantTrio**: For Qwen3-VL-Thinking.
-- **OpenAI**: For the GPT-OSS models.
+- **Patrick Yi / scitrera.ai**: For the SGLang utility-model recipe that informed the local `qwen3.5-0.8b` helper path.
 
 ## License
 

@@ -1,7 +1,43 @@
+x-model-common: &model-common
+  profiles: ["models"]
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: "all"
+            capabilities: ["gpu"]
+  shm_size: "16g"
+  ulimits:
+    memlock: -1
+    stack: 67108864
+  restart: "no"
+  logging:
+    driver: ${DOCKER_LOG_DRIVER:-json-file}
+    options:
+      max-size: "10m"
+      max-file: "3"
+  networks:
+    - default
+    - vllm_internal
+
+x-env-common: &env-common
+  HF_HOME: /root/.cache/huggingface
+  VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+  VLLM_NO_USAGE_STATS: "1"
+  VLLM_FLASHINFER_MOE_BACKEND: "latency"
+  VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+
+x-healthcheck-default: &healthcheck-default
+  test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+  interval: 30s
+  timeout: 5s
+  retries: 5
+
 services:
 
   vllm-llama-3.3-70b-instruct-fp4:
-    profiles: ["models"]
+    <<: *model-common
     image: avarok/vllm-dgx-spark:v11
     container_name: vllm-llama-3.3-70b-instruct-fp4
     command:
@@ -38,40 +74,13 @@ services:
       - ../torch_extensions:/root/.cache/torch_extensions
       - ../torchinductor:/tmp/torchinductor_root
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_FLASHINFER_MOE_BACKEND: "latency"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
+      <<: *env-common
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
 
   vllm-llama-3.3-70b-joyous-fp4:
-    profiles: ["models"]
+    <<: *model-common
     image: avarok/vllm-dgx-spark:v11
     container_name: vllm-llama-3.3-70b-joyous-fp4
     command:
@@ -108,40 +117,13 @@ services:
       - ../torch_extensions:/root/.cache/torch_extensions
       - ../torchinductor:/tmp/torchinductor_root
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_FLASHINFER_MOE_BACKEND: "latency"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
+      <<: *env-common
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
 
   vllm-eurollm-22b-fp4:
-    profiles: ["models"]
+    <<: *model-common
     image: avarok/vllm-dgx-spark:v11
     container_name: vllm-eurollm-22b-fp4
     command:
@@ -178,35 +160,8 @@ services:
       - ../torch_extensions:/root/.cache/torch_extensions
       - ../torchinductor:/tmp/torchinductor_root
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_FLASHINFER_MOE_BACKEND: "latency"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
+      <<: *env-common
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
 

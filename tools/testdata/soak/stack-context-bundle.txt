@@ -1,0 +1,1474 @@
+// Request validator and router middleware.
+// This service:
+// 1. Reads the `model` from the request body to determine the target container.
+// 2. Calls the `waker` service to ensure the requested model is running.
+// 3. Forwards "busy" responses from the waker back to the client.
+// 4. Normalizes `max_completion_tokens` to `max_tokens` (OpenCode vs vLLM compatibility).
+// 5. Caps `max_tokens` to prevent context overflow (limits response length, NOT input prompt).
+// 6. Normalizes multimodal content format for models with incompatible chat templates.
+// 7. Strips tool parameters from models that don't support tool calling (small, VL, math).
+// 8. Forces `tool_choice: required` for models that ignore tools with "auto" (Qwen3-Coder, Qwen2.5-Coder).
+// 9. Fixes role alternation for Gemma/Llama models requiring strict user/assistant turns.
+// 10. Proxies the final, validated request to the correct vLLM container.
+
+import http from "node:http";
+import { loadModelsConfig, resolveHealthUrl as resolveConfiguredHealthUrl } from "../shared/models-config.mjs";
+
+const PORT = Number(process.env.PORT || 18081);
+const VERBOSE = (process.env.VERBOSE || "0") !== "0";
+const WAKER_URL = process.env.WAKER_URL || "http://waker:18080";
+const MODELS_CONFIG_PATH = process.env.MODELS_CONFIG_PATH || "/config/models.json";
+const MODELS_CONFIG = loadModelsConfig(MODELS_CONFIG_PATH);
+const MODEL_CONFIG = Object.fromEntries(
+  MODELS_CONFIG.entries.map((entry) => [
+    entry.model,
+    {
+      host: entry.container,
+      port: entry.port,
+      maxModelLen: entry.maxModelLen,
+      toolSupport: entry.toolSupport,
+      validatorProfile: entry.validatorProfile,
+      multimodal: entry.multimodal
+    }
+  ])
+);
+
+function log(...args) {
+  if (VERBOSE) console.log("[validator]", ...args);
+}
+
+function warn(...args) {
+  console.warn("[validator]", ...args);
+}
+
+function shouldStripTools(targetConfig) {
+  if (!targetConfig) return false;
+  if (targetConfig.validatorProfile === "small-no-tools" || targetConfig.validatorProfile === "vl") {
+    return true;
+  }
+  return targetConfig.toolSupport === "none";
+}
+
+function shouldForceToolChoice(targetConfig) {
+  if (!targetConfig) return false;
+  if (targetConfig.validatorProfile === "coder-force-tools") {
+    return true;
+  }
+  return targetConfig.toolSupport === "force-required";
+}
+
+function json(res, code, obj, headers = {}) {
+  res.writeHead(code, { ...headers, "Content-Type": "application/json" });
+  res.end(JSON.stringify(obj));
+}
+
+// Rough estimate of tokens from text
+// Using ~2.5 chars per token (conservative for code/technical text which tokenizes more densely)
+function estimateTokens(text) {
+  if (typeof text !== "string") return 0;
+  return Math.ceil(text.length / 2.5);
+}
+
+// Estimate total input tokens from messages
+function estimateInputTokens(data) {
+  let total = 0;
+  // Base overhead for chat template, special tokens, etc.
+  // Chat templates can add 500-2000 tokens depending on system prompts
+  const overhead = 500;
+
+  if (data.messages && Array.isArray(data.messages)) {
+    for (const msg of data.messages) {
+      if (msg.content) {
+        if (typeof msg.content === "string") {
+          total += estimateTokens(msg.content);
+        } else if (Array.isArray(msg.content)) { // Multimodal content
+          for (const part of msg.content) {
+            if (part.type === "text" && part.text) {
+              total += estimateTokens(part.text);
+            } else if (part.type === "image_url") {
+              total += 1500; // Conservative estimate for image tokens
+            }
+          }
+        }
+      }
+      total += 20; // Overhead per message (role token, separators, etc.)
+    }
+  }
+  return total + overhead;
+}
+
+// Validates and modifies the request body
+function processBody(body, targetConfig, url) {
+  try {
+    const data = JSON.parse(body);
+
+    // Normalize multimodal content format to string for models with chat templates that don't support it
+    // OpenCode sends: {"content": [{"type": "text", "text": "Hi"}]}
+    // Some chat templates (like Qwen3-Next) expect: {"content": "Hi"}
+    // Skip VL/multimodal models and models that work without (like gpt-oss)
+    const needsContentNormalization = data.model && (
+      data.model.includes("qwen3-next") && !data.model.includes("-vl")
+    );
+    if (needsContentNormalization && Array.isArray(data.messages)) {
+      for (const msg of data.messages) {
+        if (Array.isArray(msg.content)) {
+          // Extract text parts and concatenate, skip images for text-only models
+          const textParts = msg.content
+            .filter(part => part.type === "text" && part.text)
+            .map(part => part.text);
+          if (textParts.length > 0) {
+            msg.content = textParts.join("\n");
+            log(`Normalized multimodal content to string for ${data.model}`);
+          }
+        }
+      }
+    }
+
+    // Fix for Gemma/Llama models that require strict role alternation (user/assistant/user...).
+    // This logic handles merging consecutive roles and system prompt injection.
+    if (data.model && (data.model.includes("gemma") || data.model.includes("llama")) && Array.isArray(data.messages)) {
+      let systemContent = "";
+
+      // Extract and remove all system messages
+      data.messages = data.messages.filter(m => {
+        if (m.role === "system") {
+          systemContent += (systemContent ? "\n\n" : "") + (m.content || "");
+          return false;
+        }
+        return true;
+      });
+
+      // Inject Llama specific tool instruction to force raw JSON arguments and prevent over-eager calling
+      if (data.model.includes("llama")) {
+        const toolInstruction = `CRITICAL INSTRUCTIONS:
+1. When calling tools, you must provide array and object arguments as raw JSON values (e.g. [1, 2] or {"key": "value"}), NOT as JSON strings. Do not quote these values.
+2. If the user greets you (e.g. "Hi", "Hello"), reply with text. Do NOT call tools unless specifically needed for a task.`;
+        systemContent += (systemContent ? "\n\n" : "") + toolInstruction;
+        log(`Injected strict tool instruction for Llama calling fix: ${data.model}`);
+
+        // Also rewrite tool definitions to explicitly warn against stringification
+        if (data.tools && Array.isArray(data.tools)) {
+          const warnText = " (Provide as raw JSON, NOT a string)";
+
+          // Helper to recursively update schema descriptions
+          const updateSchema = (schema) => {
+            if (!schema || typeof schema !== 'object') return;
+
+            if (schema.type === 'array' || schema.type === 'object') {
+              if (schema.description && !schema.description.includes(warnText)) {
+                schema.description += warnText;
+              } else if (!schema.description) {
+                schema.description = "Provide as raw JSON, NOT a string";
+              }
+            }
+
+            if (schema.properties) {
+              for (const key in schema.properties) {
+                updateSchema(schema.properties[key]);
+              }
+            }
+            if (schema.items) {
+              updateSchema(schema.items);
+            }
+          };
+
+          for (const tool of data.tools) {
+            // Update parameter descriptions
+            if (tool.function && tool.function.parameters) {
+              updateSchema(tool.function.parameters);
+            }
+            // Specific fix for 'question' tool to prevent over-eager usage
+            if (tool.function && tool.function.name === 'question') {
+              tool.function.description += " Only use this tool if you need to gather specific information for a task. Do not use for general greetings.";
+            }
+          }
+          log(`Rewrote tool descriptions for Llama model: ${data.model}`);
+        }
+      }
+
+      // Merge consecutive messages with the same role
+      const mergedMessages = [];
+      for (const msg of data.messages) {
+        if (mergedMessages.length > 0 && mergedMessages[mergedMessages.length - 1].role === msg.role) {
+          // Merge content with the previous message of the same role
+          const prev = mergedMessages[mergedMessages.length - 1];
+          if (typeof prev.content === "string" && typeof msg.content === "string") {
+            prev.content += "\n\n" + msg.content;
+          } else {
+            // Handle cases where content might be an array or other format
+            prev.content = String(prev.content) + "\n\n" + String(msg.content);
+          }
+          log(`Merged consecutive ${msg.role} messages for Gemma`);
+        } else {
+          mergedMessages.push({ ...msg });
+        }
+      }
+      data.messages = mergedMessages;
+
+      // Prepend system content to the first user message
+      if (systemContent) {
+        log(`Found system prompt for ${data.model}, merging into user message.`);
+        const prefix = `[System Instruction]\n${systemContent}\n\n`;
+
+        if (data.messages.length > 0 && data.messages[0].role === "user") {
+          if (typeof data.messages[0].content === "string") {
+            data.messages[0].content = prefix + data.messages[0].content;
+          } else if (Array.isArray(data.messages[0].content)) {
+            data.messages[0].content.unshift({ type: "text", text: prefix });
+          }
+        } else {
+          // Insert a new user message at the beginning with system content
+          data.messages.unshift({ role: "user", content: prefix.trim() });
+        }
+      }
+
+      // Ensure conversation starts with a user message
+      if (data.messages.length === 0) {
+        log(`Empty messages array for ${data.model}, adding placeholder user message`);
+        data.messages.push({ role: "user", content: "Hi" });
+      } else if (data.messages[0].role !== "user") {
+        log(`First message is not user for ${data.model}, inserting placeholder`);
+        data.messages.unshift({ role: "user", content: " " });
+      }
+
+      // Fix alternation: if two consecutive messages have the same role, insert a placeholder
+      const fixedMessages = [];
+      for (let i = 0; i < data.messages.length; i++) {
+        const msg = data.messages[i];
+        if (fixedMessages.length > 0) {
+          const lastRole = fixedMessages[fixedMessages.length - 1].role;
+          if (lastRole === msg.role) {
+            // Insert a placeholder message to fix alternation
+            const placeholderRole = lastRole === "user" ? "assistant" : "user";
+            const placeholderContent = placeholderRole === "assistant" ? "Understood." : "Continue.";
+            log(`Inserting ${placeholderRole} placeholder to fix alternation for ${data.model}`);
+            fixedMessages.push({ role: placeholderRole, content: placeholderContent });
+          }
+        }
+        fixedMessages.push(msg);
+      }
+      data.messages = fixedMessages;
+    }
+
+    const maxModelLen = targetConfig?.maxModelLen || 131072; // Default fallback
+    const estimatedInput = estimateInputTokens(data);
+    const safetyBuffer = Math.max(512, Math.floor(maxModelLen * 0.1));
+    const availableTokens = maxModelLen - estimatedInput - safetyBuffer;
+    const optimalMaxTokens = Math.max(1, availableTokens);
+
+    // Normalize token limits: prefer max_completion_tokens (OpenAI's newer field), fallback to max_tokens
+    // Different clients/models use different fields (OpenCode uses max_completion_tokens, vLLM uses max_tokens)
+    // See: https://github.com/anomalyco/opencode/issues/9611
+    let requestedMaxTokens = data.max_completion_tokens ?? data.max_tokens;
+
+    if (requestedMaxTokens !== undefined) {
+      log(`Requested tokens: ${requestedMaxTokens} (from ${data.max_completion_tokens !== undefined ? 'max_completion_tokens' : 'max_tokens'})`);
+    }
+
+    // Cap to safe limit or set default
+    if (requestedMaxTokens === undefined || requestedMaxTokens < 1) {
+      requestedMaxTokens = optimalMaxTokens;
+      log(`Set max_tokens: ${optimalMaxTokens} (model: ${maxModelLen}, input: ~${estimatedInput})`);
+    } else if (requestedMaxTokens > optimalMaxTokens) {
+      log(`Capped max_tokens: ${requestedMaxTokens} -> ${optimalMaxTokens} (model: ${maxModelLen})`);
+      requestedMaxTokens = optimalMaxTokens;
+    }
+
+    // Set both fields to the capped value for maximum compatibility
+    data.max_tokens = requestedMaxTokens;
+    data.max_completion_tokens = requestedMaxTokens;
+
+    // Strip tool parameters for models that don't support tool calling
+    // - Small utility models (270m, 1.5b, qwen-math)
+    // - Vision/VL models (they don't have tool parsers configured)
+    if (shouldStripTools(targetConfig)) {
+      const toolParams = ["tool_choice", "tools", "functions", "function_call", "parallel_tool_calls"];
+      for (const param of toolParams) {
+        if (data[param] !== undefined) {
+          log(`Stripping ${param} for ${data.model} (${targetConfig.validatorProfile})`);
+          delete data[param];
+        }
+      }
+    }
+
+    // Force tool_choice to "required" for models that ignore tools with "auto"
+    // 
+    // KNOWN ISSUES:
+    // - qwen3-next FP4 models: tool_choice="required" crashes xgrammar structured outputs on GB10
+    //   The xgrammar grammar constraints trigger CUDA illegal instruction on CUDA 12.1
+    //   TODO: Re-enable for qwen3-next when vLLM/PyTorch supports CUDA 12.1/GB10 properly
+    //
+    // WORKING MODELS:
+    // - qwen3-coder: Works with tool_choice="required"
+    // - qwen2.5-coder: Works with tool_choice="required"
+    const hasToolResults = Array.isArray(data.messages) && data.messages.some(m => m.role === "tool");
+    if (shouldForceToolChoice(targetConfig) && data.tools && data.tools.length > 0 && !hasToolResults) {
+      if (!data.tool_choice || data.tool_choice === "auto") {
+        data.tool_choice = "required";
+        log(`Forced tool_choice to required for ${data.model} (${targetConfig.validatorProfile})`);
+      }
+    }
+
+    return JSON.stringify(data);
+  } catch (e) {
+    warn("Failed to parse or process JSON body:", e.message);
+    return body; // Return original body on failure
+  }
+}
+
+// Proxy request to the final vLLM container
+function proxyRequest(req, res, body, target) {
+  log(`Proxying to ${target.host}:${target.port}${req.url}`);
+  const options = {
+    hostname: target.host,
+    port: target.port,
+    path: req.url,
+    method: req.method,
+    headers: { ...req.headers, "content-length": Buffer.byteLength(body) },
+  };
+
+  const proxyReq = http.request(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    proxyRes.pipe(res);
+  });
+  proxyReq.on("error", (err) => {
+    warn(`Proxy error to ${target.host}:`, err.message);
+    json(res, 502, { error: "Bad Gateway", message: err.message });
+  });
+  proxyReq.write(body);
+  proxyReq.end();
+}
+
+// Main server logic
+const server = http.createServer(async (req, res) => {
+  if (req.url === "/healthz" && req.method === "GET") {
+    return json(res, 200, { status: "ok" });
+  }
+
+  // Read the entire request body first
+  const body = await new Promise((resolve) => {
+    let data = "";
+    req.on("data", (chunk) => (data += chunk));
+    req.on("end", () => resolve(data));
+  });
+
+  try {
+    // Determine the target model from the request body
+    let modelId;
+    if (req.method === "POST" && body) {
+      try {
+        modelId = JSON.parse(body).model;
+      } catch {
+        return json(res, 400, { error: "Invalid JSON body" });
+      }
+    }
+
+    if (!modelId) {
+      return json(res, 400, { error: "Missing 'model' field in request body" });
+    }
+
+    const targetConfig = MODEL_CONFIG[modelId];
+    if (!targetConfig) {
+      return json(res, 404, { error: `Model '${modelId}' not found or not configured` });
+    }
+
+    // Call the waker's blocking ensure endpoint with a long timeout (21 min)
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1260000);
+
+    let wakerRes;
+    try {
+      wakerRes = await fetch(`${WAKER_URL}/ensure/${modelId}`, {
+        method: "POST",
+        signal: controller.signal
+      });
+    } catch (err) {
+      clearTimeout(timeout);
+      warn(`Waker fetch error for ${modelId}:`, err.message);
+      return json(res, 504, { error: "Gateway Timeout", message: "Waker service took too long to respond or is unreachable" });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    let wakerBody;
+    try {
+      wakerBody = await wakerRes.json();
+    } catch (err) {
+      warn(`Failed to parse waker response for ${modelId}:`, err.message);
+      return json(res, 502, { error: "Bad Gateway", message: "Invalid response from waker service" });
+    }
+
+    // If the model isn't ready (e.g., busy or error), forward the waker's response.
+    if (wakerRes.status !== 200 || !wakerBody.ok) {
+      // Filter headers: only forward relevant ones, exclude hop-by-hop or conflicting headers
+      const forwardedHeaders = {};
+      for (const [key, value] of wakerRes.headers.entries()) {
+        const k = key.toLowerCase();
+        if (k === "retry-after" || k.startsWith("x-")) {
+          forwardedHeaders[key] = value;
+        }
+      }
+
+      log(`Model not ready, forwarding waker's response (Status: ${wakerRes.status})`);
+      return json(res, wakerRes.status, wakerBody, forwardedHeaders);
+    }
+
+    // Waker confirmed the model is ready, proceed to process the body and proxy.
+    log(`Model ${modelId} is ready, processing and proxying request.`);
+    const processedBody = processBody(body, targetConfig, req.url);
+    proxyRequest(req, res, processedBody, targetConfig);
+
+  } catch (err) {
+    warn("Main handler error:", err);
+    json(res, 500, { error: "Internal Server Error", message: err.message });
+  }
+});
+
+server.setTimeout(0);
+server.listen(PORT, () => {
+  log(`Request validator listening on port ${PORT}`);
+  log(`Loaded models config from ${MODELS_CONFIG_PATH}`);
+  log(`Configured models: ${Object.keys(MODEL_CONFIG).length}`);
+});
+// index.js — docker-waker (ESM, single-tenant mode)
+
+import http from "node:http";
+import https from "node:https";
+import { URL } from "node:url";
+import { loadModelsConfig } from "../shared/models-config.mjs";
+import { startMonitoring, getModelStats, getAllStats } from "./gpu-monitor.js";
+
+// -------- config --------
+const PORT = Number(process.env.PORT || 18080);
+const MANAGE_PREFIX = process.env.MANAGE_PREFIX || "vllm-";
+const IDLE_STOP_SECONDS = Number(process.env.IDLE_STOP_SECONDS || 0); // 0=disabled
+const NO_STOP_BEFORE_SECONDS = Number(process.env.NO_STOP_BEFORE_SECONDS || 30);
+const HEALTH_TIMEOUT_MS = Number(process.env.HEALTH_TIMEOUT_MS || 900_000);
+const DOCKER_STOP_TIMEOUT_SECONDS = Number(process.env.DOCKER_STOP_TIMEOUT_SECONDS || 5);
+const TICK_MS = Number(process.env.TICK_MS || 1000);
+const STOP_DEBOUNCE_MS = Number(process.env.STOP_DEBOUNCE_MS || 20_000);
+const BUSY_STATUS_CODE = Number(process.env.BUSY_STATUS_CODE || 409); // 409 = Conflict
+const MODELS_CONFIG_PATH = process.env.MODELS_CONFIG_PATH || "/config/models.json";
+const MODEL_HEALTH_URL_TEMPLATE = process.env.MODEL_HEALTH_URL_TEMPLATE || "http://{name}:8000/health";
+
+const DOCKER_HOST = process.env.DOCKER_HOST || "unix:///var/run/docker.sock";
+const DOCKER_API_VERSION = process.env.DOCKER_API_VERSION || "";
+
+const VERBOSE = (process.env.VERBOSE || "1") !== "0";
+
+// -------- tiny utils --------
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const now = () => Date.now();
+const fmtS = (ms) => `${Math.floor(ms / 1000)}s`;
+function log(...a) { if (VERBOSE) console.log(...a); }
+function warn(...a) { console.warn(...a); }
+function err(...a) { console.error(...a); }
+
+const MODELS_CONFIG = loadModelsConfig(MODELS_CONFIG_PATH);
+const MODELS_MAP = MODELS_CONFIG.modelMap;
+const UTILITY_CONTAINER = MODELS_CONFIG.utilityContainer;
+const EXCLUSIVE_CONTAINERS = new Set(MODELS_CONFIG.exclusiveContainers);
+const IGNORE = new Set(
+  (process.env.IGNORE_NAMES || "vllm-gateway,vllm-waker,vllm-request-validator")
+    .split(",").map(s => s.trim()).filter(Boolean)
+);
+if (UTILITY_CONTAINER) {
+  IGNORE.add(UTILITY_CONTAINER);
+}
+const isManaged = (n) => n.startsWith(MANAGE_PREFIX) && !IGNORE.has(n);
+
+function resolveModelEntry(modelKey) {
+  return MODELS_CONFIG.byModel[modelKey] || null;
+}
+
+function resolveContainerName(modelKey) {
+  const entry = resolveModelEntry(modelKey);
+  if (entry) return entry.container;
+  return modelKey.startsWith(MANAGE_PREFIX) ? modelKey : `${MANAGE_PREFIX}${modelKey}`;
+}
+
+function resolveHealthUrl(modelKey, containerName) {
+  return resolveConfiguredHealthUrl(MODELS_CONFIG, modelKey, containerName, MODEL_HEALTH_URL_TEMPLATE);
+}
+
+log("[waker] Loaded models config:", {
+  path: MODELS_CONFIG_PATH,
+  models: Object.keys(MODELS_MAP).length,
+  utilityContainer: UTILITY_CONTAINER,
+  exclusiveContainers: [...EXCLUSIVE_CONTAINERS]
+});
+
+// -------- Docker Engine API (socket HTTP) --------
+function dockerRequest(method, path, body) {
+  return new Promise((resolve, reject) => {
+    const headers = { "Content-Type": "application/json" };
+    let data = null;
+    if (body !== undefined && body !== null) {
+      data = JSON.stringify(body);
+      headers["Content-Length"] = Buffer.byteLength(data);
+    }
+
+    let reqOpts;
+    if (DOCKER_HOST.startsWith("unix://") || DOCKER_HOST.startsWith("/")) {
+      const socketPath = DOCKER_HOST.startsWith("unix://") ? DOCKER_HOST.slice(7) : DOCKER_HOST;
+      reqOpts = { socketPath, path, method, headers };
+    } else {
+      const u = new URL(DOCKER_HOST);
+      reqOpts = { protocol: u.protocol, hostname: u.hostname, port: u.port || 2375, path, method, headers };
+    }
+
+    const rq = http.request(reqOpts, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => {
+        const buf = Buffer.concat(chunks);
+        const text = buf.toString("utf8");
+        const ok = res.statusCode >= 200 && res.statusCode < 300;
+        if (res.statusCode === 204) return resolve(null);
+        if (!ok) return reject(new Error(`Docker ${method} ${path} -> ${res.statusCode} ${res.statusMessage} ${text}`));
+        try { resolve(text ? JSON.parse(text) : null); }
+        catch { resolve(text); }
+      });
+    });
+    rq.on("error", reject);
+    if (data) rq.write(data);
+    rq.end();
+  });
+}
+const d = (p) => (DOCKER_API_VERSION ? `/${DOCKER_API_VERSION}${p}` : p);
+const listContainers = (all = true) => dockerRequest("GET", d(`/containers/json?all=${all ? 1 : 0}`));
+const inspectContainer = (name) => dockerRequest("GET", d(`/containers/${encodeURIComponent(name)}/json`));
+const startContainer = (name) => dockerRequest("POST", d(`/containers/${encodeURIComponent(name)}/start`));
+const stopContainer = (name, t) => dockerRequest("POST", d(`/containers/${encodeURIComponent(name)}/stop?t=${t}`));
+
+// -------- health wait (pure http/https) --------
+function httpOk(url, graceMs = 10_000) {
+  return new Promise((resolve) => {
+    const u = new URL(url);
+    const lib = u.protocol === "https:" ? https : http;
+    const ac = new AbortController();
+    const to = setTimeout(() => ac.abort(), graceMs);
+    const req = lib.request({ hostname: u.hostname, port: u.port || (u.protocol === "https:" ? 443 : 80), path: u.pathname + (u.search || ""), method: "GET", signal: ac.signal }, (res) => {
+      clearTimeout(to);
+      res.resume(); // drain
+      resolve(res.statusCode >= 200 && res.statusCode < 300);
+    });
+    req.on("error", () => { clearTimeout(to); resolve(false); });
+    req.end();
+  });
+}
+
+async function waitHttpOk(url, deadlineMs) {
+  let attempts = 0;
+  while (now() < deadlineMs) {
+    attempts++;
+    const ok = await httpOk(url, 5_000);
+    if (ok) return true;
+    await sleep(1_000);
+  }
+  throw new Error(`health timeout after ${attempts} attempts for ${url}`);
+}
+
+// -------- state --------
+const startAtMs = new Map();
+const lastSeenMs = new Map();
+const lastStopMs = new Map();
+
+// -------- busy helper --------
+class BusyError extends Error {
+  constructor(info) { super("busy"); this.name = "BusyError"; this.info = info; }
+}
+
+async function getRunningManagedExcept(exceptName) {
+  let cs = [];
+  try { cs = await listContainers(true); } catch (e) { err("[waker] docker list error:", e.message || e); }
+  const names = new Set();
+  for (const c of cs) {
+    if (c.State !== "running") continue;
+    for (const raw of c.Names || []) {
+      const n = raw.replace(/^\//, "");
+      if (!isManaged(n)) continue;
+      if (n === exceptName) continue;
+      names.add(n);
+    }
+  }
+  return [...names];
+}
+
+async function getContainerSummary(name) {
+  try {
+    const insp = await inspectContainer(name);
+    const startedAt = Date.parse(insp?.State?.StartedAt || "") || 0;
+    const lastSeen = lastSeenMs.get(name) || startedAt;
+    const uptimeMs = startedAt ? (now() - startedAt) : 0;
+    const idleMs = startedAt ? (now() - lastSeen) : 0;
+
+    // Calculate when model might be released (if idle timeout is enabled)
+    let timeUntilReleaseSec = null;
+    let willAutoStop = false;
+    if (IDLE_STOP_SECONDS > 0 && startedAt) {
+      const idleTimeoutMs = IDLE_STOP_SECONDS * 1000;
+      const minUptimeMs = NO_STOP_BEFORE_SECONDS * 1000;
+      const remainingIdleMs = Math.max(0, idleTimeoutMs - idleMs);
+      const remainingMinUptimeMs = Math.max(0, minUptimeMs - uptimeMs);
+      const remainingMs = Math.max(remainingIdleMs, remainingMinUptimeMs);
+      timeUntilReleaseSec = Math.ceil(remainingMs / 1000);
+      willAutoStop = uptimeMs >= minUptimeMs; // only auto-stops after minimum uptime
+    }
+
+    return {
+      name,
+      startedAt,
+      startedAtISO: startedAt ? new Date(startedAt).toISOString() : null,
+      uptimeSec: startedAt ? Math.round(uptimeMs / 1000) : null,
+      idleSec: startedAt ? Math.round(idleMs / 1000) : null,
+      lastSeenISO: lastSeen ? new Date(lastSeen).toISOString() : null,
+      timeUntilReleaseSec,
+      willAutoStop,
+      healthUrl: resolveHealthUrl(name, name),
+      state: insp?.State?.Status || insp?.State?.State || "unknown"
+    };
+  } catch {
+    return { name, state: "unknown" };
+  }
+}
+
+// -------- ensure (start + wait) --------
+async function ensureModel(modelKey) {
+  const name = resolveContainerName(modelKey);
+  log(`[waker] ensure request for model key: ${modelKey} -> container: ${name}`);
+
+  // Set starting state immediately to prevent tick() race
+  starting.set(name, true);
+
+  try {
+    // single-tenant guard
+    if (isManaged(name)) {
+      const others = await getRunningManagedExcept(name);
+      if (others.length > 0) {
+        const current = await getContainerSummary(others[0]);
+        const retryAfterSec = Math.max(1, Math.ceil(HEALTH_TIMEOUT_MS / 1000));
+        log(`[waker] BUSY: ${current.name} is running; refusing to start ${name}.`);
+        throw new BusyError({
+          busy: true,
+          currentModel: current,
+          running: await Promise.all(others.map(getContainerSummary)),
+          retryAfterSec
+        });
+      }
+    }
+
+    // Mutual Exclusivity: stop the utility model if an exclusive model needs to start
+    if (EXCLUSIVE_CONTAINERS.has(name)) {
+      try {
+        const utilInsp = await inspectContainer(UTILITY_CONTAINER);
+        if (utilInsp?.State?.Running) {
+          log(`[waker] stopping ${UTILITY_CONTAINER} to make room for ${name}`);
+          await stopContainer(UTILITY_CONTAINER, DOCKER_STOP_TIMEOUT_SECONDS);
+          log(`[waker] waiting 15s for GPU memory reclamation...`);
+          await sleep(15000);
+        }
+      } catch (e) { /* ignore if not found */ }
+    }
+
+    let insp;
+    try {
+      insp = await inspectContainer(name);
+    } catch (e) {
+      throw new Error(`container ${name} not found (${e.message})`);
+    }
+
+    const running = !!insp?.State?.Running;
+    if (!running) {
+      log(`[waker] starting ${name}...`);
+      await startContainer(name);
+      await sleep(300);
+      insp = await inspectContainer(name);
+    }
+
+    const started = Date.parse(insp?.State?.StartedAt || "") || now();
+    startAtMs.set(name, started);
+    lastSeenMs.set(name, started);
+
+    const url = resolveHealthUrl(modelKey, name);
+    log(`[waker] waiting health ${url} up to ${fmtS(HEALTH_TIMEOUT_MS)}`);
+    await waitHttpOk(url, now() + HEALTH_TIMEOUT_MS);
+
+    lastSeenMs.set(name, now());
+    log(`[waker] ${name} is healthy`);
+    return { name, healthUrl: url };
+  } finally {
+    starting.delete(name);
+  }
+}
+
+// -------- check (non-blocking status) --------
+// A map to keep track of models that are currently in the process of starting up.
+const starting = new Map();
+
+async function checkModel(modelKey) {
+  const name = resolveContainerName(modelKey);
+  log(`[waker] check request for model key: ${modelKey} -> container: ${name}`);
+
+  // 1. Single-tenant guard: check if another model is running.
+  const others = await getRunningManagedExcept(name);
+  if (others.length > 0) {
+    const current = await getContainerSummary(others[0]);
+    log(`[waker] BUSY on check: ${current.name} is running.`);
+    return { status: "busy", ...current };
+  }
+
+  // 2. Check the container's current state.
+  let insp;
+  try {
+    insp = await inspectContainer(name);
+  } catch (e) {
+    // If the container doesn't exist, it's an error.
+    return { status: "error", message: `Container ${name} not found`, statusCode: 404 };
+  }
+
+  // 3. If it's already running, check its health.
+  if (insp?.State?.Running) {
+    const healthUrl = resolveHealthUrl(modelKey, name);
+    const isHealthy = await httpOk(healthUrl, 2000); // Quick 2s timeout for check.
+    if (isHealthy) {
+      log(`[waker] READY on check: ${name} is running and healthy.`);
+      lastSeenMs.set(name, now()); // Touch the model to keep it alive.
+      return { status: "ready", name };
+    } else {
+      log(`[waker] INITIALIZING on check: ${name} is running but not healthy yet.`);
+      return { status: "initializing", name, message: "Container is running but not yet healthy" };
+    }
+  }
+
+  // 4. If it's stopped, trigger a start but don't wait.
+  // Avoid re-triggering if a start is already in progress.
+  if (!starting.has(name)) {
+    log(`[waker] STARTING on check: ${name} was stopped, initiating start.`);
+    starting.set(name, true);
+    // This is "fire and forget" - we start the process and immediately return.
+    ensureModel(modelKey)
+      .then(() => log(`[waker] background ensure for ${name} completed.`))
+      .catch((e) => warn(`[waker] background ensure for ${name} failed:`, e.message))
+      .finally(() => starting.delete(name));
+  } else {
+    log(`[waker] INITIALIZING on check: ${name} is already in the process of starting.`);
+  }
+
+  return { status: "initializing", name, message: "Container is starting" };
+}
+
+// -------- idle/stop loop --------
+let ticking = false;
+async function tick() {
+  if (ticking) return;
+  ticking = true;
+  try {
+    let cs = [];
+    try { cs = await listContainers(true); }
+    catch (e) { err("[waker] docker list error:", e.message || e); return; }
+
+    const managed = new Set();
+    for (const c of cs) {
+      for (const raw of c.Names || []) {
+        const n = raw.replace(/^\//, "");
+        if (isManaged(n)) managed.add(n);
+      }
+    }
+
+    for (const name of managed) {
+      let insp;
+      try { insp = await inspectContainer(name); }
+      catch { continue; }
+      if (!insp?.State?.Running) continue;
+
+      const started = Date.parse(insp.State.StartedAt || "") || now();
+      const prev = startAtMs.get(name);
+      if (!prev || prev !== started) {
+        startAtMs.set(name, started);
+        lastSeenMs.set(name, started);
+        continue; // grace on fresh start
+      }
+
+      if (IDLE_STOP_SECONDS <= 0) continue;
+
+      const idleMs = IDLE_STOP_SECONDS * 1000;
+      const graceMs = NO_STOP_BEFORE_SECONDS * 1000;
+      const uptime = now() - started;
+      const lastSeen = lastSeenMs.get(name) ?? started;
+      const idleFor = now() - lastSeen;
+      const eligible = uptime >= idleMs && uptime >= graceMs && idleFor >= idleMs;
+
+      const lastStop = lastStopMs.get(name) || 0;
+      const debounced = now() - lastStop < STOP_DEBOUNCE_MS;
+
+      if (eligible && !debounced) {
+        console.log(`[waker] stopping ${name} (idle ${fmtS(idleFor)} | uptime ${fmtS(uptime)})`);
+        stopContainer(name, DOCKER_STOP_TIMEOUT_SECONDS).catch((e) => warn(`[waker] stop error ${name}:`, e.message || e));
+        lastStopMs.set(name, now());
+      }
+    }
+
+    // Auto-restart Utility model if no Exclusive containers are running or starting
+    if (UTILITY_CONTAINER && EXCLUSIVE_CONTAINERS.size > 0) {
+      let exclusiveActive = false;
+      for (const name of EXCLUSIVE_CONTAINERS) {
+        if (starting.has(name)) {
+          exclusiveActive = true;
+          break;
+        }
+        try {
+          const insp = await inspectContainer(name);
+          if (insp?.State?.Running) {
+            exclusiveActive = true;
+            break;
+          }
+        } catch { }
+      }
+
+      if (!exclusiveActive) {
+        let utilRunning = false;
+        try {
+          const insp = await inspectContainer(UTILITY_CONTAINER);
+          utilRunning = !!insp?.State?.Running;
+        } catch { }
+
+        if (!utilRunning) {
+          log(`[waker] auto-starting ${UTILITY_CONTAINER} (no exclusive models are active)`);
+          startContainer(UTILITY_CONTAINER).catch(e => warn(`[waker] failed to auto-start ${UTILITY_CONTAINER}:`, e.message));
+        }
+      }
+    }
+  } finally {
+    ticking = false;
+  }
+}
+
+// -------- http helpers --------
+function json(res, code, obj, extraHeaders) {
+  const s = JSON.stringify(obj);
+  res.statusCode = code;
+  res.setHeader("content-type", "application/json; charset=utf-8");
+  if (extraHeaders) for (const [k, v] of Object.entries(extraHeaders)) res.setHeader(k, v);
+  res.setHeader("content-length", Buffer.byteLength(s));
+  res.end(s);
+}
+
+function notFound(res, msg = "not found") {
+  res.statusCode = 404;
+  res.setHeader("content-type", "text/plain; charset=utf-8");
+  res.end(msg);
+}
+
+// -------- server --------
+const server = http.createServer(async (req, res) => {
+  const startT = now();
+  const { method, url: rawUrl } = req;
+  try {
+    const u = new URL(rawUrl, `http://${req.headers.host || "localhost"}`);
+    log(`[waker] ${method} ${u.pathname}${u.search || ""}`);
+
+    if (u.pathname === "/healthz") {
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/plain; charset=utf-8");
+      res.end("ok");
+      return;
+    }
+
+    if (method === "GET" && u.pathname === "/debug/state") {
+      // expose who's currently running (if any) for visibility
+      const running = await getRunningManagedExcept("__none__");
+      const current = running.length ? await getContainerSummary(running[0]) : null;
+      return json(res, 200, {
+        config: {
+          PORT, MANAGE_PREFIX, IGNORE: [...IGNORE],
+          IDLE_STOP_SECONDS, NO_STOP_BEFORE_SECONDS,
+          HEALTH_TIMEOUT_MS, DOCKER_STOP_TIMEOUT_SECONDS,
+          TICK_MS, STOP_DEBOUNCE_MS, MODELS_CONFIG_PATH,
+          DOCKER_HOST, DOCKER_API_VERSION
+        },
+        modelsConfig: {
+          utilityContainer: UTILITY_CONTAINER,
+          exclusiveContainers: [...EXCLUSIVE_CONTAINERS],
+          modelMap: MODELS_MAP
+        },
+        startAtMs: Object.fromEntries(startAtMs),
+        lastSeenMs: Object.fromEntries(lastSeenMs),
+        lastStopMs: Object.fromEntries(lastStopMs),
+        busyWith: current,
+        now: now()
+      });
+    }
+
+    if (method === "GET" && u.pathname === "/debug/gpu-stats") {
+      const stats = await getAllStats();
+      return json(res, 200, { stats });
+    }
+
+    if (method === "GET" && u.pathname.startsWith("/debug/gpu-stats/")) {
+      const model = decodeURIComponent(u.pathname.split("/").pop());
+      const stats = await getModelStats(model);
+      if (!stats) return json(res, 404, { error: "no stats found" });
+      return json(res, 200, { model, stats });
+    }
+
+    if (method === "POST" && u.pathname.startsWith("/touch/")) {
+      const name = decodeURIComponent(u.pathname.split("/").pop());
+      if (!isManaged(name)) return json(res, 400, { ok: false, error: "not managed" });
+      lastSeenMs.set(name, now());
+      return json(res, 200, { ok: true, name, lastSeen: lastSeenMs.get(name) });
+    }
+
+    if (method === "POST" && (u.pathname === "/ensure" || u.pathname.startsWith("/ensure/"))) {
+      const short =
+        u.searchParams.get("model") ||
+        (u.pathname.includes("/ensure/") ? decodeURIComponent(u.pathname.split("/").pop()) : null);
+      if (!short) return json(res, 400, { ok: false, error: "missing model" });
+      try {
+        const out = await ensureModel(short);
+        return json(res, 200, { ok: true, ...out });
+      } catch (e) {
+        if (e instanceof BusyError) {
+          const retryAfterSec = e.info?.retryAfterSec ?? Math.max(1, Math.ceil(HEALTH_TIMEOUT_MS / 1000));
+          const current = e.info?.currentModel || {};
+
+          // Add detailed headers for nginx to capture
+          const headers = {
+            "Retry-After": String(retryAfterSec),
+            "X-Busy-Model": current.name || "unknown",
+            "X-Model-Uptime-Sec": String(current.uptimeSec || 0),
+            "X-Model-Idle-Sec": String(current.idleSec || 0),
+            "X-Time-Until-Release-Sec": String(current.timeUntilReleaseSec || retryAfterSec),
+            "X-Model-Will-Auto-Stop": String(current.willAutoStop || false)
+          };
+
+          return json(
+            res,
+            BUSY_STATUS_CODE,
+            { ok: false, error: "busy", ...e.info },
+            headers
+          );
+        }
+        return json(res, 500, { ok: false, error: e.message || String(e) });
+      }
+    }
+
+    if (method === "POST" && u.pathname.startsWith("/check/")) {
+      const modelKey = decodeURIComponent(u.pathname.split("/").pop());
+      if (!modelKey) return json(res, 400, { ok: false, error: "missing model key" });
+
+      const result = await checkModel(modelKey);
+
+      if (result.status === "ready") {
+        return json(res, 200, { status: "ready", model: result.name });
+      }
+      if (result.status === "busy") {
+        const retryAfterSec = result.timeUntilReleaseSec || Math.max(1, Math.ceil(HEALTH_TIMEOUT_MS / 1000));
+        const headers = { "Retry-After": String(retryAfterSec) };
+        return json(res, 429, { status: "busy", requested: modelKey, current: result }, headers);
+      }
+      if (result.status === "initializing") {
+        return json(res, 202, { status: "initializing", model: result.name, message: result.message });
+      }
+      // Handle error status from checkModel
+      return json(res, result.statusCode || 500, { status: "error", message: result.message });
+    }
+
+    return notFound(res);
+  } catch (e) {
+    err("[waker] handler error:", e?.message || e);
+    try { return json(res, 500, { ok: false, error: e?.message || String(e) }); }
+    catch { res.destroy(); }
+  } finally {
+    log(`[waker] -> ${method} ${rawUrl} handled in ${fmtS(now() - startT)}`);
+  }
+});
+
+// boot
+server.setTimeout(0);
+server.listen(PORT, () => {
+  console.log(`[waker] listening on ${PORT} | idle-stop=${IDLE_STOP_SECONDS}s | no-stop-before=${NO_STOP_BEFORE_SECONDS}s | health-timeout=${fmtS(HEALTH_TIMEOUT_MS)}`);
+
+  // Start GPU monitoring (pass dockerRequest wrapper as minimal dockerode)
+  const dockerode = { listContainers: () => dockerRequest("GET", d("/containers/json?all=false")) };
+  startMonitoring(dockerode).catch(e => err("[waker] gpu-monitor error:", e?.message || e));
+});
+setInterval(tick, TICK_MS);
+process.on("unhandledRejection", (e) => err("[waker] unhandledRejection:", e?.message || e));
+process.on("uncaughtException", (e) => err("[waker] uncaughtException:", e?.message || e));
+
+import { readFileSync } from "node:fs";
+
+const ALLOWED_TOOL_SUPPORT = new Set(["full", "force-required", "none"]);
+const ALLOWED_LIFECYCLE = new Set(["normal", "utility", "exclusive"]);
+const ALLOWED_VALIDATOR_PROFILES = new Set([
+  "default",
+  "small-no-tools",
+  "coder-force-tools",
+  "vl"
+]);
+
+function formatPath(filePath) {
+  return filePath || "<inline-models-config>";
+}
+
+function fail(filePath, message) {
+  throw new Error(`[models-config] ${formatPath(filePath)}: ${message}`);
+}
+
+function assertEnum(filePath, modelId, field, value, allowed) {
+  if (!allowed.has(value)) {
+    fail(
+      filePath,
+      `model '${modelId}' has invalid ${field} '${value}' (allowed: ${[...allowed].join(", ")})`
+    );
+  }
+}
+
+function assertPositiveInteger(filePath, modelId, field, value) {
+  if (!Number.isInteger(value) || value < 1) {
+    fail(filePath, `model '${modelId}' has invalid ${field} '${value}' (must be a positive integer)`);
+  }
+}
+
+export function normalizeModelsConfig(raw, filePath) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    fail(filePath, "top-level value must be a JSON object keyed by model id");
+  }
+
+  const byModel = {};
+  const byContainer = {};
+  const entries = [];
+  let utilityModel = null;
+
+  for (const [modelId, value] of Object.entries(raw)) {
+    if (!modelId.trim()) {
+      fail(filePath, "model ids must not be empty");
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      fail(filePath, `model '${modelId}' must be an object`);
+    }
+
+    const container = typeof value.container === "string" ? value.container.trim() : "";
+    if (!container) {
+      fail(filePath, `model '${modelId}' is missing required field 'container'`);
+    }
+    if (byContainer[container]) {
+      fail(filePath, `container '${container}' is assigned to both '${byContainer[container]}' and '${modelId}'`);
+    }
+
+    const port = value.port ?? 8000;
+    const maxModelLen = value.maxModelLen;
+    const toolSupport = value.toolSupport ?? "full";
+    const validatorProfile = value.validatorProfile ?? "default";
+    const lifecycle = value.lifecycle ?? "normal";
+    const multimodal = value.multimodal ?? false;
+    const experimental = value.experimental ?? false;
+    const sourceRecipe = value.sourceRecipe ?? null;
+    const notes = value.notes ?? null;
+
+    assertPositiveInteger(filePath, modelId, "port", port);
+    assertPositiveInteger(filePath, modelId, "maxModelLen", maxModelLen);
+    assertEnum(filePath, modelId, "toolSupport", toolSupport, ALLOWED_TOOL_SUPPORT);
+    assertEnum(filePath, modelId, "validatorProfile", validatorProfile, ALLOWED_VALIDATOR_PROFILES);
+    assertEnum(filePath, modelId, "lifecycle", lifecycle, ALLOWED_LIFECYCLE);
+
+    if (typeof multimodal !== "boolean") {
+      fail(filePath, `model '${modelId}' has invalid multimodal '${multimodal}' (must be true or false)`);
+    }
+    if (typeof experimental !== "boolean") {
+      fail(filePath, `model '${modelId}' has invalid experimental '${experimental}' (must be true or false)`);
+    }
+    if (sourceRecipe !== null && typeof sourceRecipe !== "string") {
+      fail(filePath, `model '${modelId}' has invalid sourceRecipe '${sourceRecipe}' (must be a string)`);
+    }
+    if (notes !== null && typeof notes !== "string") {
+      fail(filePath, `model '${modelId}' has invalid notes '${notes}' (must be a string)`);
+    }
+
+    if (lifecycle === "utility") {
+      if (utilityModel) {
+        fail(filePath, `utility lifecycle assigned to both '${utilityModel}' and '${modelId}'`);
+      }
+      utilityModel = modelId;
+    }
+
+    const upstream = `http://${container}:${port}`;
+    const health = `${upstream}/health`;
+    const entry = {
+      model: modelId,
+      container,
+      port,
+      maxModelLen,
+      toolSupport,
+      validatorProfile,
+      lifecycle,
+      multimodal,
+      experimental,
+      sourceRecipe,
+      notes,
+      upstream,
+      health
+    };
+
+    entries.push(entry);
+    byModel[modelId] = entry;
+    byContainer[container] = modelId;
+  }
+
+  return {
+    entries,
+    byModel,
+    byContainer,
+    modelMap: Object.fromEntries(entries.map((entry) => [entry.model, entry.container])),
+    utilityModel,
+    utilityContainer: utilityModel ? byModel[utilityModel].container : null,
+    exclusiveModels: entries.filter((entry) => entry.lifecycle === "exclusive").map((entry) => entry.model),
+    exclusiveContainers: entries.filter((entry) => entry.lifecycle === "exclusive").map((entry) => entry.container)
+  };
+}
+
+export function loadModelsConfig(filePath) {
+  let text;
+  try {
+    text = readFileSync(filePath, "utf8");
+  } catch (error) {
+    fail(filePath, `unable to read file (${error.message})`);
+  }
+
+  let raw;
+  try {
+    raw = JSON.parse(text);
+  } catch (error) {
+    fail(filePath, `invalid JSON (${error.message})`);
+  }
+
+  return normalizeModelsConfig(raw, filePath);
+}
+x-model-common: &model-common
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: "all"
+            capabilities: ["gpu"]
+  shm_size: "16g"
+  ulimits:
+    memlock: -1
+    stack: 67108864
+  restart: "no"
+  logging:
+    driver: ${DOCKER_LOG_DRIVER:-json-file}
+    options:
+      max-size: "10m"
+      max-file: "3"
+  networks:
+    - default
+    - vllm_internal
+
+x-model-profiled: &model-profiled
+  <<: *model-common
+  profiles: ["models"]
+
+x-env-common: &env-common
+  HF_HOME: /root/.cache/huggingface
+  VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+  VLLM_NO_USAGE_STATS: "1"
+  VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+
+x-healthcheck-default: &healthcheck-default
+  test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+  interval: 30s
+  timeout: 5s
+  retries: 5
+
+services:
+  vllm-glm-4.5-air-fp4:
+    <<: *model-profiled
+    image: avarok/vllm-dgx-spark:v11
+    container_name: vllm-glm-4.5-air-fp4
+    command:
+      - serve
+      - --model
+      - Firworks/GLM-4.5-Air-nvfp4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - glm-4.5-air-fp4
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - glm45
+      - --gpu-memory-utilization
+      - "0.82"
+      - --dtype
+      - auto
+      - --max-model-len
+      - "131072"
+      - --quantization
+      - compressed-tensors
+      - --kv-cache-dtype
+      - fp8
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+    environment:
+      <<: *env-common
+      VLLM_FLASHINFER_MOE_BACKEND: "latency"
+      VLLM_USE_FLASHINFER_MOE_FP4: "1"
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-glm-4.6v-flash-fp4:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-avarok/vllm-dgx-spark:v11-tf5}
+    container_name: vllm-glm-4.6v-flash-fp4
+    command:
+      - serve
+      - --model
+      - Firworks/GLM-4.6V-Flash-nvfp4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - glm-4.6v-flash-fp4
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - glm45
+      - --gpu-memory-utilization
+      - "0.82"
+      - --dtype
+      - auto
+      - --max-model-len
+      - "131072"
+      - --quantization
+      - compressed-tensors
+      - --kv-cache-dtype
+      - fp8
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+    environment:
+      <<: *env-common
+      VLLM_FLASHINFER_MOE_BACKEND: "latency"
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-glm-4.5-air-derestricted-fp4:
+    <<: *model-profiled
+    image: avarok/vllm-dgx-spark:v11
+    container_name: vllm-glm-4.5-air-derestricted-fp4
+    command:
+      - serve
+      - --model
+      - Firworks/GLM-4.5-Air-Derestricted-nvfp4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - glm-4.5-air-derestricted-fp4
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - glm45
+      - --gpu-memory-utilization
+      - "0.82"
+      - --dtype
+      - auto
+      - --max-model-len
+      - "131072"
+      - --quantization
+      - compressed-tensors
+      - --kv-cache-dtype
+      - fp8
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+    environment:
+      <<: *env-common
+      VLLM_FLASHINFER_MOE_BACKEND: "latency"
+      VLLM_USE_FLASHINFER_MOE_FP4: "1"
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-glm4-9b:
+    <<: *model-profiled
+    image: nvcr.io/nvidia/vllm:25.10-py3
+    container_name: vllm-glm4-9b
+    command:
+      - vllm
+      - serve
+      - THUDM/glm-4-9b-chat
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - glm-4-9b-chat
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - glm45
+      - --gpu-memory-utilization
+      - "0.65"
+      - --max-model-len
+      - "32768"
+      - --max-num-seqs
+      - "8"
+      - --trust-remote-code
+      - --disable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+    environment:
+      <<: *env-common
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-glm-4.7-flash-awq:
+    <<: *model-profiled
+    build:
+      context: ..
+      dockerfile: ./custom-docker-containers/glm-4.7-flash-AWQ/Dockerfile
+      args:
+        BASE_IMAGE: ${VLLM_TRACK_IMAGE_TF5:-local/vllm-node-tf5:cu131}
+    image: local/vllm-glm-4.7-flash-awq:tf5
+    container_name: vllm-glm-4.7-flash-awq
+    command:
+      - vllm
+      - serve
+      - cyankiwi/GLM-4.7-Flash-AWQ-4bit
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - glm-4.7-flash-awq
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - glm47
+      - --reasoning-parser
+      - glm45
+      - --max-model-len
+      - "${GLM_47_FLASH_AWQ_MAX_MODEL_LEN:-131072}"
+      - --max-num-batched-tokens
+      - "${GLM_47_FLASH_AWQ_MAX_NUM_BATCHED_TOKENS:-2048}"
+      - --max-num-seqs
+      - "${GLM_47_FLASH_AWQ_MAX_NUM_SEQS:-5}"
+      - --gpu-memory-utilization
+      - "${GLM_47_FLASH_AWQ_GPU_MEMORY_UTILIZATION:-0.70}"
+      - --no-enable-log-requests
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+    environment:
+      <<: *env-common
+      HF_HUB_DISABLE_XET: "1"
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+# /etc/nginx/conf.d/gateway.conf
+# Main API gateway. All v1 traffic is routed through the request-validator service.
+
+map $http_authorization $auth_header {
+  default $http_authorization;
+}
+
+map $http_origin $cors_origin {
+    default "";
+    "~^http://localhost(:[0-9]+)?$" $http_origin;
+    "~^http://127.0.0.1(:[0-9]+)?$" $http_origin;
+    "~^vscode-webview://.+$" $http_origin;
+}
+
+map "" $waker_upstream {
+  default "http://waker:18080";
+}
+
+map "" $validator_upstream {
+  default "http://request-validator:18081";
+}
+
+server {
+  listen 8080;
+
+  access_log /dev/stdout;
+  error_log /dev/stderr;
+  client_max_body_size 64m;
+
+  # DNS for Docker internal hostnames
+  resolver 127.0.0.11 ipv6=off valid=30s;
+
+  # Sane proxy defaults
+  proxy_http_version 1.1;
+  proxy_buffering off;
+  proxy_request_buffering off;
+  proxy_read_timeout 900s;
+  proxy_send_timeout 900s;
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+  proxy_set_header Authorization $auth_header;
+
+  # Health and debug endpoints
+  location = /healthz { return 200 "ok\n"; }
+  location ^~ /debug/ { proxy_pass $waker_upstream; }
+
+  # Main API endpoint for all v1 traffic
+  location /v1/ {
+    # Add CORS headers for all responses
+    add_header 'Access-Control-Allow-Origin' $cors_origin always;
+    add_header 'Access-Control-Allow-Methods' 'GET, POST, OPTIONS' always;
+    add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;
+    add_header 'Access-Control-Expose-Headers' 'Content-Length,Content-Range,Retry-After' always;
+
+    if ($request_method = 'OPTIONS') {
+      return 204;
+    }
+
+    # Pass all v1 traffic to the validator/router service
+    proxy_pass $validator_upstream;
+  }
+
+  # Fallback for any other requests
+  location / {
+    return 404 '{"error": "Not Found"}';
+  }
+}

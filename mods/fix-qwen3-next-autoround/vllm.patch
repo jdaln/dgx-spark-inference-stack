@@ -1,0 +1,10 @@
+--- a/vllm/model_executor/models/qwen3_next.py
++++ b/vllm/model_executor/models/qwen3_next.py
+@@ -252,7 +252,7 @@ def __init__(self, vllm_config: VllmConfig, prefix: str = ""):
+             config.hidden_size,
+             config.num_experts,
+             bias=False,
+-            quant_config=None,
++            quant_config=quant_config,
+             prefix=f"{prefix}.gate",
+         )

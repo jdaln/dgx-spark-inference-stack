@@ -19,11 +19,12 @@ async function ensureStatsDir() {
   }
 }
 
-// Get memory usage from free -m (system RAM in MB)
+// On DGX Spark, shared GPU memory pressure is reflected in system RAM usage.
+// Sample `free -m` instead of relying on discrete VRAM counters.
 async function getGPUMemory() {
   try {
     const { stdout } = await execAsync('free -m');
-    // Parse output: second line, second column is used memory
+    // Parse output: second line, second column is used memory in MB.
     const lines = stdout.trim().split('\n');
     const memLine = lines[1]; // Mem: line
     const values = memLine.split(/\s+/);

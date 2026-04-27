@@ -1,36 +1,7 @@
 # TODOs
 
-## Secure Docker Socket (Waker Service)
 
-Currently, the `waker` service has full root access to the host via `/var/run/docker.sock`. This can become a security risk.
-**Goal:** Restrict `waker`'s access to only necessary Docker API operations (list, inspect, start, stop).
-
-**Proposed Solution:**
-Run a proxy container between `waker` and the docker socket.
-`tecnativa/docker-socket-proxy` is an example implementation, but:
-> [!WARNING]
-> This proxy image itself is a potential entry point and must be audited and brought under control. Do not blindly trust third-party images for security-critical components. Ensure you understand its configuration and consider build it from source heres.
-
-**Possible implemntation plan:**
-1.  Add `docker-access-proxy` service to `docker-compose.yml`:
-    ```yaml
-    docker-access-proxy:
-      image: tecnativa/docker-socket-proxy
-      volumes:
-        - /var/run/docker.sock:/var/run/docker.sock:ro
-      environment:
-        CONTAINERS: 1
-        POST: 1 # Required for start/stop
-      networks:
-        - vllm_internal
-    ```
-2.  Update `waker` in `docker-compose.yml`:
-    -   Remove `/var/run/docker.sock` volume.
-    -   Set `DOCKER_HOST=tcp://docker-access-proxy:2375`.
-
----
-
-## Test Ollama Integration (OpenAI API Compatibility)
+### Test Ollama Integration (OpenAI API Compatibility)
 
 Investigate running an [Ollama](https://ollama.com/) server as a potential alternative backend or "sidecar" alongside vLLM. Ollama provides native OpenAI API compatibility, which could simplify deploying GGUF quantized models or running models on different hardware backends.
 
@@ -73,85 +44,62 @@ Add an `ollama` service to `docker-compose.yml`:
 4. If successful, add an entry to the waker's `MODELS_JSON` pointing to `http://ollama:11434` (upstream).
 
 ---
-
-## Make Mistral-based and Deepseek Models (vLLM) work
-
-Try to run the Mistral based models with something like this.
-```yaml
-    profiles: ["models"]
-    image: avarok/vllm-dgx-spark:v11-tf5
-    container_name: vllm-MODEL_HERE
-    command:
-      - serve
-      - --model
-      - MODEL_HERE
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8000"
-      - --download-dir
-      - /models
-      - --served-model-name
-      - MODEL_NAME_HERE
-      - --enable-auto-tool-choice
-      - --tool-call-parser
-      - llama3_json
-      - --gpu-memory-utilization
-      - "0.82"
-      - --dtype
-      - auto
-      - --max-model-len
-      - "131072"
-      - --quantization
-      - compressed-tensors
-      - --kv-cache-dtype
-      - fp8
-      - --trust-remote-code
-      - --hf-overrides
-      - '{"architectures": ["LlamaForCausalLM"], "model_type": "llama"}'
-      - --disable-log-requests
-      - --disable-log-stats
-    volumes:
-      - ./vllm_cache_huggingface:/root/.cache/huggingface
-      - ./models:/models
-      - ./flashinfer_cache:/root/.cache/flashinfer
-      - ./torch_extensions:/root/.cache/torch_extensions
-      - ./torchinductor:/tmp/torchinductor_root
-    environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_FLASHINFER_MOE_BACKEND: "latency"
-      VLLM_USE_V1: "0"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
-```
-
 ## Determine models that can run in parallel
 
 At the moment, we limit to 1 model + 1 utility one but in the future, it would be great to have a more dynamic way of runnning things. This is why we have this `stats/` directory to collect stats on actual GPU usage.
+
+--
+## Integrate more niche models - to check if useful and functional
+
+Possible general models:
+https://huggingface.co/HuggingFaceTB
+https://huggingface.co/Firworks/SERA-32B-GA-nvfp4
+https://huggingface.co/Firworks/SERA-32B-nvfp4
+https://huggingface.co/hesamation/Qwen3.6-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled
+https://huggingface.co/huihui-ai/Huihui-Qwen3.6-27B-abliterated
+https://huggingface.co/huihui-ai/Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated
+https://huggingface.co/huihui-ai/Huihui-gemma-4-E2B-it-abliterated
+
+Possible replacements for  tiny utility models:
+https://huggingface.co/Firworks/LFM2.5-1.2B-Instruct-nvfp4
+https://huggingface.co/Firworks/LFM2.5-1.2B-Base-nvfp4
+
+Possible Models marked for languages :
+https://huggingface.co/kaitchup/translategemma-12b-it-NVFP4
+https://huggingface.co/Firworks/Apertus-8B-Instruct-2509-Heretic-nvfp4
+https://huggingface.co/Firworks/Apertus-8B-Instruct-2509-nvfp4
+https://huggingface.co/Firworks/LFM2.5-1.2B-JP-nvfp4
+https://huggingface.co/Firworks/shisa-v2.1-llama3.3-70b-nvfp4
+https://huggingface.co/Firworks/shisa-v2.1-unphi4-14b-nvfp4
+https://huggingface.co/Firworks/shisa-v2.1-lfm2-1.2b-nvfp4
+https://huggingface.co/shisa-ai
+https://huggingface.co/swiss-ai/Apertus-70B-Instruct-2509
+https://huggingface.co/LumiOpen/Llama-Poro-2-70B-Instruct
+https://huggingface.co/LumiOpen/Llama-Poro-2-70B-base
+https://huggingface.co/LumiOpen/Llama-Poro-2-70B-SFT
+
+Possible Models marked for image generation:
+https://huggingface.co/Qwen/Qwen-Image-2512
+
+Possible Models marked for RP:
+https://huggingface.co/Firworks/Behemoth-X-123B-v2.1-nvfp4
+https://huggingface.co/Firworks/Precog-123B-v1-nvfp4
+https://huggingface.co/Firworks/Precog-24B-v1-nvfp4
+https://huggingface.co/jiangchengchengNLP/Llama-4-Scout-17B-16E-Instruct-abliterated-v2-nvfp4
+https://huggingface.co/johnnyeric/DeepSeek-R1-0528-Qwen3-8B-abliterated-nvfp4
+https://huggingface.co/Shifusen/Llama-3.3-70B-Instruct-abliterated-NVFP4-modelopt
+https://huggingface.co/mratsim/Behemoth-X-123B-v2-NVFP4
+https://huggingface.co/mratsim/Monstral-123B-v2-NVFP4
+https://huggingface.co/mratsim/L3.3-Ignition-v0.1-70B-NVFP4
+https://huggingface.co/mratsim/Strawberrylemonade-L3-70B-v1.1-NVFP4
+https://huggingface.co/mratsim/70B-L3.3-Cirrus-x1-NVFP4
+https://huggingface.co/collections/mratsim/2025-text-adventure-rp-and-creative-writing-glm-45-air
+https://huggingface.co/mratsim/Dungeonmaster-V2.2-Expanded-LLaMa-70B-NVFP4
+https://huggingface.co/lyf/Qwen3.5-27B-Uncensored-HauhauCS-Aggressive-NVFP4
+https://huggingface.co/Firworks/Void-Citrus-L3.3-70B-mxfp4
+https://huggingface.co/Firworks/L3-Darkest-Planet-16B-HERETIC-Uncensored-Abliterated-nvfp4
+https://huggingface.co/Firworks/L3-DARKEST-PLANET-16.5B-nvfp4
+https://huggingface.co/Firworks/Cassiopeia-70B-fp8
+
+Possible science models:
+https://huggingface.co/Firworks/Chemistry-R1-nvfp4

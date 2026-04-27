@@ -1,9 +1,53 @@
+x-model-common: &model-common
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: "all"
+            capabilities: ["gpu"]
+  shm_size: "16g"
+  ulimits:
+    memlock: -1
+    stack: 67108864
+  restart: "no"
+  logging:
+    driver: ${DOCKER_LOG_DRIVER:-json-file}
+    options:
+      max-size: "10m"
+      max-file: "3"
+  networks:
+    - default
+    - vllm_internal
+
+x-model-profiled: &model-profiled
+  <<: *model-common
+  profiles: ["models"]
+
+x-env-common: &env-common
+  HF_HOME: /root/.cache/huggingface
+  VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+  VLLM_NO_USAGE_STATS: "1"
+  VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+
+x-healthcheck-default: &healthcheck-default
+  test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+  interval: 30s
+  timeout: 5s
+  retries: 5
+
+x-huihui-qwen36-27b-build: &huihui-qwen36-27b-build
+  context: ..
+  dockerfile: ./custom-docker-containers/vllm-node-mxfp4-qwen35/Dockerfile
+  args:
+    BASE_IMAGE: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+
 services:
   # Qwen3-Next models moved to models-experimental.yml due to GB10/CUDA 12.1 crashes
   # See README.md "Known Issues" section for details
 
   vllm-qwen3-vl-32b-fp4:
-    profiles: ["models"]
+    <<: *model-profiled
     image: avarok/vllm-dgx-spark:v11
     container_name: vllm-qwen3-vl-32b-fp4
     command:
@@ -40,39 +84,620 @@ services:
       - ../torch_extensions:/root/.cache/torch_extensions
       - ../torchinductor:/tmp/torchinductor_root
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
+      <<: *env-common
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
+
+  vllm-qwen3.5-0.8b:
+    <<: *model-common
+    image: scitrera/dgx-spark-sglang:0.5.9-t5
+    container_name: vllm-qwen3.5-0.8b
+    entrypoint: []
+    command:
+      - python3
+      - -m
+      - sglang.launch_server
+      - --model-path
+      - Qwen/Qwen3.5-0.8B
+      - --served-model-name
+      - qwen3.5-0.8b
+      - --mem-fraction-static
+      - "${QWEN35_0P8B_GPU_MEMORY_UTILIZATION:-0.05}"
+      - --tp-size
+      - "${QWEN35_0P8B_TENSOR_PARALLEL_SIZE:-1}"
+      - --attention-backend
+      - triton
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --context-length
+      - "${QWEN35_0P8B_MAX_MODEL_LEN:-32768}"
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+    environment:
+      <<: *env-common
+      HF_HUB_CACHE: /models
+      HUGGINGFACE_HUB_CACHE: /models
+    healthcheck:
+      <<: *healthcheck-default
+      test:
+        - CMD
+        - python3
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5).read()
+      start_period: 1800s
+
+  vllm-qwen3.6-27b-fp8:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+    container_name: vllm-qwen3.6-27b-fp8
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-moe-runtime/run.sh
+    command:
+      - vllm
+      - serve
+      - Qwen/Qwen3.6-27B-FP8
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - qwen3.6-27b-fp8
+      - --max-model-len
+      - "${QWEN36_27B_FP8_MAX_MODEL_LEN:-262144}"
+      - --max-num-batched-tokens
+      - "${QWEN36_27B_FP8_MAX_NUM_BATCHED_TOKENS:-32768}"
+      - --trust-remote-code
+      - --chat-template
+      - /workspace/unsloth.jinja
+      - --gpu-memory-utilization
+      - "${QWEN36_27B_FP8_GPU_MEMORY_UTILIZATION:-0.80}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - instanttensor
+      - --attention-backend
+      - flashinfer
+      - --disable-uvicorn-access-log
+      - --disable-log-stats
+      - --enable-prefix-caching
+      - --tensor-parallel-size
+      - "${QWEN36_27B_FP8_TENSOR_PARALLEL_SIZE:-1}"
+      - --pipeline-parallel-size
+      - "${QWEN36_27B_FP8_PIPELINE_PARALLEL_SIZE:-1}"
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3-coder-next:/workspace/mods/fix-qwen3-coder-next:ro
+      - ../mods/fix-qwen3.5-chat-template:/workspace/mods/fix-qwen3.5-chat-template:ro
+      - ../mods/fix-qwen3.5-moe-runtime:/workspace/mods/fix-qwen3.5-moe-runtime:ro
+    environment:
+      <<: *env-common
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+      QWEN35_CHAT_TEMPLATE_MODEL_ID: Qwen/Qwen3.5-0.8B
+      QWEN35_CHAT_TEMPLATE_CACHE_ROOT: /models
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-qwen3.6-27b-fp8-mtp:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+    container_name: vllm-qwen3.6-27b-fp8-mtp
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-moe-runtime/run.sh
+    command:
+      - vllm
+      - serve
+      - Qwen/Qwen3.6-27B-FP8
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - qwen3.6-27b-fp8-mtp
+      - --max-model-len
+      - "${QWEN36_27B_FP8_MTP_MAX_MODEL_LEN:-262144}"
+      - --max-num-batched-tokens
+      - "${QWEN36_27B_FP8_MTP_MAX_NUM_BATCHED_TOKENS:-32768}"
+      - --trust-remote-code
+      - --chat-template
+      - /workspace/unsloth.jinja
+      - --gpu-memory-utilization
+      - "${QWEN36_27B_FP8_MTP_GPU_MEMORY_UTILIZATION:-0.80}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - instanttensor
+      - --attention-backend
+      - flashinfer
+      - --disable-uvicorn-access-log
+      - --disable-log-stats
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":2}'
+      - --enable-prefix-caching
+      - --tensor-parallel-size
+      - "${QWEN36_27B_FP8_MTP_TENSOR_PARALLEL_SIZE:-1}"
+      - --pipeline-parallel-size
+      - "${QWEN36_27B_FP8_MTP_PIPELINE_PARALLEL_SIZE:-1}"
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3-coder-next:/workspace/mods/fix-qwen3-coder-next:ro
+      - ../mods/fix-qwen3.5-chat-template:/workspace/mods/fix-qwen3.5-chat-template:ro
+      - ../mods/fix-qwen3.5-moe-runtime:/workspace/mods/fix-qwen3.5-moe-runtime:ro
+    environment:
+      <<: *env-common
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+      QWEN35_CHAT_TEMPLATE_MODEL_ID: Qwen/Qwen3.5-0.8B
+      QWEN35_CHAT_TEMPLATE_CACHE_ROOT: /models
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-qwen3.6-35b-a3b-fp8:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+    container_name: vllm-qwen3.6-35b-a3b-fp8
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-moe-runtime/run.sh
+    command:
+      - vllm
+      - serve
+      - Qwen/Qwen3.6-35B-A3B-FP8
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - qwen3.6-35b-a3b-fp8
+      - --max-model-len
+      - "${QWEN36_35B_A3B_FP8_MAX_MODEL_LEN:-262144}"
+      - --max-num-batched-tokens
+      - "${QWEN36_35B_A3B_FP8_MAX_NUM_BATCHED_TOKENS:-32768}"
+      - --trust-remote-code
+      - --chat-template
+      - /workspace/unsloth.jinja
+      - --gpu-memory-utilization
+      - "${QWEN36_35B_A3B_FP8_GPU_MEMORY_UTILIZATION:-0.84}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - instanttensor
+      - --attention-backend
+      - flashinfer
+      - --disable-uvicorn-access-log
+      - --disable-log-stats
+      - --enable-prefix-caching
+      - --tensor-parallel-size
+      - "${QWEN36_35B_A3B_FP8_TENSOR_PARALLEL_SIZE:-1}"
+      - --pipeline-parallel-size
+      - "${QWEN36_35B_A3B_FP8_PIPELINE_PARALLEL_SIZE:-1}"
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3-coder-next:/workspace/mods/fix-qwen3-coder-next:ro
+      - ../mods/fix-qwen3.5-chat-template:/workspace/mods/fix-qwen3.5-chat-template:ro
+      - ../mods/fix-qwen3.5-moe-runtime:/workspace/mods/fix-qwen3.5-moe-runtime:ro
+    environment:
+      <<: *env-common
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+      QWEN35_CHAT_TEMPLATE_MODEL_ID: Qwen/Qwen3.5-0.8B
+      QWEN35_CHAT_TEMPLATE_CACHE_ROOT: /models
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-qwen3.6-35b-a3b-fp8-mtp:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+    container_name: vllm-qwen3.6-35b-a3b-fp8-mtp
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-moe-runtime/run.sh
+    command:
+      - vllm
+      - serve
+      - Qwen/Qwen3.6-35B-A3B-FP8
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - qwen3.6-35b-a3b-fp8-mtp
+      - --max-model-len
+      - "${QWEN36_35B_A3B_FP8_MTP_MAX_MODEL_LEN:-262144}"
+      - --max-num-batched-tokens
+      - "${QWEN36_35B_A3B_FP8_MTP_MAX_NUM_BATCHED_TOKENS:-32768}"
+      - --trust-remote-code
+      - --chat-template
+      - /workspace/unsloth.jinja
+      - --gpu-memory-utilization
+      - "${QWEN36_35B_A3B_FP8_MTP_GPU_MEMORY_UTILIZATION:-0.84}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - instanttensor
+      - --attention-backend
+      - flashinfer
+      - --disable-uvicorn-access-log
+      - --disable-log-stats
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":2}'
+      - --enable-prefix-caching
+      - --tensor-parallel-size
+      - "${QWEN36_35B_A3B_FP8_MTP_TENSOR_PARALLEL_SIZE:-1}"
+      - --pipeline-parallel-size
+      - "${QWEN36_35B_A3B_FP8_MTP_PIPELINE_PARALLEL_SIZE:-1}"
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3-coder-next:/workspace/mods/fix-qwen3-coder-next:ro
+      - ../mods/fix-qwen3.5-chat-template:/workspace/mods/fix-qwen3.5-chat-template:ro
+      - ../mods/fix-qwen3.5-moe-runtime:/workspace/mods/fix-qwen3.5-moe-runtime:ro
+    environment:
+      <<: *env-common
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+      QWEN35_CHAT_TEMPLATE_MODEL_ID: Qwen/Qwen3.5-0.8B
+      QWEN35_CHAT_TEMPLATE_CACHE_ROOT: /models
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-huihui-qwen36-27b-abliterated:
+    <<: *model-profiled
+    build: *huihui-qwen36-27b-build
+    image: ${HUIHUI_QWEN36_27B_ABLITERATED_IMAGE:-vllm-node-mxfp4-qwen35}
+    container_name: vllm-huihui-qwen36-27b-abliterated
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-moe-runtime/run.sh
+    command:
+      - vllm
+      - serve
+      - huihui-ai/Huihui-Qwen3.6-27B-abliterated
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - huihui-qwen3.6-27b-abliterated
+      - --max-model-len
+      - "${HUIHUI_QWEN36_27B_ABLITERATED_MAX_MODEL_LEN:-262144}"
+      - --max-num-batched-tokens
+      - "${HUIHUI_QWEN36_27B_ABLITERATED_MAX_NUM_BATCHED_TOKENS:-16384}"
+      - --gpu-memory-utilization
+      - "${HUIHUI_QWEN36_27B_ABLITERATED_GPU_MEMORY_UTILIZATION:-0.70}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --kv-cache-dtype
+      - auto
+      - --load-format
+      - fastsafetensors
+      - --attention-backend
+      - flashinfer
+      - --enforce-eager
+      - --disable-uvicorn-access-log
+      - --disable-log-stats
+      - --enable-prefix-caching
+      - --chat-template
+      - /workspace/unsloth.jinja
+      - --tensor-parallel-size
+      - "1"
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3-coder-next:/workspace/mods/fix-qwen3-coder-next:ro
+      - ../mods/fix-qwen3.5-chat-template:/workspace/mods/fix-qwen3.5-chat-template:ro
+      - ../mods/fix-qwen3.5-moe-runtime:/workspace/mods/fix-qwen3.5-moe-runtime:ro
+    environment:
+      <<: *env-common
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+      QWEN35_CHAT_TEMPLATE_MODEL_ID: Qwen/Qwen3.5-0.8B
+      QWEN35_CHAT_TEMPLATE_CACHE_ROOT: /models
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-qwen35-122b-autoround:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+    container_name: vllm-qwen35-122b-autoround
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-autoround/run.sh
+    command:
+      - vllm
+      - serve
+      - Intel/Qwen3.5-122B-A10B-int4-AutoRound
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - qwen3.5-122b-a10b-int4-autoround
+      - --max-model-len
+      - auto
+      - --gpu-memory-utilization
+      - "${QWEN35_122B_AUTOROUND_GPU_MEMORY_UTILIZATION:-0.70}"
+      - --load-format
+      - fastsafetensors
+      - --enable-prefix-caching
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --max-num-batched-tokens
+      - "${QWEN35_122B_AUTOROUND_MAX_NUM_BATCHED_TOKENS:-8192}"
+      - --trust-remote-code
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3.5-autoround:/workspace/mods/fix-qwen3.5-autoround:ro
+    environment:
+      <<: *env-common
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-huihui-qwen35-35b-a3b-abliterated:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+    container_name: vllm-huihui-qwen35-35b-a3b-abliterated
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-moe-runtime/run.sh
+    command:
+      - vllm
+      - serve
+      - huihui-ai/Huihui-Qwen3.5-35B-A3B-abliterated
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - huihui-qwen3.5-35b-a3b-abliterated
+      - --max-model-len
+      - "${HUIHUI_QWEN35_35B_A3B_ABLITERATED_MAX_MODEL_LEN:-262144}"
+      - --max-num-batched-tokens
+      - "${HUIHUI_QWEN35_35B_A3B_ABLITERATED_MAX_NUM_BATCHED_TOKENS:-16384}"
+      - --gpu-memory-utilization
+      - "${HUIHUI_QWEN35_35B_A3B_ABLITERATED_GPU_MEMORY_UTILIZATION:-0.70}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - fastsafetensors
+      - --attention-backend
+      - flashinfer
+      - --enable-prefix-caching
+      - --chat-template
+      - /workspace/unsloth.jinja
+      - --tensor-parallel-size
+      - "1"
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3-coder-next:/workspace/mods/fix-qwen3-coder-next:ro
+      - ../mods/fix-qwen3.5-chat-template:/workspace/mods/fix-qwen3.5-chat-template:ro
+      - ../mods/fix-qwen3.5-moe-runtime:/workspace/mods/fix-qwen3.5-moe-runtime:ro
+    environment:
+      <<: *env-common
+      HF_HUB_CACHE: /models
+      HUGGINGFACE_HUB_CACHE: /models
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+      QWEN35_CHAT_TEMPLATE_MODEL_ID: huihui-ai/Huihui-Qwen3.5-35B-A3B-abliterated
+      QWEN35_CHAT_TEMPLATE_CACHE_ROOT: /models
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-jackrong-qwen35-35b-a3b-opus-distilled:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+    container_name: vllm-jackrong-qwen35-35b-a3b-opus-distilled
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-moe-runtime/run.sh
+    command:
+      - vllm
+      - serve
+      - Jackrong/Qwen3.5-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled
+      - --max-model-len
+      - "${JACKRONG_QWEN35_35B_A3B_OPUS_DISTILLED_MAX_MODEL_LEN:-262144}"
+      - --max-num-batched-tokens
+      - "${JACKRONG_QWEN35_35B_A3B_OPUS_DISTILLED_MAX_NUM_BATCHED_TOKENS:-32768}"
+      - --gpu-memory-utilization
+      - "${JACKRONG_QWEN35_35B_A3B_OPUS_DISTILLED_GPU_MEMORY_UTILIZATION:-0.80}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_xml
+      - --reasoning-parser
+      - qwen3
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - fastsafetensors
+      - --language-model-only
+      - --attention-backend
+      - flashinfer
+      - --enable-prefix-caching
+      - --chat-template
+      - /workspace/unsloth.jinja
+      - --tensor-parallel-size
+      - "1"
+      - --distributed-executor-backend
+      - ray
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3-coder-next:/workspace/mods/fix-qwen3-coder-next:ro
+      - ../mods/fix-qwen3.5-chat-template:/workspace/mods/fix-qwen3.5-chat-template:ro
+      - ../mods/fix-qwen3.5-moe-runtime:/workspace/mods/fix-qwen3.5-moe-runtime:ro
+    environment:
+      <<: *env-common
+      HF_HUB_CACHE: /models
+      HUGGINGFACE_HUB_CACHE: /models
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      RAY_memory_usage_threshold: "0.99"
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+      QWEN35_CHAT_TEMPLATE_MODEL_ID: Jackrong/Qwen3.5-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled
+      QWEN35_CHAT_TEMPLATE_CACHE_ROOT: /models
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-qwen3-coder-next-autoround:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+    container_name: vllm-qwen3-coder-next-autoround
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3-next-autoround/run.sh
+    command:
+      - vllm
+      - serve
+      - Intel/Qwen3-Coder-Next-int4-AutoRound
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - qwen3-coder-next-int4-autoround
+      - --max-model-len
+      - "${QWEN3_CODER_NEXT_INT4_AUTOROUND_MAX_MODEL_LEN:-1048576}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --gpu-memory-utilization
+      - "${QWEN3_CODER_NEXT_INT4_AUTOROUND_GPU_MEMORY_UTILIZATION:-0.70}"
+      - --load-format
+      - fastsafetensors
+      - --language-model-only
+      - --enable-prefix-caching
+      - --enable-chunked-prefill
+      - --max-num-batched-tokens
+      - "${QWEN3_CODER_NEXT_INT4_AUTOROUND_MAX_NUM_BATCHED_TOKENS:-49152}"
+      - --max-num-seqs
+      - "${QWEN3_CODER_NEXT_INT4_AUTOROUND_MAX_NUM_SEQS:-384}"
+      - --kv-cache-dtype
+      - fp8
+      - --optimization-level
+      - "${QWEN3_CODER_NEXT_INT4_AUTOROUND_OPTIMIZATION_LEVEL:-3}"
+      - --performance-mode
+      - throughput
+      - --mamba-cache-mode
+      - align
+      - --hf-overrides
+      - '{"rope_scaling": {"rope_type": "yarn", "factor": 4.0, "original_max_position_embeddings": 262144}}'
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3-next-autoround:/workspace/mods/fix-qwen3-next-autoround:ro
+    environment:
+      <<: *env-common
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+      VLLM_SLEEP_WHEN_IDLE: "0"
+      VLLM_ALLOW_LONG_MAX_MODEL_LEN: "1"
+      VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS: "1"
+      SAFETENSORS_FAST_GPU: "1"
+      VLLM_USE_FLASHINFER_MOE_FP8: "1"
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
 
   vllm-qwen2.5-1.5b:
-    # profiles: ["models"] # Always on - small model for titles
+    # Legacy fallback small model. No longer the always-on utility helper.
+    <<: *model-profiled
     image: avarok/vllm-dgx-spark:v11
     container_name: vllm-qwen2.5-1.5b
     command:
@@ -88,7 +713,7 @@ services:
       - --served-model-name
       - qwen2.5-1.5b-instruct
       - --gpu-memory-utilization
-      - "0.05"
+      - "0.04"
       - --dtype
       - bfloat16
       - --max-model-len
@@ -102,39 +727,13 @@ services:
       - ../torch_extensions:/root/.cache/torch_extensions
       - ../torchinductor:/tmp/torchinductor_root
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
+      <<: *env-common
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
 
   vllm-qwen25-vl-7b:
-    profiles: ["models"]
+    <<: *model-profiled
     image: nvcr.io/nvidia/vllm:25.10-py3
     container_name: vllm-qwen25-vl-7b
     command:
@@ -163,39 +762,13 @@ services:
       - ../models:/models
       - ../media:/media:ro
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
+      <<: *env-common
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
 
   vllm-qwen3-coder-30b:
-    profiles: ["models"]
+    <<: *model-profiled
     image: avarok/vllm-dgx-spark:v11
     container_name: vllm-qwen3-coder-30b
     command:
@@ -232,39 +805,13 @@ services:
       - ../torch_extensions:/root/.cache/torch_extensions
       - ../torchinductor:/tmp/torchinductor_root
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
+      <<: *env-common
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
 
   vllm-qwen25-coder-7b:
-    profiles: ["models"]
+    <<: *model-profiled
     image: nvcr.io/nvidia/vllm:25.10-py3
     container_name: vllm-qwen25-coder-7b
     command:
@@ -294,41 +841,15 @@ services:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
       - ../models:/models
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
+      <<: *env-common
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
 
   vllm-qwen-math:
+    <<: *model-profiled
     image: nvcr.io/nvidia/vllm:25.10-py3
     container_name: vllm-qwen-math
-    profiles: ["models"]
     command:
       - vllm
       - serve
@@ -354,39 +875,15 @@ services:
       - ../models/vllm_cache_huggingface:/root/.cache/huggingface
       - ../models:/models
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              capabilities: ["gpu"]
-              count: "all"
+      <<: *env-common
     shm_size: "4g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
+      <<: *healthcheck-default
       retries: 10
       start_period: 900s     # <-- wait 15 min before the first check
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
 
   vllm-qwen3-vl-30b:
-    profiles: ["models"]
+    <<: *model-profiled
     image: christopherowen/vllm-dgx-spark:v12
     container_name: vllm-qwen3-vl-30b
     command:
@@ -417,39 +914,13 @@ services:
       - ../torch_extensions:/root/.cache/torch_extensions
       - ../torchinductor:/tmp/torchinductor_root
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
+      <<: *env-common
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal
 
   vllm-qwen3-vl-30b-thinking:
-    profiles: ["models"]
+    <<: *model-profiled
     image: christopherowen/vllm-dgx-spark:v12
     container_name: vllm-qwen3-vl-30b-thinking
     command:
@@ -483,36 +954,10 @@ services:
       - ../torch_extensions:/root/.cache/torch_extensions
       - ../torchinductor:/tmp/torchinductor_root
     environment:
-      HF_HOME: /root/.cache/huggingface
-      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
-      VLLM_NO_USAGE_STATS: "1"
+      <<: *env-common
       VLLM_FLASHINFER_MOE_BACKEND: "cutlass"
       VLLM_USE_FLASHINFER_MOE_FP4: "1"
-      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
       #VLLM_USE_FLASHINFER_MOE_FP4: "0" #try if problems
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: "all"
-              capabilities: ["gpu"]
-    shm_size: "16g"
-    ulimits:
-      memlock: -1
-      stack: 67108864
-    restart: "no"
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      <<: *healthcheck-default
       start_period: 1800s
-    logging:
-      driver: ${DOCKER_LOG_DRIVER:-json-file}
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - default
-      - vllm_internal

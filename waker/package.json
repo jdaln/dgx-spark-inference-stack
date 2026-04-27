@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "dockerode": "^4.0.9",
+    "dockerode": "^5.0.0",
     "express": "^4.22.1",
     "http-proxy-middleware": "^2.0.9",
     "undici": "^6.23.0"

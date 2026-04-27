@@ -13,7 +13,7 @@
 
 - **[架构与工作原理](docs/architecture.md)** - 了解整个栈、waker 服务以及请求流。
 - **[配置](docs/configuration.md)** - 环境变量、网络设置和 waker 调优。
-- **[模型选择指南](docs/models.md)** - 29+ 个受支持模型的详细清单、快速选择器和使用场景。
+- **[模型选择指南](docs/models.md)** - 当前模型目录、快速选择器和验证状态。
 - **[集成](docs/integrations.md)** - 面向 **Cline**（VS Code）和 **OpenCode**（终端代理）的指南。
 - **[安全与远程访问](docs/security.md)** - SSH 加固与受限端口转发配置。
 - **[故障排查与监控](docs/troubleshooting.md)** - 调试、日志和常见错误解决方案。
@@ -98,9 +98,9 @@
 
 ## 如果你是新手，请从这里开始
 
-- 先读 [README.md](README.md)，再读 [docs/architecture.md](docs/architecture.md)，然后读 [tools/README.md](tools/README.md)。
+- 先读 [docs/architecture.md](docs/architecture.md)，然后读 [tools/README.md](tools/README.md)。
 - 把 [tools/README.md](tools/README.md) 和 [models.json](models.json) 一起视为当前运行层面的事实来源。
-- 本 README 中未列为已验证的模型，在验证工具链重新确认之前都应视为实验性模型。
+- 把本 README 当作一个简短入口，而不是完整模型目录。更完整的目录请看 [docs/models.md](docs/models.md)。
 
 ## 前置要求
 - Docker 20.10+ 和 Docker Compose
@@ -112,68 +112,28 @@
 非常欢迎 Pull Request。 :)
 不过，为了保证稳定性，我会强制执行严格的 **Pull Request 模板**。
 
-## ⚠️ 已知问题
+## 当前状态
 
-### 当前验证状态
+本 README 现在只突出这个栈当前推荐的默认路径。
 
-在当前验证工具链和仓库默认配置下，目前唯一 **已验证的主模型** 是：
+- **已验证的主模型：** `gpt-oss-20b`、`gpt-oss-120b` 和 `glm-4.7-flash-awq`
+- **已验证的工具辅助模型：** 用于标题和会话元数据的 `qwen3.5-0.8b`
+- **其他所有内容：** 虽然都在仓库里，但在用当前验证工具链重新验证之前，都不是这份 README 的默认选择
 
-- **`gpt-oss-20b`**
-- **`gpt-oss-120b`**
-- **`glm-4.7-flash-awq`**
+更完整的模型目录、实验性路径和手动使用场景，请查看 [docs/models.md](docs/models.md) 和 [models.json](models.json)。
 
-随仓库提供的小型辅助模型 `qwen3.5-0.8b` 现在已经是用于标题和会话元数据的 **已验证工具辅助模型**，但它不属于这组已验证主模型。
-
-其他可用模型仍然可能工作，但除了这个已验证辅助模型之外，在使用当前工具链重新测试之前，都应被视为 **实验性**，而不是推荐默认值。
-
-### 实验性模型（GB10 / CUDA 12.1 兼容性）
-
-以下模型由于在 DGX Spark（GB10 GPU）上会出现偶发崩溃，因此被标记为 **实验性**：
-
-- **Qwen3-Next-80B-A3B-Instruct** - 在线性注意力层中随机崩溃
-- **Qwen3-Next-80B-A3B-Thinking** - 同样的问题
-
-**根因：** GB10 GPU 使用 CUDA 12.1，而当前 vLLM / PyTorch 栈只支持 CUDA ≤12.0。这会在若干次成功请求之后触发 `cudaErrorIllegalInstruction` 错误。
-
-**临时规避方案：** 在有正确 GB10 支持的新版 vLLM 镜像出现之前，如需稳定的 tool calling，请使用 `gpt-oss-20b` 或 `gpt-oss-120b`。
-
-### Nemotron 3 Nano 30B（NVFP4）
-
-**`nemotron-3-nano-30b-nvfp4`** 模型已经在更新后的 `vllm-node` 标准轨道中重新启用，但在当前验证工具链下仍应视为 **实验性**。
-**当前状态：** 它现在可以在更新后的运行时中加载并响应请求，但还不属于已验证主模型集合，也不在仓库附带的 OpenCode 配置中。
-**重要行为：** 可见的 assistant content 取决于非 thinking 请求形态。请求验证器现在会为普通网关请求注入这个默认值。
-**当前保守客户端上限：** 手动 OpenCode / Cline 风格使用时，大约为 `100000` 个 prompt token。当前栈的五路 soak 在约 `101776` 个 prompt token 时可以稳定通过，而到约 `116298` 时已经相当接近边界。
-
-### Linux 上的 OpenCode 图片/截图支持
-
-OpenCode（终端 AI 代理）在 Linux 上有一个已知问题：**剪贴板图片和文件路径图片无法与视觉模型一起工作**。即使 VL 模型通过 API 能正常工作，模型仍会返回 "The model you're using does not support image input"。
-
-**根因：** OpenCode 在 Linux 上处理剪贴板时，会在编码之前破坏图片二进制数据（使用 `.text()` 而不是 `.arrayBuffer()`）。也就是说，实际上根本没有图像数据被发送到服务器。
-
-**状态：** 这看起来是 OpenCode 客户端自身的 bug。欢迎帮助调查或修复。推理栈本身在通过 `curl` 或其他 API 客户端正确发送时，可以正常处理 base64 图片。
-
-**临时规避方案：** 使用 `curl` 或其他 API 客户端，将图片直接发送到 `qwen2.5-vl-7b` 这样的 VL 模型。
-
-### Qwen 2.5 Coder 7B 与 OpenCode 不兼容
-
-`qwen2.5-coder-7b-instruct` 模型的上下文限制严格为 **32,768 token**。但 OpenCode 通常会发送非常大的请求（buffer + input），超过 **35,000 token**，从而导致 `ValueError` 和请求失败。
-
-**建议：** 不要在长上下文任务中将 `qwen2.5-coder-7b` 与 OpenCode 搭配使用。请改用 **`qwen3-coder-30b-instruct`**，它支持 **65,536 token** 上下文，并且能更稳妥地处理 OpenCode 的大请求。
-
-### Llama 3.3 与 OpenCode 不兼容
-
-**`llama-3.3-70b-instruct-fp4`** **不建议与 OpenCode 一起使用**。
-**原因：** 虽然模型通过 API 可以正常工作，但在使用 OpenCode 特定客户端提示词初始化时，会表现出过于激进的 tool calling 行为。这会带来验证错误和较差的使用体验，例如刚打完招呼就试图调用工具。
-**建议：** OpenCode 会话中请使用 `gpt-oss-20b` 或 `qwen3-next-80b-a3b-instruct`。
+客户端注意事项、运行时特性和故障排查说明，请查看 [docs/integrations.md](docs/integrations.md) 和 [docs/troubleshooting.md](docs/troubleshooting.md)。
 
 ## 致谢
 
-特别感谢为这个栈提供优化 Docker 镜像的社区成员：
+特别感谢那些其 Docker 镜像和配方工作启发了这个栈的社区成员：
 
 - **Avarok 的 Thomas P. Braun**：感谢他提供通用型 vLLM 镜像 `avarok/vllm-dgx-spark`，支持非 gated activation（Nemotron）、混合模型，并分享了诸如 https://blog.avarok.net/dgx-spark-nemotron3-and-nvfp4-getting-to-65-tps-8c5569025eb6 之类的文章。
 - **Christopher Owen**：感谢他提供针对 MXFP4 优化的 vLLM 镜像 `christopherowen/vllm-dgx-spark`，使 DGX Spark 上的高性能推理成为可能。
-- **eugr**：感谢他为原始 vLLM 镜像 `eugr/vllm-dgx-spark` 所做的大量定制工作，以及在 NVIDIA 论坛上的优秀分享。
+- **eugr**：感谢他提供原始的 DGX Spark 社区 vLLM 仓库 `eugr/spark-vllm-docker`、相关定制工作，以及在 NVIDIA 论坛上的优秀分享。
 - **Patrick Yi / scitrera.ai**：感谢他提供的 SGLang 工具模型方案，它启发了本地 `qwen3.5-0.8b` helper 路径。
+- **Raphael Amorim**：感谢他提供的社区 AutoRound 配方形态，它启发了实验性的本地 `qwen3.5-122b-a10b-int4-autoround` 路径。
+- **Bjarke Bolding**：感谢他提供的长上下文 AutoRound 配方形态，它启发了实验性的本地 `qwen3-coder-next-int4-autoround` 路径。
 
 ## 许可证
 

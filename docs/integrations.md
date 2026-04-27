@@ -12,31 +12,20 @@ To use this stack with the [Cline](https://github.com/cline/cline) VS Code exten
 
 ### Recommended Settings for Cline
 
+Start with the validated defaults below. If you want a broader catalog or are deliberately opting into an experimental lane, read [the model guide](./models.md) first and then add the model manually.
+
 | Model ID | Context Window | Best Use Case |
 |----------|----------------|---------------|
 | `gpt-oss-20b` | `131072` | Best default chat / general assistant |
 | `gpt-oss-120b` | `131072` | Best overall quality |
-| `qwen3-next-80b-a3b-instruct-fp4` | `131072` | Fast general chat at scale |
-| `qwen3-next-80b-a3b-thinking-fp4` | `131072` | Heavy reasoning (math, logic, planning) |
-| `qwen3-vl-32b-instruct-fp4` | `131072` | Best quality VL for docs + screenshots |
-| `glm-4.5-air-fp4` | `131072` | Great general assistant alternative |
-| `glm-4.6v-flash-fp4` | `131072` | Fastest VL for real-time UI workflows |
-| `glm-4.5-air-derestricted-fp4` | `131072` | Fewer refusals, creative/roleplay |
-| `llama-3.3-70b-joyous-fp4` | `131072` | High-quality general assistant |
-| `llama-3.3-70b-instruct-fp4` | `131072` | Standard Llama 3.3 70B |
-| `nemotron-3-nano-30b-nvfp4` | `100000` | Efficient MoE reasoning + long-context (experimental, manual add only) |
-| `nemotron-nano-12b-v2-vl` | `131072` | Lightweight vision assistant |
-| `qwen3-vl-30b-instruct` | `65536` | New Qwen3 Vision-Language model |
-| `qwen3-vl-30b-thinking-instruct` | `65536` | Complex visual reasoning with thinking |
-| `qwen3-coder-30b-a3b-instruct` | `65536` | Long-context coding + tool usage |
-| `eurollm-22b-instruct-fp4` | `32768` | EU languages / multilingual support |
-| `phi-4-multimodal-instruct-fp4` | `32768` | Text+image(+audio) multimodal |
-| `phi-4-reasoning-plus-fp4` | `32768` | Careful/robust reasoning style |
-| `qwen2.5-vl-7b` | `32768` | Cheapest practical VL |
-| `glm-4-9b-chat` | `32768` | Cheap chat, lightweight assistant |
-| `qwen2.5-coder-7b-instruct` | `32768` | Budget coding assistant |
-| `qwen3.5-0.8b` | `32768` | Validated small utility helper for titles/classification |
-| `qwen-math` | `4096` | Math specialist |
+| `glm-4.7-flash-awq` | `131072` | Best current long-context coding/chat path |
+| `qwen3.6-35b-a3b-fp8-mtp` | `240000` | Current OSS SOTA long-context text/tool opt-in lane |
+| `qwen3.6-27b-fp8` | `240000` | Cheaper Qwen 3.6 opt-in baseline |
+| `gemma4-26b-a4b` | `240000` | Current OSS SOTA multimodal/tool opt-in lane for its size class |
+
+If you need a vision-capable lane in Cline, `gemma4-26b-a4b` is the current repo-local choice with the clearest text+image and tool-calling evidence, and it is one of the repo's main OSS SOTA opt-in families for this size range, but it remains explicitly experimental.
+
+If you specifically want the repo's current OSS SOTA text/tool lane in Cline, start with `qwen3.6-35b-a3b-fp8-mtp` and keep a larger completion budget when you deliberately enable reasoning. If you want the corresponding multimodal OSS SOTA lane for this size class, start with `gemma4-26b-a4b`.
 
 > [!IMPORTANT]
 > **Context Window Accuracy**: It is critical that your Cline settings for "Context Window" match the values in this table. The request validator middleware automatically fixes minor overflows, but setting it correctly in Cline ensures optimal performance and prevents unnecessary token capping.
@@ -51,7 +40,7 @@ To use this stack with [OpenCode](https://github.com/opencode-ai/opencode), foll
 ### Quick Start
 
 1. **Use the included configuration** (`opencode.json` in project root):
-  The repository includes a curated `opencode.json` using the `dgx` provider. It is intentionally **not** a mirror of every model in the repo. The shipped OpenCode config primarily exposes the models we have actually validated with the current harness for normal OpenCode-style use: `gpt-oss-20b`, `gpt-oss-120b`, and `glm-4.7-flash-awq`, plus the small utility model used for titles. It also includes a small number of explicitly marked experimental entries when there is enough evidence for a practical manual ceiling but not yet enough broader quality validation for promotion, including the newly validated Qwen 3.6 baseline and MTP model variants.
+  The repository includes a curated `opencode.json` using the `dgx` provider. It is intentionally **not** a mirror of every model in the repo. The conservative defaults remain `gpt-oss-20b`, `gpt-oss-120b`, and `glm-4.7-flash-awq`, plus the small `qwen3.5-0.8b` utility helper. The checked-in `model` is currently `dgx/gemma4-26b-a4b`: that lane is still explicitly experimental, but it has the strongest current multimodal and tool-calling evidence in OpenCode on this stack and is one of the repo's main OSS SOTA opt-in families for its size class. Qwen 3.6 is the corresponding OSS SOTA long-context text/tool family here, especially `qwen3.6-35b-a3b-fp8-mtp`. Additional experimental lanes stay in the file as opt-in entries, not blanket recommendations.
 
 2. **If your endpoint or API key is different, edit the provider block**:
   Update `provider.dgx.options.baseURL` and `provider.dgx.options.apiKey` in `opencode.json` before launching OpenCode.
@@ -62,7 +51,7 @@ To use this stack with [OpenCode](https://github.com/opencode-ai/opencode), foll
    ```
 
 4. **Configuration Structure**:
-  The checked-in `opencode.json` is configured to use the local DGX Spark stack as the primary provider:
+  The checked-in `opencode.json` uses the local DGX Spark stack as the primary provider. The core provider/model shape looks like this:
    ```json
    {
      "$schema": "https://opencode.ai/config.json",
@@ -76,17 +65,19 @@ To use this stack with [OpenCode](https://github.com/opencode-ai/opencode), foll
            "apiKey": "63TestTOKEN0REPLACEME"
          },
          "models": {
-           "gemma4-26b-a4b": { "name": "Gemma 4 26B A4B", "reasoning": true, "tool_call": true, "experimental": true, "limit": { "context": 240000, "output": 8192 } },
            "gpt-oss-20b": { "name": "GPT-OSS 20B", "limit": { "context": 108000, "output": 8192 } },
-           "glm-4.7-flash-awq": { "name": "GLM-4.7 Flash AWQ", "limit": { "context": 108000, "output": 8192 } }
-           // ... (see opencode.json in project root for full model list)
+           "gpt-oss-120b": { "name": "GPT-OSS 120B", "limit": { "context": 108000, "output": 8192 } },
+           "gemma4-26b-a4b": { "name": "Gemma 4 26B A4B", "reasoning": true, "tool_call": true, "experimental": true, "limit": { "context": 240000, "output": 8192 }, "options": { "temperature": 1, "top_p": 0.95, "top_k": 64 } },
+           "glm-4.7-flash-awq": { "name": "GLM-4.7 Flash AWQ", "limit": { "context": 108000, "output": 8192 } },
+           "qwen3.5-0.8b": { "name": "Qwen 3.5 0.8B Utility", "limit": { "context": 8192, "output": 2048 } }
+           // ... other explicitly experimental opt-in entries omitted here
          }
        }
      },
      "model": "dgx/gemma4-26b-a4b",
-    "small_model": "dgx/qwen3.5-0.8b",
+     "small_model": "dgx/qwen3.5-0.8b",
      "compaction": { "auto": false },
-     "logLevel": "INFO"
+     "logLevel": "ERROR"
    }
    ```
 
@@ -94,43 +85,32 @@ To use this stack with [OpenCode](https://github.com/opencode-ai/opencode), foll
 
 To switch the active models, edit the `model` and `small_model` fields in `opencode.json` using the `dgx/<model-id>` format.
 
-| Role | Recommended Model | Context | Use Case |
-|------|-------------------|---------|----------|
-| `model` | `dgx/gemma4-26b-a4b` | `240000` | Current default Gemma path with verified image input, tool calling, and a much higher interactive ceiling |
-| `model` | `dgx/gpt-oss-20b` | `108000` | Balanced quality/speed fallback for general tasks |
-| `model` | `dgx/gpt-oss-120b` | `108000` | Higher-quality default when you want a larger model |
-| `model` | `dgx/glm-4.7-flash-awq` | `108000` | Best current long-context coding path in OpenCode |
-| `model` | `dgx/huihui-qwen3.5-35b-a3b-abliterated` | `200000` | Experimental long-context general/tool model with much stronger richer-prompt evidence than the other experimental Qwen variants |
-| `model` | `dgx/qwen3.6-27b-fp8` | `240000` | Experimental Qwen 3.6 baseline model with validated plain chat, tool calling, explicit thinking, and a much larger 262k-class context target |
-| `model` | `dgx/qwen3.6-27b-fp8-mtp` | `240000` | Experimental Qwen 3.6 MTP model variant for latency comparisons against the 27B baseline on the same 262k-class context target |
-| `model` | `dgx/qwen3.6-35b-a3b-fp8` | `240000` | Experimental larger Qwen 3.6 model with validated helper coexistence, explicit thinking, and long-context soak coverage at the tuned `0.84` memory envelope |
-| `model` | `dgx/qwen3.6-35b-a3b-fp8-mtp` | `240000` | Experimental larger Qwen 3.6 MTP model variant with the same tuned `0.84` envelope, helper coexistence, and better measured latency than the 35B baseline on this host |
-| `model` | `dgx/qwen3-coder-next-int4-autoround` | `524000` | Experimental long-context coder path; current ceiling is based on a minimal retention probe, not richer summarization-quality validation |
+| Role | Recommended Starting Point | Context | Notes |
+|------|----------------------------|---------|-------|
+| `model` | `dgx/gemma4-26b-a4b` | `240000` | Checked-in default; experimental, but the main OSS SOTA multimodal/tool path for this size class on this stack |
+| `model` | `dgx/gpt-oss-20b` | `108000` | Conservative default for general tasks |
+| `model` | `dgx/gpt-oss-120b` | `108000` | Conservative higher-quality default |
+| `model` | `dgx/glm-4.7-flash-awq` | `108000` | Conservative long-context coding path |
+| `model` | `dgx/qwen3.6-35b-a3b-fp8-mtp` | `240000` | Current OSS SOTA long-context text/tool opt-in lane when you want the strongest Qwen 3.6 path |
+| `model` | `dgx/qwen3.6-27b-fp8` | `240000` | Smaller Qwen 3.6 baseline with the same official recipe family |
 | `small_model` | `dgx/qwen3.5-0.8b` | `8192` | Validated utility helper for session titles |
+
+The shipped file also contains a small set of explicitly experimental opt-in entries, including the Gemma variants, Qwen 3.6 lanes, Huihui Qwen lane, and Qwen coder-next lane. Use the limits already encoded in `opencode.json`, then cross-check [the model guide](./models.md) before promoting one of them to your daily default.
 
 > [!IMPORTANT]
 > The `opencode.json` limits are **OpenCode-safe guidance**, not raw server maxima. For the currently validated `131072`-class models in the shipped config, the repo now uses `108000` as the conservative client-facing ceiling. That leaves room for prompt wrapper overhead, validator safety margin, and a real completion instead of a one-token answer near the hard cap.
 
 > [!TIP]
-> The Gemma 26B entry carries the easy published Gemma sampling guidance directly in `opencode.json`: `temperature=1.0`, `top_p=0.95`, and `top_k=64`. Its first five-user run at a `256` completion cap was conservative and misleading: with `max_completion_tokens=1024`, richer five-user stack-summary probes now pass at roughly `145990`, `194614`, and `243238` prompt tokens. The shipped OpenCode ceiling is therefore raised to `240000`, while the model remains explicitly experimental.
+> The checked-in `model` is intentionally still `dgx/gemma4-26b-a4b`, because that lane currently has the strongest OpenCode evidence for combined multimodal input, tool calling, and a higher interactive ceiling. If you want a conservative default instead of an experimental one, switch `model` to `dgx/gpt-oss-20b`, `dgx/gpt-oss-120b`, or `dgx/glm-4.7-flash-awq`.
 
 > [!TIP]
 > The shipped `small_model` now uses the validated `qwen3.5-0.8b` SGLang utility path inspired by Patrick Yi / scitrera.ai. The underlying checkpoint supports vision and thinking mode upstream, but the repo currently keeps this path intentionally narrow: utility-only role, conservative `8192` OpenCode limit, and no promotion as a general chat default.
 
 > [!TIP]
-> You do not need to add any special OpenCode request flags for GLM 4.7 on current repo revisions. The request validator  disables hidden thinking by default for `glm-4.7-flash-awq`, specifically because the default parser mode consumed the visible answer budget during long-context OpenCode-style requests.
+> You do not need to add any special OpenCode request flags for GLM 4.7 on current repo revisions. The request validator disables hidden thinking by default for `glm-4.7-flash-awq`, specifically because the default parser mode consumed the visible answer budget during long-context OpenCode-style requests.
 
 > [!TIP]
-> `qwen3.6-27b-fp8`, `qwen3.6-27b-fp8-mtp`, `qwen3.6-35b-a3b-fp8`, and `qwen3.6-35b-a3b-fp8-mtp` are now listed in the shipped `opencode.json` as explicitly experimental Qwen 3.6 entries with a `240000` OpenCode ceiling. The underlying vLLM services keep the recipe's raw `262144` token window, but the shipped client limit stays lower so prompts still leave practical room for a real completion. Normal OpenCode and gateway requests stay in non-thinking mode by default so visible final answers and structured `tool_calls` surface reliably. If OpenCode sends a reasoning-effort override, the validator maps that onto Qwen's binary thinking controls on this stack: `none` keeps non-thinking, while any other recognized effort enables thinking. Deliberate thinking works, but it consumes completion budget quickly, especially on the MTP model variants, so use a larger output cap when you enable it.
-
-> [!TIP]
-> `huihui-qwen3.5-35b-a3b-abliterated` is now listed in the shipped `opencode.json`, but it stays explicitly experimental. Its `200000` ceiling is conservative relative to the current richer five-user stack-summary evidence, which stayed clean through roughly `253603` prompt tokens with `1024` completion tokens. Manual reads remained coherent, but they still tended to flatten the mixed lifecycle story into pure single-tenancy and to drift toward generic scaling advice, so treat it as an opt-in long-context general/tool lane rather than a promoted default.
-
-> [!TIP]
-> `qwen3-coder-next-int4-autoround` is now listed in the shipped `opencode.json`, but it stays explicitly experimental. The current `524000` ceiling is based on a five-user gateway-path minimal retention probe that asked the model to reply with `ok.` after a very large filler context. That probe stayed clean through roughly `524382` prompt tokens, but the richer default stack-summary soak prompt still looped into repeated headings or punctuation even at much lower context. Treat it as an opt-in long-context coder lane, not as a promoted default.
-
-> [!TIP]
-> `nemotron-3-nano-30b-nvfp4` is still intentionally omitted from the shipped OpenCode config, but the current active-stack soak results are now good enough to give a first manual client ceiling: use `100000` as the conservative context limit for now. Five concurrent gateway-path requests passed with visible content at approximately `29166`, `58210`, and `101776` prompt tokens, while the next tested tier at approximately `116298` prompt tokens was already borderline because one request fell just under the 256-token completion floor.
+> The explicitly experimental entries in `opencode.json` remain opt-in. For the repo's current OSS SOTA families, start with `qwen3.6-35b-a3b-fp8-mtp` for long-context text/tool use or `gemma4-26b-a4b` for multimodal work in this size class. Use the shipped limits as conservative ceilings, and expect to raise completion budgets if you deliberately enable reasoning-heavy Qwen modes.
 
 > [!WARNING]
 > On Linux, OpenCode still has a client-side image-input bug. Vision models can remain listed in `opencode.json` for non-Linux users or for future fixes, but clipboard/file-path images are still unreliable on Linux OpenCode sessions today.

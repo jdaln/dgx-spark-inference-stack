@@ -13,7 +13,7 @@ Projenin amacı ev ortamı için bir inference sunucusu sağlamaktır. Bunu bir 
 
 - **[Mimari ve nasıl çalışır](docs/architecture.md)** - Stack'i, waker servisini ve istek akışını anlayın.
 - **[Yapılandırma](docs/configuration.md)** - Ortam değişkenleri, ağ ayarları ve waker tuning.
-- **[Model seçim kılavuzu](docs/models.md)** - 29+'tan fazla desteklenen modelin ayrıntılı listesi, hızlı seçim ve kullanım senaryoları.
+- **[Model seçim kılavuzu](docs/models.md)** - Güncel model kataloğu, hızlı seçim ve doğrulama durumu.
 - **[Entegrasyonlar](docs/integrations.md)** - **Cline** (VS Code) ve **OpenCode** (terminal ajanı) için kılavuzlar.
 - **[Güvenlik ve uzak erişim](docs/security.md)** - SSH sertleştirme ve kısıtlı port forwarding kurulumu.
 - **[Sorun giderme ve izleme](docs/troubleshooting.md)** - Hata ayıklama, loglar ve yaygın hata çözümleri.
@@ -98,9 +98,9 @@ Projenin amacı ev ortamı için bir inference sunucusu sağlamaktır. Bunu bir 
 
 ## Yeniyseniz buradan başlayın
 
-- Önce [README.md](README.md), sonra [docs/architecture.md](docs/architecture.md), ardından [tools/README.md](tools/README.md) okuyun.
+- Önce [docs/architecture.md](docs/architecture.md), ardından [tools/README.md](tools/README.md) okuyun.
 - [tools/README.md](tools/README.md) ile [models.json](models.json) dosyalarını mevcut operasyonel gerçek kaynağı olarak görün.
-- Bu README'de doğrulanmış kümenin dışındaki modelleri, harness aksini söyleyene kadar deneysel kabul edin.
+- Bu README'yi tam model kataloğu değil, kısa giriş noktası olarak görün. Daha geniş katalog için [docs/models.md](docs/models.md) dosyasını kullanın.
 
 ## Önkoşullar
 - Docker 20.10+ ve Docker Compose
@@ -112,68 +112,28 @@ Projenin amacı ev ortamı için bir inference sunucusu sağlamaktır. Bunu bir 
 Pull request'ler çok memnuniyetle karşılanır. :)
 Ancak kararlılığı korumak için sıkı bir **Pull Request Template** uygularım.
 
-## ⚠️ Bilinen sorunlar
+## Güncel durum
 
-### Mevcut doğrulama durumu
+Bu README artık yalnızca stack'in şu anda önerilen varsayılan yollarını kısa şekilde öne çıkarır.
 
-Mevcut harness ve depo varsayılanlarıyla şu anda yalnızca şu **doğrulanmış ana modeller** vardır:
+- **Doğrulanmış ana modeller:** `gpt-oss-20b`, `gpt-oss-120b` ve `glm-4.7-flash-awq`
+- **Doğrulanmış yardımcı model:** başlıklar ve oturum metaverisi için `qwen3.5-0.8b`
+- **Diğer her şey:** Depoda bulunur, ancak mevcut harness ile yeniden doğrulanana kadar bu README'nin varsayılan seçimi değildir
 
-- **`gpt-oss-20b`**
-- **`gpt-oss-120b`**
-- **`glm-4.7-flash-awq`**
+Daha geniş model kataloğu, deneysel yollar ve manuel senaryolar için [docs/models.md](docs/models.md) ve [models.json](models.json) dosyalarını kullanın.
 
-Dağıtımla gelen küçük `qwen3.5-0.8b` helper artık başlıklar ve oturum metaverisi için **doğrulanmış yardımcı model** durumundadır, ancak bu doğrulanmış ana model kümesine dahil değildir.
-
-Diğer mevcut modeller yine çalışabilir, ancak bu doğrulanmış yardımcı modelin ötesinde kalanlar mevcut araçlarla yeniden test edilene kadar önerilen varsayılanlar değil **deneysel** kabul edilmelidir.
-
-### Deneysel modeller (GB10 / CUDA 12.1 uyumluluğu)
-
-Aşağıdaki modeller, DGX Spark (GB10 GPU) üzerinde ara sıra çöktükleri için **deneysel** olarak işaretlenmiştir:
-
-- **Qwen3-Next-80B-A3B-Instruct** - Doğrusal attention katmanında rastgele çöküyor
-- **Qwen3-Next-80B-A3B-Thinking** - Aynı sorun
-
-**Kök neden:** GB10 GPU CUDA 12.1 kullanıyor, ancak mevcut vLLM / PyTorch stack'i yalnızca CUDA ≤12.0 destekliyor. Bu da birkaç başarılı isteğin ardından `cudaErrorIllegalInstruction` hatalarına yol açıyor.
-
-**Geçici çözüm:** Doğru GB10 desteği olan güncel bir vLLM image'ı gelene kadar kararlı tool calling için `gpt-oss-20b` veya `gpt-oss-120b` kullanın.
-
-### Nemotron 3 Nano 30B (NVFP4)
-
-**`nemotron-3-nano-30b-nvfp4`** modeli yenilenmiş `vllm-node` standart yolunda tekrar etkinleştirildi, ancak mevcut harness ile hâlâ **deneysel** kabul edilmelidir.
-**Güncel durum:** Yenilenmiş runtime üzerinde artık yükleniyor ve isteklere cevap veriyor, ancak doğrulanmış ana model kümesinin ya da gönderilen OpenCode yapılandırmasının parçası değil.
-**Önemli davranış:** Görünür assistant content, thinking olmayan istek şekline bağlıdır. Request validator artık normal gateway istekleri için bu varsayılanı ekliyor.
-**Mevcut temkinli istemci tavanı:** Manuel OpenCode / Cline benzeri kullanım için yaklaşık `100000` prompt token. Stack'in aktif beş yönlü soak testi yaklaşık `101776` prompt token seviyesinde temiz geçiyor ve yaklaşık `116298` civarında zaten sınıra dayanıyor.
-
-### Linux'ta OpenCode görsel / ekran görüntüsü desteği
-
-OpenCode'un (terminal AI ajanı) Linux üzerinde bilinen bir hatası vardır: **panodaki görseller ve dosya yolu ile verilen görseller vision modellerle çalışmaz**. VL modeller API üzerinden düzgün çalışsa da model "The model you're using does not support image input" diye yanıt verir.
-
-**Kök neden:** OpenCode'un Linux clipboard işlemesi, kodlamadan önce görselin ikili verisini bozuyor (`.arrayBuffer()` yerine `.text()` kullanıyor). Yani sunucuya gerçekte hiçbir görsel verisi gönderilmiyor.
-
-**Durum:** Bu, OpenCode istemcisi tarafında bir hata gibi görünüyor. İnceleme veya düzeltme yardımı memnuniyetle karşılanır. Inference stack doğru şekilde `curl` veya başka bir API istemcisiyle gönderilen base64 görselleri sorunsuz işleyebiliyor.
-
-**Geçici çözüm:** `curl` veya başka bir API istemcisi kullanarak görselleri doğrudan `qwen2.5-vl-7b` gibi VL modellere gönderin.
-
-### Qwen 2.5 Coder 7B ve OpenCode uyumsuzluğu
-
-`qwen2.5-coder-7b-instruct` modeli **32.768 token** gibi katı bir bağlam sınırına sahiptir. Ancak OpenCode genellikle **35.000 token** üstüne çıkan çok büyük istekler (buffer + input) gönderir; bu da `ValueError` ve istek hatalarına neden olur.
-
-**Öneri:** Uzun bağlamlı işler için `qwen2.5-coder-7b` modelini OpenCode ile kullanmayın. Bunun yerine **`qwen3-coder-30b-instruct`** kullanın; bu model **65.536 token** bağlamı destekler ve OpenCode'un büyük isteklerini daha rahat karşılar.
-
-### Llama 3.3 ve OpenCode uyumsuzluğu
-
-**`llama-3.3-70b-instruct-fp4`** modeli **OpenCode için önerilmez**.
-**Neden:** Model API üzerinden düzgün çalışsa da, OpenCode'un istemciye özel prompt'larıyla başlatıldığında agresif tool calling davranışı sergiler. Bu da doğrulama hatalarına ve bozulmuş bir kullanıcı deneyimine yol açar; örneğin daha selamlaşma anında araç çağırmaya çalışır.
-**Öneri:** OpenCode oturumlarında `gpt-oss-20b` veya `qwen3-next-80b-a3b-instruct` kullanın.
+İstemci uyarıları, runtime ayrıntıları ve troubleshooting notları için [docs/integrations.md](docs/integrations.md) ile [docs/troubleshooting.md](docs/troubleshooting.md) dosyalarını kullanın.
 
 ## Katkı verenler
 
-Bu stack'te kullanılan optimize edilmiş Docker image'larını mümkün kılan topluluk üyelerine özel teşekkürler:
+Bu stack'i şekillendiren Docker image ve reçete çalışmalarına katkı veren topluluk üyelerine özel teşekkürler:
 
 - **Avarok'tan Thomas P. Braun**: non-gated activation (Nemotron), hibrit modeller desteği sunan genel amaçlı vLLM image'ı (`avarok/vllm-dgx-spark`) ve https://blog.avarok.net/dgx-spark-nemotron3-and-nvfp4-getting-to-65-tps-8c5569025eb6 gibi paylaşımlar için.
 - **Christopher Owen**: DGX Spark üzerinde yüksek performanslı inference sağlayan MXFP4 optimize vLLM image'ı (`christopherowen/vllm-dgx-spark`) için.
-- **eugr**: özgün vLLM image'ı (`eugr/vllm-dgx-spark`) üzerindeki tüm özelleştirme çalışmaları ve NVIDIA forumlarındaki harika paylaşımlar için.
+- **eugr**: Özgün DGX Spark topluluk vLLM deposu `eugr/spark-vllm-docker`, üzerindeki özelleştirme çalışmaları ve NVIDIA forumlarındaki harika paylaşımlar için.
 - **Patrick Yi / scitrera.ai**: Yerel `qwen3.5-0.8b` helper yoluna ilham veren SGLang yardımcı model reçetesi için.
+- **Raphael Amorim**: Deneysel yerel `qwen3.5-122b-a10b-int4-autoround` yoluna yön veren topluluk AutoRound reçete biçimi için.
+- **Bjarke Bolding**: Deneysel yerel `qwen3-coder-next-int4-autoround` yoluna yön veren uzun bağlam AutoRound reçete biçimi için.
 
 ## Lisans
 

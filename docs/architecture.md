@@ -70,13 +70,13 @@ The stack consists of four main components:
 
 ### Request Flow
 
-1. Client sends request to `http://localhost:8009/v1/chat/completions` with `"model": "qwen-math"`
+1. Client sends request to `http://localhost:8009/v1/chat/completions` with `"model": "qwen3.6-35b-a3b-fp8-mtp"`
 2. Nginx proxies all `/v1/` traffic to the **request validator** (port 18081)
-3. Request validator reads the `model` field from the request body, then calls the **waker**: `POST /ensure/qwen-math`
+3. Request validator reads the `model` field from the request body, then calls the **waker**: `POST /ensure/qwen3.6-35b-a3b-fp8-mtp`
 4. Waker checks:
    - Is another managed main-model container already running? → Return 429 with detailed info
    - If the requested model is `lifecycle: "exclusive"` and the utility helper is running, stop the utility helper first
-   - Is qwen-math already running? → Check health
+   - Is `qwen3.6-35b-a3b-fp8-mtp` already running? → Check health
    - Otherwise → Start container and wait for health
 5. If healthy: Waker returns 200, request validator fixes/validates the request (token capping, role alternation, tool stripping), then proxies to the vLLM container
 6. If busy/starting: Request validator forwards the 429 response with model status and `Retry-After` header back to the client

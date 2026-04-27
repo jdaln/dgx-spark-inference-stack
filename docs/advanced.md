@@ -118,5 +118,5 @@ If you want broader multi-model concurrency:
 
 Create a cron job to touch the model:
 ```bash
-*/4 * * * * curl -X POST http://localhost:8009/debug/touch/vllm-qwen-math
+*/4 * * * * curl -X POST http://localhost:8009/debug/touch/vllm-qwen3.6-35b-a3b-fp8-mtp
 ```

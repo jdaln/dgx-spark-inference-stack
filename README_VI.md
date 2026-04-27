@@ -13,7 +13,7 @@ Mục tiêu của dự án là cung cấp một máy chủ suy luận cho môi t
 
 - **[Kiến trúc và cách hoạt động](docs/architecture.md)** - Hiểu stack, dịch vụ waker và luồng request.
 - **[Cấu hình](docs/configuration.md)** - Biến môi trường, thiết lập mạng và tinh chỉnh waker.
-- **[Hướng dẫn chọn mô hình](docs/models.md)** - Danh sách chi tiết hơn 29 mô hình được hỗ trợ, bộ chọn nhanh và các trường hợp sử dụng.
+- **[Hướng dẫn chọn mô hình](docs/models.md)** - Danh mục mô hình hiện tại, bộ chọn nhanh và trạng thái xác thực.
 - **[Tích hợp](docs/integrations.md)** - Hướng dẫn cho **Cline** (VS Code) và **OpenCode** (tác tử terminal).
 - **[Bảo mật và truy cập từ xa](docs/security.md)** - Gia cố SSH và thiết lập port forwarding có giới hạn.
 - **[Khắc phục sự cố và giám sát](docs/troubleshooting.md)** - Gỡ lỗi, log và cách xử lý lỗi phổ biến.
@@ -98,9 +98,9 @@ Mục tiêu của dự án là cung cấp một máy chủ suy luận cho môi t
 
 ## Nếu bạn là người mới, hãy bắt đầu từ đây
 
-- Đọc [README.md](README.md), sau đó [docs/architecture.md](docs/architecture.md), rồi tới [tools/README.md](tools/README.md).
+- Đọc [docs/architecture.md](docs/architecture.md), rồi tới [tools/README.md](tools/README.md).
 - Xem [tools/README.md](tools/README.md) cùng với [models.json](models.json) là nguồn sự thật vận hành hiện tại.
-- Các mô hình nằm ngoài tập đã được xác thực trong README này nên được xem là thử nghiệm cho tới khi harness xác nhận lại.
+- Xem README này là điểm vào ngắn gọn, không phải danh mục mô hình đầy đủ. Hãy dùng [docs/models.md](docs/models.md) cho danh mục rộng hơn.
 
 ## Điều kiện tiên quyết
 - Docker 20.10+ cùng Docker Compose
@@ -112,68 +112,28 @@ Mục tiêu của dự án là cung cấp một máy chủ suy luận cho môi t
 Pull request luôn được hoan nghênh. :)
 Tuy vậy, để giữ ổn định, tôi áp dụng **mẫu Pull Request nghiêm ngặt**.
 
-## ⚠️ Vấn đề đã biết
+## Trạng thái hiện tại
 
-### Trạng thái xác thực hiện tại
+README này hiện chỉ nêu bật các đường chạy mặc định đang được khuyến nghị của stack.
 
-Với harness hiện tại và các mặc định của repo, hiện chỉ có các **mô hình chính đã được xác thực** sau đây:
+- **Mô hình chính đã được xác thực:** `gpt-oss-20b`, `gpt-oss-120b` và `glm-4.7-flash-awq`
+- **Helper tiện ích đã được xác thực:** `qwen3.5-0.8b` cho tiêu đề và metadata phiên
+- **Mọi thứ còn lại:** Có trong repo, nhưng chưa phải lựa chọn mặc định của README này cho tới khi được xác thực lại bằng harness hiện tại
 
-- **`gpt-oss-20b`**
-- **`gpt-oss-120b`**
-- **`glm-4.7-flash-awq`**
+Để xem danh mục mô hình rộng hơn, các đường chạy thử nghiệm và các trường hợp thủ công, hãy dùng [docs/models.md](docs/models.md) và [models.json](models.json).
 
-Helper nhỏ `qwen3.5-0.8b` đi kèm hiện là **mô hình tiện ích đã được xác thực** cho tiêu đề và metadata phiên, nhưng nó không thuộc tập mô hình chính đã được xác thực này.
-
-Những mô hình khác vẫn có thể hoạt động, nhưng ngoài helper tiện ích đã được xác thực này, chúng nên được xem là **thử nghiệm** chứ không phải mặc định được khuyến nghị cho tới khi được kiểm tra lại bằng bộ công cụ hiện tại.
-
-### Mô hình thử nghiệm (tương thích GB10 / CUDA 12.1)
-
-Các mô hình sau được đánh dấu là **thử nghiệm** do thỉnh thoảng bị crash trên DGX Spark (GPU GB10):
-
-- **Qwen3-Next-80B-A3B-Instruct** - Crash ngẫu nhiên trong lớp linear attention
-- **Qwen3-Next-80B-A3B-Thinking** - Cùng một vấn đề
-
-**Nguyên nhân gốc:** GPU GB10 dùng CUDA 12.1, nhưng stack vLLM / PyTorch hiện tại chỉ hỗ trợ CUDA ≤12.0. Điều này gây ra lỗi `cudaErrorIllegalInstruction` sau vài request thành công.
-
-**Cách tạm thời:** Dùng `gpt-oss-20b` hoặc `gpt-oss-120b` cho tool calling ổn định cho tới khi có image vLLM mới hỗ trợ đúng cho GB10.
-
-### Nemotron 3 Nano 30B (NVFP4)
-
-Mô hình **`nemotron-3-nano-30b-nvfp4`** hiện đã được bật lại trên đường chạy chuẩn `vllm-node` đã làm mới, nhưng với harness hiện tại nó vẫn nên được xem là **thử nghiệm**.
-**Trạng thái hiện tại:** Giờ đây nó có thể load và trả lời request trên runtime mới, nhưng chưa nằm trong tập mô hình chính đã được xác thực cũng như chưa có trong cấu hình OpenCode đi kèm.
-**Hành vi quan trọng:** Nội dung assistant hiển thị phụ thuộc vào dạng request non-thinking. Request validator giờ sẽ chèn mặc định đó cho các request đi qua gateway thông thường.
-**Ngưỡng client bảo thủ hiện tại:** Khoảng `100000` prompt token cho cách dùng thủ công kiểu OpenCode / Cline. Bài soak 5 luồng hiện tại của stack vượt qua ổn định ở khoảng `101776` prompt token và đã khá sát ngưỡng ở khoảng `116298`.
-
-### Hỗ trợ ảnh / ảnh chụp màn hình của OpenCode trên Linux
-
-OpenCode (tác tử AI trên terminal) có một lỗi đã biết trên Linux khiến **ảnh từ clipboard và ảnh theo đường dẫn tệp không hoạt động** với các mô hình thị giác. Mô hình trả lời "The model you're using does not support image input" dù các mô hình VL vẫn hoạt động bình thường qua API.
-
-**Nguyên nhân gốc:** Cách OpenCode xử lý clipboard trên Linux làm hỏng dữ liệu nhị phân của ảnh trước khi mã hóa (dùng `.text()` thay vì `.arrayBuffer()`). Nghĩa là thực tế không có dữ liệu ảnh nào được gửi tới máy chủ.
-
-**Trạng thái:** Có vẻ đây là lỗi phía client OpenCode. Mọi trợ giúp để điều tra hoặc sửa lỗi đều được hoan nghênh. Bản thân stack inference vẫn xử lý đúng ảnh base64 khi chúng được gửi chuẩn qua `curl` hoặc client API khác.
-
-**Cách tạm thời:** Dùng `curl` hoặc client API khác để gửi ảnh trực tiếp tới các mô hình VL như `qwen2.5-vl-7b`.
-
-### Qwen 2.5 Coder 7B và sự không tương thích với OpenCode
-
-Mô hình `qwen2.5-coder-7b-instruct` có giới hạn ngữ cảnh cứng là **32.768 token**. Nhưng OpenCode thường gửi những request rất lớn (buffer + input) vượt quá **35.000 token**, dẫn tới `ValueError` và request thất bại.
-
-**Khuyến nghị:** Không dùng `qwen2.5-coder-7b` với OpenCode cho các tác vụ ngữ cảnh dài. Thay vào đó hãy dùng **`qwen3-coder-30b-instruct`**, hỗ trợ **65.536 token** ngữ cảnh và xử lý các request lớn của OpenCode tốt hơn nhiều.
-
-### Llama 3.3 và sự không tương thích với OpenCode
-
-Mô hình **`llama-3.3-70b-instruct-fp4`** **không được khuyến nghị cho OpenCode**.
-**Lý do:** Dù mô hình hoạt động bình thường qua API, nó lại thể hiện hành vi tool calling quá hung hăng khi được khởi tạo bằng các prompt đặc thù của OpenCode. Điều này dẫn đến lỗi xác thực và trải nghiệm kém hơn, ví dụ cố gọi công cụ ngay sau lời chào.
-**Khuyến nghị:** Với phiên OpenCode, hãy dùng `gpt-oss-20b` hoặc `qwen3-next-80b-a3b-instruct`.
+Để xem các lưu ý phía client, đặc điểm runtime và ghi chú troubleshooting, hãy dùng [docs/integrations.md](docs/integrations.md) và [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Ghi công
 
-Xin cảm ơn đặc biệt tới các thành viên cộng đồng đã tạo ra những Docker image tối ưu được dùng trong stack này:
+Xin cảm ơn đặc biệt tới các thành viên cộng đồng mà những Docker image và công thức của họ đã góp phần định hình stack này:
 
 - **Thomas P. Braun từ Avarok**: Vì image vLLM đa dụng (`avarok/vllm-dgx-spark`) hỗ trợ non-gated activations (Nemotron), các mô hình hybrid và những bài viết như https://blog.avarok.net/dgx-spark-nemotron3-and-nvfp4-getting-to-65-tps-8c5569025eb6.
 - **Christopher Owen**: Vì image vLLM tối ưu cho MXFP4 (`christopherowen/vllm-dgx-spark`) giúp inference hiệu năng cao trên DGX Spark.
-- **eugr**: Vì toàn bộ công sức tùy biến image vLLM gốc (`eugr/vllm-dgx-spark`) và những bài đăng rất tốt trên diễn đàn NVIDIA.
+- **eugr**: Vì kho cộng đồng vLLM cho DGX Spark ban đầu (`eugr/spark-vllm-docker`), các tùy biến của nó và những bài đăng rất hay trên diễn đàn NVIDIA.
 - **Patrick Yi / scitrera.ai**: Vì công thức utility-model SGLang đã góp phần định hình đường chạy helper `qwen3.5-0.8b` cục bộ.
+- **Raphael Amorim**: Vì hình thái công thức AutoRound của cộng đồng đã định hình đường chạy cục bộ thử nghiệm `qwen3.5-122b-a10b-int4-autoround`.
+- **Bjarke Bolding**: Vì hình thái công thức AutoRound cho ngữ cảnh dài đã định hình đường chạy cục bộ thử nghiệm `qwen3-coder-next-int4-autoround`.
 
 ## Giấy phép
 

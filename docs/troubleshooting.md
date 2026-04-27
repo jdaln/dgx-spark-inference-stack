@@ -2,6 +2,9 @@
 
 Use [tools/README.md](../tools/README.md) for the maintained probe and validation commands. This page focuses on failure modes and what the outputs mean.
 
+> [!IMPORTANT]
+> The conservative defaults in this repo remain `gpt-oss-20b`, `gpt-oss-120b`, and `glm-4.7-flash-awq`. If you are deliberately testing the current OSS SOTA open-weights families, that mainly means Qwen 3.6 for long-context text/tool use and Gemma 4 26B for multimodal or tool-capable work in its size class.
+
 ## Monitoring and Debugging
 
 ### Check waker state
@@ -63,7 +66,7 @@ VLLM_LOGGING=1 WAKER_VERBOSE=1 docker compose up -d
 
 **Example: View logs for a specific model**
 ```bash
-docker logs -f vllm-qwen-math
+docker logs -f vllm-qwen3.6-35b-a3b-fp8-mtp
 ```
 
 ## Error Responses
@@ -76,7 +79,7 @@ When a model is busy (another model is currently loaded), you'll receive a detai
 {
   "ok": false,
   "error": "busy",
-  "requested": "qwen-math",
+  "requested": "qwen3.6-35b-a3b-fp8-mtp",
   "currentModel": {
     "name": "vllm-gpt-oss-20b",
     "uptimeSec": 245,
@@ -122,6 +125,11 @@ When a model is busy (another model is currently loaded), you'll receive a detai
 - Increase `HEALTH_TIMEOUT_MS` (default: 900000 = 15 min) if the normal gateway path is timing out while waker waits on `/ensure/<model>`
 - Check model container logs for errors
 - Verify GPU memory is sufficient
+
+#### Qwen 3.6 reasoning or tool-use replies stop early
+- The Qwen 3.6 lanes are the repo's current OSS SOTA open-weights text/tool family, but on this stack they deliberately default to non-thinking mode for more reliable visible answers and structured `tool_calls`
+- If you explicitly enable reasoning, raise the completion budget substantially before assuming the model is broken; the reasoning trace can consume hundreds of tokens before the final answer or tool call appears
+- If plain non-thinking works but explicit reasoning does not, compare non-streaming first before blaming the parser or client SSE handling
 
 #### Long first cold start stays unhealthy
 - Distinguish the two startup gates: `HEALTH_TIMEOUT_MS` controls the waker `/ensure` path, while `tools/run-model.sh` waits on the model container's own Docker healthcheck

@@ -1,5 +1,13 @@
 # Configuration
 
+## Current Operating Defaults
+
+- **Conservative defaults:** `gpt-oss-20b`, `gpt-oss-120b`, and `glm-4.7-flash-awq`
+- **Utility helper:** `qwen3.5-0.8b`
+- **Current OSS SOTA opt-in families:** use `qwen3.6-35b-a3b-fp8-mtp` or `qwen3.6-35b-a3b-fp8` for long-context text/tool work, and `gemma4-26b-a4b` for multimodal / tool-capable work in its size class
+
+Promote an experimental lane to your own daily default only after a real gateway-path soak on this host, not just a single healthy startup.
+
 ## Environment Variables
 
 | Variable | Description | Default |
@@ -43,9 +51,10 @@ For long first cold starts, also keep these distinctions in mind:
 
 ### Model Configuration Features
 - **GPU Memory Utilization**: Configurable allocation (default ~82%, small models ~5-12%)
-- **Concurrent Sequences**: Configurable max sequences (3 for oss20b, 3 for qwen-math)
+- **Concurrent Sequences**: Tuned per service rather than one global default
 - **Custom Tokenizers**: Support for custom tiktoken encodings
 - **Persistent Cache**: HuggingFace cache persisted to `./vllm_cache_huggingface`
+- **Official recipe mirrors**: The Qwen 3.6 lanes keep the upstream Spark Arena FP8 / MTP recipe shape as closely as practical while still fitting this repo's control-plane behavior
 
 ## Operational Entry Points
 
@@ -55,7 +64,7 @@ Use these repo-level tools instead of one-off shell snippets when you are modify
 - `bash tools/reload-control-plane.sh` after inventory or lifecycle changes that only affect `waker` or `request-validator`
 - `bash tools/run-model.sh --no-build <model-id>` for controlled manual bring-up under the current scheduler rules
 - `bash tools/smoke-gateway.sh` for the standard gateway-path smoke matrix
-- `node tools/soak-context.mjs ...` to establish a real prompt ceiling on this host
+- `node tools/soak-context.mjs ...` to establish a real prompt ceiling on this host before promoting an experimental lane such as Qwen 3.6
 
 ## Network Configuration
 

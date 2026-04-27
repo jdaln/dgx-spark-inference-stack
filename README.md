@@ -174,16 +174,6 @@ Special thanks to the community members who made optimized Docker images used in
 - **eugr**: For all the work on the original vLLM image (`eugr/vllm-dgx-spark`) customizations and the great postings on NVIDIA Forums.
 - **Patrick Yi / scitrera.ai**: For the SGLang utility-model recipe that informed the local `qwen3.5-0.8b` helper path.
 
-### Model Providers
-
-Huge thanks to the organizations optimizing these models for FP4/FP8 inference:
-
-- **Firworks AI** (`Firworks`): For a wide range of optimized models including GLM-4.5, Llama 3.3, and Ministral.
-- **NVIDIA**: For Qwen3-Next, Nemotron, and standard FP4 implementations.
-- **RedHat**: For Qwen3-VL and Mistral Small.
-- **QuantTrio**: For Qwen3-VL-Thinking.
-- **OpenAI**: For the GPT-OSS models.
-
 ## License
 
 This project is licensed under the **Apache License 2.0**. See the [LICENSE](LICENSE) file for details.

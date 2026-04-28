@@ -140,6 +140,7 @@ check_workflow_actions() {
 
 check_workflow_inline_images() {
     local file line line_number pending_line remaining_lines have_annotation
+    local annotation_line annotation_remaining_lines last_annotated_image_line
     local workflow_files=(.github/workflows/*.yml)
 
     for file in "${workflow_files[@]}"; do
@@ -148,11 +149,45 @@ check_workflow_inline_images() {
         pending_line=0
         remaining_lines=0
         have_annotation=0
+        annotation_line=0
+        annotation_remaining_lines=0
+        last_annotated_image_line=0
 
         while IFS= read -r line; do
             line_number=$((line_number + 1))
 
+            if [[ "$line" == *"# renovate: datasource=docker"* ]]; then
+                annotation_line=$line_number
+                annotation_remaining_lines=3
+                continue
+            fi
+
+            if (( annotation_line > 0 )); then
+                if [[ "$line" =~ @sha256:[a-f0-9]{64} ]]; then
+                    if (( pending_line > 0 )); then
+                        pending_line=0
+                        remaining_lines=0
+                        have_annotation=0
+                    else
+                        last_annotated_image_line=$line_number
+                    fi
+                    annotation_line=0
+                    annotation_remaining_lines=0
+                else
+                    annotation_remaining_lines=$((annotation_remaining_lines - 1))
+                    if (( annotation_remaining_lines == 0 )); then
+                        add_failure "$file:$annotation_line docker workflow annotation is missing a digest-pinned image reference"
+                        annotation_line=0
+                    fi
+                fi
+            fi
+
             if [[ "$line" == *"docker run"* ]]; then
+                if (( last_annotated_image_line > 0 )) && (( line_number - last_annotated_image_line <= 6 )); then
+                    last_annotated_image_line=0
+                    continue
+                fi
+
                 if (( pending_line > 0 )); then
                     add_failure "$file:$pending_line docker run is missing a pinned inline image"
                 fi
@@ -163,11 +198,6 @@ check_workflow_inline_images() {
             fi
 
             if (( pending_line == 0 )); then
-                continue
-            fi
-
-            if [[ "$line" == *"# renovate: datasource=docker"* ]]; then
-                have_annotation=1
                 continue
             fi
 
@@ -188,6 +218,10 @@ check_workflow_inline_images() {
 
         if (( pending_line > 0 )); then
             add_failure "$file:$pending_line docker run is missing a Renovate-annotated, digest-pinned inline image"
+        fi
+
+        if (( annotation_line > 0 )); then
+            add_failure "$file:$annotation_line docker workflow annotation is missing a digest-pinned image reference"
         fi
     done
 }

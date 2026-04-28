@@ -19,9 +19,11 @@ jobs:
 
       - name: Run waker smoke test in container
         run: |
+          # renovate: datasource=docker depName=node
+          WAKER_SMOKE_IMAGE=node:20-alpine@sha256:afdf98210b07b586eb71fa22ba2e432e058e4cd1304d31ed60888755b8c865fb
+
           docker run --rm \
             -v "$GITHUB_WORKSPACE":/workspace \
             -w /workspace/waker \
-            # renovate: datasource=docker
-            node:20-alpine@sha256:afdf98210b07b586eb71fa22ba2e432e058e4cd1304d31ed60888755b8c865fb \
+            "$WAKER_SMOKE_IMAGE" \
             sh -lc "npm ci && npm test"

@@ -11,7 +11,7 @@ The goal of the project is to provide an inference server for your home. After t
 
 - **[Architecture & How It Works](docs/architecture.md)** - Understanding the stack, waker service, and request flow.
 - **[Configuration](docs/configuration.md)** - Environment variables, network settings, and waker tuning.
-- **[Model Selection Guide](docs/models.md)** - Detailed list of 29+ supported models, quick chooser, and use cases.
+- **[Model Selection Guide](docs/models.md)** - Current model catalog, quick chooser, and validation status.
 - **[Integrations](docs/integrations.md)** - Guides for **Cline** (VS Code) and **OpenCode** (Terminal Agent).
 - **[Security & Remote Access](docs/security.md)** - Hardening SSH and setting up restricted port forwarding.
 - **[Troubleshooting & Monitoring](docs/troubleshooting.md)** - Debugging, logs, and common error solutions.
@@ -48,8 +48,14 @@ The goal of the project is to provide an inference server for your home. After t
        2.  Run `docker login nvcr.io` with your credentials.
    *   **Build Commands:**
        ```bash
-       # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream
-       docker build -t avarok/vllm-dgx-spark:v11 custom-docker-containers/avarok
+      # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream.
+      # Build from the repo root so the manually downloaded tokenizer files are included.
+      docker build -t avarok/vllm-dgx-spark:v11 -f custom-docker-containers/avarok/Dockerfile .
+
+      # If you want compose services that default to the pinned upstream Avarok image
+      # to use your local rebuild instead, export this override for the current shell
+      # or place it in .env before running docker compose.
+      export VLLM_TRACK_AVAROK=avarok/vllm-dgx-spark:v11
 
       # Build the repo MXFP4 track used by GPT-OSS.
       # This bakes the manually downloaded tiktoken files into the image.
@@ -63,7 +69,7 @@ The goal of the project is to provide an inference server for your home. After t
       git clone https://github.com/eugr/spark-vllm-docker tmp/spark-vllm-docker 2>/dev/null || git -C tmp/spark-vllm-docker pull --ff-only
       (cd tmp/spark-vllm-docker && bash build-and-copy.sh --pre-tf)
        ```
-   *   **Note:** `vllm-node-tf5` is not built from a repo-local Dockerfile today. If you plan to run Gemma 4 or the newer TF5-track Qwen follow-ons, build it explicitly with the upstream helper flow above. See [docs/runtime-baseline.md](docs/runtime-baseline.md) for the exact reproduction notes and build-time network requirements.
+   *   **Note:** `vllm-node-tf5` is not built from a repo-local Dockerfile today. If you plan to run Gemma 4 or the newer TF5-track Qwen follow-ons, build it explicitly with the upstream helper flow above. See [docs/runtime-baseline.md](docs/runtime-baseline.md) for the exact reproduction notes and build-time network requirements. Compose defaults remain digest-pinned for external pulls, so local rebuilds of the Avarok lane require `VLLM_TRACK_AVAROK=avarok/vllm-dgx-spark:v11`.
 
 5. **Start the stack**
    ```bash
@@ -77,7 +83,7 @@ The goal of the project is to provide an inference server for your home. After t
 6. **Test the API**
    ```bash
     # Request to the shipped utility helper
-    curl -X POST http://localhost:8009/v1/qwen3.5-0.8b/chat/completions \
+   curl -X POST http://localhost:8009/v1/chat/completions \
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}" \
      -d '{
@@ -96,9 +102,9 @@ The goal of the project is to provide an inference server for your home. After t
 
 ## Start Here If You Are New
 
-- Read [README.md](README.md), then [docs/architecture.md](docs/architecture.md), then [tools/README.md](tools/README.md).
+- Read [docs/architecture.md](docs/architecture.md), then [tools/README.md](tools/README.md).
 - Treat [tools/README.md](tools/README.md) plus [models.json](models.json) as the current operational source of truth.
-- Treat models outside the validated set in this README as experimental until the harness says otherwise.
+- Treat this README as the short entry point, not the full model catalog. Use [docs/models.md](docs/models.md) for the broader catalog.
 
 ## Prerequisites
 - Docker 20.10+ with Docker Compose
@@ -110,69 +116,30 @@ The goal of the project is to provide an inference server for your home. After t
 Pull requests very welcome. :)
 However, to ensure stability, I enforce a strict **Pull Request Template**.
 
-## ⚠️ Known Issues
+Maintainer note: Docker base-image digest refreshes and GitHub Action pin refreshes are gated through Renovate's Dependency Dashboard and scheduled monthly in UTC. If you want one earlier, approve that update from the GitHub Renovate Dependency Dashboard issue.
 
-### Current Validation Status
+## Current Status
 
-With the current harness and repo defaults, the only **validated main models** right now are:
+The README only highlights the stack's current recommended defaults.
 
-- **`gpt-oss-20b`**
-- **`gpt-oss-120b`**
-- **`glm-4.7-flash-awq`**
+- **Validated main models:** `gpt-oss-20b`, `gpt-oss-120b`, and `glm-4.7-flash-awq`
+- **Validated utility helper:** `qwen3.5-0.8b` for titles and session metadata
+- **Everything else:** available in the repo, but not a README default until it is re-validated on the current harness
 
-The shipped `qwen3.5-0.8b` small helper is now the **validated utility helper** for titles/session metadata, but it is not part of that validated main-model set.
+For the broader model catalog, experimental lanes, and manual-only paths, use [docs/models.md](docs/models.md) and [models.json](models.json).
 
-Other available models may still work, but beyond that validated utility helper they should be treated as **experimental** rather than recommended defaults until they are re-tested with the current tooling.
-
-### Experimental Models (GB10/CUDA 12.1 Compatibility)
-
-The following models are marked as **experimental** due to sporadic crashes on DGX Spark (GB10 GPU):
-
-- **Qwen3-Next-80B-A3B-Instruct** - Crashes randomly in linear attention layer
-- **Qwen3-Next-80B-A3B-Thinking** - Same issue
-
-**Root cause:** The GB10 GPU uses CUDA 12.1, but the current vLLM/PyTorch stack only supports CUDA ≤12.0. This causes `cudaErrorIllegalInstruction` errors after several successful requests.
-
-**Workaround:** Use `gpt-oss-20b` or `gpt-oss-120b` for stable tool calling until an updated vLLM image with proper GB10 support is available.
-
-### Nemotron 3 Nano 30B (NVFP4)
-
-The **`nemotron-3-nano-30b-nvfp4`** model is now re-enabled on the refreshed `vllm-node` standard-track path, but it should still be treated as **experimental** on the current harness.
-**Current status:** It now loads and answers requests on the refreshed runtime, but it is not part of the validated main-model set or the shipped OpenCode config yet.
-**Important behavior:** Visible assistant content depends on the non-thinking request shape. The request validator now injects that default for normal gateway requests.
-**Current conservative client ceiling:** About `100000` prompt tokens for manual OpenCode/Cline-style use. The active-stack five-way soak passes cleanly at roughly `101776` prompt tokens and is already borderline by roughly `116298`.
-
-
-### OpenCode Image/Screenshot Support on Linux
-
-OpenCode (terminal AI agent) has a known bug on Linux where **clipboard images and file path images do not work** with vision models. The model responds with "The model you're using does not support image input" even though VL models work correctly via API.
-
-**Root cause:** OpenCode's Linux clipboard handling corrupts binary image data before encoding (uses `.text()` instead of `.arrayBuffer()`). No image data is actually sent to the server.
-
-**Status:** This seems to be a client-side OpenCode bug. Help investigating/fixing is welcome! The inference stack correctly handles base64 images when properly sent (verified via curl).
-
-**Workaround:** Use curl or other API clients to send images directly to VL models like `qwen2.5-vl-7b`.
-
-### Qwen 2.5 Coder 7B & OpenCode Incompatibility
-
-The `qwen2.5-coder-7b-instruct` model has a strict context limit of **32,768 tokens**. However, OpenCode typically sends very large requests (buffer + input) exceeding **35,000 tokens**, causing `ValueError` and request failures.
-
-**Recommendation:** Do not use `qwen2.5-coder-7b` with OpenCode for long-context tasks. Instead, use **`qwen3-coder-30b-instruct`** which supports **65,536 tokens** context and handles OpenCode's large requests comfortably.
-
-### Llama 3.3 & OpenCode Incompatibility
-
-The **`llama-3.3-70b-instruct-fp4`** model is **not recommended for use with OpenCode**.
-**Reason:** While the model works correctly via API, it exhibits aggressive tool calling behavior when initialized by OpenCode's specific client prompts. This leads to validation errors and a degraded user experience (e.g., trying to call tools immediately upon greeting).
-**Recommendation:** Use `gpt-oss-20b` or `qwen3-next-80b-a3b-instruct` for OpenCode sessions instead.
+For client caveats, runtime quirks, and troubleshooting notes, use [docs/integrations.md](docs/integrations.md) and [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Credits
 
-Special thanks to the community members who made optimized Docker images used in this stack:
+Special thanks to the community members whose Docker images and recipe work enables this stack:
 
 - **Thomas P. Braun from Avarok**: For the general-purpose vLLM image (`avarok/vllm-dgx-spark`) with support for non-gated activations (Nemotron) and hybrid models and posts like this https://blog.avarok.net/dgx-spark-nemotron3-and-nvfp4-getting-to-65-tps-8c5569025eb6.
-- **Christopher Owen**: For the MXFP4-optimized vLLM image (`christopherowen/vllm-dgx-spark`) enabling high-performance inference on DGX Spark.
-- **eugr**: For all the work on the original vLLM image (`eugr/vllm-dgx-spark`) customizations and the great postings on NVIDIA Forums.
+- **Christopher Owen**: For the MXFP4-optimized vLLM images initial work (`christopherowen/vllm-dgx-spark`) enabling high-performance inference on DGX Spark.
+- **eugr**: For the original community DGX Spark vLLM repo (`eugr/spark-vllm-docker`), its customizations, and the great postings on NVIDIA Forums.
 - **Patrick Yi / scitrera.ai**: For the SGLang utility-model recipe that informed the local `qwen3.5-0.8b` helper path.
+- **Raphael Amorim**: For the community AutoRound recipe shape that informed the experimental local `qwen3.5-122b-a10b-int4-autoround` lane.
+- **Bjarke Bolding**: For the long-context AutoRound recipe shape that informed the experimental local `qwen3-coder-next-int4-autoround` lane.
 
 ## License
 

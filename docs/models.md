@@ -14,46 +14,30 @@ Choose the right model for your task to balance performance and speed.
 >
 > That means availability in compose or `models.json` does **not** automatically mean “recommended default”.
 
+If you only want the current recommended defaults, stop at the next section. Everything after that is the broader catalog for deliberate opt-in.
+
 ## Quick chooser (what to use for what)
 
-### ✅ Best default chat / general assistant
-- **`gpt-oss-20b`** → fast + strong quality for most tasks
-- **`gpt-oss-120b`** → best overall quality when latency/cost is okay
+### ✅ Start here unless you have a specific reason not to
+- **`gpt-oss-20b`** → best default chat / general assistant
+- **`gpt-oss-120b`** → best overall quality when latency is acceptable
 - **`glm-4.7-flash-awq`** → validated long-context coding/chat path on the current harness
-- **`glm-4.5-air-fp4`** → promising general assistant alternative, but still experimental on the current harness
+- **`qwen3.5-0.8b`** → validated small utility helper for titles, tagging, and session metadata
 
+### 🏁 Current OSS SOTA opt-in families
+- **`qwen3.6-35b-a3b-fp8-mtp`** → leading OSS SOTA long-context text/tool lane on this host when you want the best measured Qwen 3.6 latency
+- **`qwen3.6-35b-a3b-fp8`** → same Qwen 3.6 family without MTP if you want the simpler baseline
+- **`qwen3.6-27b-fp8`** and **`qwen3.6-27b-fp8-mtp`** → smaller official Qwen 3.6 baselines with the same Spark Arena-style recipe shape
+- **`gemma4-26b-a4b`** → OSS SOTA multimodal/tool-capable lane for its size class on this host
 
-### 🧠 Heavy reasoning (math, logic, planning, step-by-step)
-- **`qwen3-next-80b-a3b-thinking-fp4`** → fast MoE “thinking” model (high throughput)
-- **`deepseek-r1-distill-qwen-32b`** → very strong reasoning per GPU
-- **`phi-4-reasoning-plus-fp4`** → careful/robust reasoning style
-- **`nemotron-3-nano-30b-nvfp4`** → efficient MoE reasoning + long-context workloads, re-enabled on the refreshed standard track but still experimental on the current harness
+### ⚗️ Other deliberate opt-in experiments
+- **Reasoning:** `qwen3-next-80b-a3b-thinking-fp4`, `deepseek-r1-distill-qwen-32b`, `phi-4-reasoning-plus-fp4`, `nemotron-3-nano-30b-nvfp4`
+- **Coding:** `qwen3-coder-30b-a3b-instruct`, `qwen2.5-coder-7b-instruct`, `qwen3-coder-next-int4-autoround`
+- **Vision / multimodal:** `huihui-gemma4-e2b-abliterated`, `qwen3-vl-32b-instruct-fp4`, `qwen3-vl-30b-thinking-instruct`, `glm-4.6v-flash-fp4`, `phi-4-multimodal-instruct-fp4`, `qwen2.5-vl-7b`
+- **Other long-context / recipe experiments:** `huihui-qwen3.5-35b-a3b-abliterated`
+- **Other specialist lanes:** `deepseek-ocr`, `eurollm-22b-instruct-fp4`, `step-audio-r1-fp4` (disabled), `gemma4-31b` (manual-only on this host)
 
-### 💻 Coding / repo edits / tool-assisted programming
-- **`glm-4.7-flash-awq`** → validated long-context coding path right now
-- **`qwen3-coder-30b-a3b-instruct`** → strong coding model, but still experimental on the current harness
-- **`qwen2.5-coder-7b-instruct`** → budget coding assistant, experimental and not recommended for OpenCode
-
-### 👁️ Vision (screenshots, UI, diagrams, “look at this image”)
-- **`qwen3-vl-32b-instruct-fp4`** → best-looking VL candidate in the repo, but still experimental on the current harness
-- **`qwen3-vl-30b-instruct`** → available, but still experimental on the current harness
-- **`gemma4-26b-a4b`** → experimental Gemma path with verified text+image input and tool calling on the current stack
-
-- **`glm-4.6v-flash-fp4`** → fastest VL candidate for real-time UI workflows, but still experimental on the current harness
-- **`phi-4-multimodal-instruct-fp4`** → solid “one model for text+image(+audio)”
-- **`qwen2.5-vl-7b`** → cheapest practical VL
-
-### 🔎 OCR (image → raw text extraction)
-- **`deepseek-ocr`** → best when you need clean extracted text
-
-### 🎧 Audio
-- **`step-audio-r1-fp4`** → audio understanding + reasoning (Disabled)
-
-### 🌍 EU languages / multilingual support
-- **`eurollm-22b-instruct-fp4`** → EU-language focused assistant
-
-### 🪶 Small “utility model”
-- **`qwen3.5-0.8b`** → validated small helper for classification, formatting, tagging, and session titles
+The full catalog below still documents the broader model set. Treat those entries as availability notes, not as implicit promotion to default status.
 
 ---
 
@@ -118,7 +102,9 @@ Choose the right model for your task to balance performance and speed.
   - **Strengths:** better step-by-step reliability than the instruct version
   - **Tradeoffs:** typically uses more tokens / slower per answer
 
-### Qwen 3.6 official baselines
+### Qwen 3.6 official baselines (current OSS SOTA text/tool family)
+
+If you want one of the strongest open-weights text/tool lanes in this repo today and are comfortable with experimental status, start with the 35B A3B variants here.
 
 - `vllm-qwen3.6-27b-fp8` → served as **`qwen3.6-27b-fp8`**
   - **Type:** official Qwen 3.6 dense FP8 baseline
@@ -189,6 +175,8 @@ Choose the right model for your task to balance performance and speed.
   - **Tradeoffs:** weaker reasoning + coding than 30B+ models
 
 ### Gemma 4
+
+Gemma 4 is the other main OSS SOTA opt-in family in this repo, especially if you care about multimodal quality and tool use in this size range.
 
 - `vllm-gemma4-26b-a4b` → served as **`gemma4-26b-a4b`**
   - **Type:** multimodal Gemma 4 MoE model (text + image) with native tool calling

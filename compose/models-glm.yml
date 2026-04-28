@@ -39,7 +39,7 @@ x-healthcheck-default: &healthcheck-default
 services:
   vllm-glm-4.5-air-fp4:
     <<: *model-profiled
-    image: avarok/vllm-dgx-spark:v11
+    image: ${VLLM_TRACK_AVAROK:-avarok/vllm-dgx-spark:v11@sha256:246723e9a74163e7828716c1587d6c5208a9cf0dc8d1195cbd33f68234b1024b}
     container_name: vllm-glm-4.5-air-fp4
     command:
       - serve
@@ -84,7 +84,7 @@ services:
 
   vllm-glm-4.6v-flash-fp4:
     <<: *model-profiled
-    image: ${VLLM_TRACK_IMAGE_TF5:-avarok/vllm-dgx-spark:v11-tf5}
+    image: ${VLLM_TRACK_IMAGE_TF5:-local/vllm-node-tf5:cu131}
     container_name: vllm-glm-4.6v-flash-fp4
     command:
       - serve
@@ -128,7 +128,7 @@ services:
 
   vllm-glm-4.5-air-derestricted-fp4:
     <<: *model-profiled
-    image: avarok/vllm-dgx-spark:v11
+    image: ${VLLM_TRACK_AVAROK:-avarok/vllm-dgx-spark:v11@sha256:246723e9a74163e7828716c1587d6c5208a9cf0dc8d1195cbd33f68234b1024b}
     container_name: vllm-glm-4.5-air-derestricted-fp4
     command:
       - serve
@@ -173,7 +173,7 @@ services:
 
   vllm-glm4-9b:
     <<: *model-profiled
-    image: nvcr.io/nvidia/vllm:25.10-py3
+    image: nvcr.io/nvidia/vllm:25.10-py3@sha256:9063047cace3b0ec2db8f02727c5e5e4d582a7fd9375cbc5a086fef243ad4074
     container_name: vllm-glm4-9b
     command:
       - vllm

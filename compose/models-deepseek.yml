@@ -1,7 +1,7 @@
 services:
   vllm-deepseek-r1-14b:
     profiles: ["models"]
-    image: nvcr.io/nvidia/vllm:25.10-py3
+    image: nvcr.io/nvidia/vllm:25.10-py3@sha256:9063047cace3b0ec2db8f02727c5e5e4d582a7fd9375cbc5a086fef243ad4074
     container_name: vllm-deepseek-r1-14b
     command:
       - vllm
@@ -65,7 +65,7 @@ services:
 
   vllm-deepseek-r1-32b:
     profiles: ["models"]
-    image: nvcr.io/nvidia/vllm:25.10-py3
+    image: nvcr.io/nvidia/vllm:25.10-py3@sha256:9063047cace3b0ec2db8f02727c5e5e4d582a7fd9375cbc5a086fef243ad4074
     container_name: vllm-deepseek-r1-32b
     command:
       - vllm
@@ -130,7 +130,7 @@ services:
 
   vllm-deepseek-ocr:
     profiles: ["models"]
-    image: nvcr.io/nvidia/vllm:25.10-py3
+    image: nvcr.io/nvidia/vllm:25.10-py3@sha256:9063047cace3b0ec2db8f02727c5e5e4d582a7fd9375cbc5a086fef243ad4074
     container_name: vllm-deepseek-ocr
     command:
       - vllm

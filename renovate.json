@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "pinDigests": true,
+  "timezone": "Etc/UTC",
+  "dependencyDashboard": true,
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["^\\.github/workflows/.*\\.ya?ml$"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s*\\n\\s*(?:[A-Za-z_][A-Za-z0-9_]*=)?(?:[^@\\s]+:)?(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "matchDatasources": ["docker"],
+      "groupName": "docker images",
+      "schedule": ["before 4am on the first day of the month"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions",
+      "schedule": ["before 4am on the first day of the month"],
+      "dependencyDashboardApproval": true
+    }
+  ]
+}

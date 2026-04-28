@@ -1,14 +1,19 @@
 ARG BASE_IMAGE=vllm-node-mxfp4
 ARG VLLM_REPO=https://github.com/vllm-project/vllm.git
 ARG VLLM_REF=50cd5674b
-
-FROM avarok/vllm-dgx-spark:v11-tf5 AS tf5_source
+ARG TRANSFORMERS_VERSION=5.0.0rc1
+ARG HUGGINGFACE_HUB_VERSION=1.3.2
 
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 
 ARG VLLM_REPO
 ARG VLLM_REF
+ARG TRANSFORMERS_VERSION
+ARG HUGGINGFACE_HUB_VERSION
+
+LABEL ai.dgx.transformers_version=${TRANSFORMERS_VERSION} \
+    ai.dgx.huggingface_hub_version=${HUGGINGFACE_HUB_VERSION}
 
 RUN pip uninstall -y vllm flashinfer-python flashinfer-cubin flashinfer-jit-cache transformers huggingface_hub 2>/dev/null || true && \
     rm -rf /usr/local/lib/python3.12/dist-packages/transformers \
@@ -16,10 +21,9 @@ RUN pip uninstall -y vllm flashinfer-python flashinfer-cubin flashinfer-jit-cach
            /usr/local/lib/python3.12/dist-packages/huggingface_hub \
            /usr/local/lib/python3.12/dist-packages/huggingface_hub-*.dist-info
 
-COPY --from=tf5_source /opt/venv/lib/python3.12/site-packages/transformers /usr/local/lib/python3.12/dist-packages/transformers
-COPY --from=tf5_source /opt/venv/lib/python3.12/site-packages/transformers-5.0.0rc1.dist-info /usr/local/lib/python3.12/dist-packages/transformers-5.0.0rc1.dist-info
-COPY --from=tf5_source /opt/venv/lib/python3.12/site-packages/huggingface_hub /usr/local/lib/python3.12/dist-packages/huggingface_hub
-COPY --from=tf5_source /opt/venv/lib/python3.12/site-packages/huggingface_hub-1.3.2.dist-info /usr/local/lib/python3.12/dist-packages/huggingface_hub-1.3.2.dist-info
+RUN pip install --no-cache-dir --upgrade --pre --no-deps \
+    "transformers==${TRANSFORMERS_VERSION}" \
+    "huggingface_hub==${HUGGINGFACE_HUB_VERSION}"
 
 COPY tmp/spark-vllm-docker/wheels /tmp/wheels
 COPY custom-docker-containers/vllm-node-tf5/patch_cache_kernels.py /tmp/patch_cache_kernels.py

@@ -13,7 +13,7 @@
 
 - **[架構與運作方式](docs/architecture.md)** - 了解整個堆疊、waker 服務與請求流程。
 - **[設定](docs/configuration.md)** - 環境變數、網路設定與 waker 調校。
-- **[模型選擇指南](docs/models.md)** - 29+ 個支援模型的詳細清單、快速選擇器與使用情境。
+- **[模型選擇指南](docs/models.md)** - 目前模型目錄、快速選擇器與驗證狀態。
 - **[整合](docs/integrations.md)** - 針對 **Cline**（VS Code）與 **OpenCode**（終端代理）的指南。
 - **[安全性與遠端存取](docs/security.md)** - SSH 強化與受限連接埠轉送設定。
 - **[疑難排解與監控](docs/troubleshooting.md)** - 偵錯、日誌與常見錯誤的解法。
@@ -79,7 +79,7 @@
 6. **測試 API**
    ```bash
     # Request to the shipped utility helper
-    curl -X POST http://localhost:8009/v1/qwen3.5-0.8b/chat/completions \
+    curl -X POST http://localhost:8009/v1/chat/completions\
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}" \
      -d '{
@@ -98,9 +98,9 @@
 
 ## 如果你是新手，請從這裡開始
 
-- 先讀 [README.md](README.md)，再讀 [docs/architecture.md](docs/architecture.md)，最後讀 [tools/README.md](tools/README.md)。
+- 先讀 [docs/architecture.md](docs/architecture.md)，最後讀 [tools/README.md](tools/README.md)。
 - 請將 [tools/README.md](tools/README.md) 與 [models.json](models.json) 視為目前運作層面的事實來源。
-- 本 README 中未列為已驗證的模型，在驗證工具鏈重新確認之前都應視為實驗性模型。
+- 請把本 README 視為一個簡短入口，而不是完整模型目錄。更完整的目錄請看 [docs/models.md](docs/models.md)。
 
 ## 前置需求
 - Docker 20.10+ 與 Docker Compose
@@ -112,68 +112,28 @@
 非常歡迎 Pull Request。 :)
 但為了維持穩定性，我會強制執行嚴格的 **Pull Request 模板**。
 
-## ⚠️ 已知問題
+## 目前狀態
 
-### 目前的驗證狀態
+本 README 現在只突顯這個堆疊目前推薦的預設路徑。
 
-在目前的驗證工具鏈與儲存庫預設值下，當前唯一 **已驗證的主模型** 是：
+- **已驗證的主模型：** `gpt-oss-20b`、`gpt-oss-120b` 和 `glm-4.7-flash-awq`
+- **已驗證的工具輔助模型：** 用於標題與工作階段中繼資料的 `qwen3.5-0.8b`
+- **其他所有內容：** 雖然都在儲存庫裡，但在以目前驗證工具鏈重新驗證之前，都不是這份 README 的預設選項
 
-- **`gpt-oss-20b`**
-- **`gpt-oss-120b`**
-- **`glm-4.7-flash-awq`**
+更完整的模型目錄、實驗性路徑與手動使用情境，請查看 [docs/models.md](docs/models.md) 和 [models.json](models.json)。
 
-隨堆疊提供的小型輔助模型 `qwen3.5-0.8b` 現在已是用於標題與工作階段中繼資料的 **已驗證工具輔助模型**，但它不屬於這組已驗證主模型。
-
-其他可用模型仍有可能可以工作，但除了這個已驗證輔助模型之外，在以目前工具鏈重新測試之前，都應被視為 **實驗性**，而不是推薦的預設選項。
-
-### 實驗性模型（GB10 / CUDA 12.1 相容性）
-
-以下模型因為在 DGX Spark（GB10 GPU）上有零星當機情況，因此被標記為 **實驗性**：
-
-- **Qwen3-Next-80B-A3B-Instruct** - 會在線性注意力層隨機崩潰
-- **Qwen3-Next-80B-A3B-Thinking** - 同樣的問題
-
-**根本原因：** GB10 GPU 使用 CUDA 12.1，但目前的 vLLM / PyTorch 堆疊只支援 CUDA ≤12.0。這會在若干次成功請求之後導致 `cudaErrorIllegalInstruction` 錯誤。
-
-**暫時替代方案：** 在有正確 GB10 支援的新版 vLLM 映像出現之前，若需要穩定的 tool calling，請使用 `gpt-oss-20b` 或 `gpt-oss-120b`。
-
-### Nemotron 3 Nano 30B（NVFP4）
-
-**`nemotron-3-nano-30b-nvfp4`** 模型已在更新後的 `vllm-node` 標準軌道中重新啟用，但在目前的驗證工具鏈下仍應視為 **實驗性**。
-**目前狀態：** 它現在可以在更新後的執行環境中載入並回應請求，但仍不屬於已驗證主模型集合，也不在隨附的 OpenCode 設定中。
-**重要行為：** 可見的 assistant content 取決於非 thinking 請求形態。請求驗證器現在會為一般閘道請求注入這個預設值。
-**目前保守的用戶端上限：** 手動 OpenCode / Cline 風格使用時，大約為 `100000` 個 prompt token。當前堆疊的五路 soak 在約 `101776` 個 prompt token 時可以穩定通過，而到約 `116298` 時已經非常接近邊界。
-
-### Linux 上的 OpenCode 圖片 / 截圖支援
-
-OpenCode（終端 AI 代理）在 Linux 上有一個已知問題：**剪貼簿圖片與檔案路徑圖片無法與視覺模型正常搭配使用**。即使 VL 模型透過 API 可以正常運作，模型仍會回覆 "The model you're using does not support image input"。
-
-**根本原因：** OpenCode 在 Linux 上處理剪貼簿時，會在編碼之前破壞圖片的二進位資料（使用 `.text()` 而不是 `.arrayBuffer()`）。也就是說，實際上根本沒有影像資料送到伺服器。
-
-**狀態：** 這看起來是 OpenCode 用戶端本身的 bug。歡迎協助調查或修正。推論堆疊本身在透過 `curl` 或其他 API 用戶端正確傳送時，可以正常處理 base64 圖片。
-
-**暫時替代方案：** 使用 `curl` 或其他 API 用戶端，直接把圖片送到像 `qwen2.5-vl-7b` 這樣的 VL 模型。
-
-### Qwen 2.5 Coder 7B 與 OpenCode 不相容
-
-`qwen2.5-coder-7b-instruct` 模型的上下文上限嚴格為 **32,768 token**。但 OpenCode 通常會送出非常大的請求（buffer + input），超過 **35,000 token**，進而導致 `ValueError` 與請求失敗。
-
-**建議：** 不要在長上下文任務中把 `qwen2.5-coder-7b` 與 OpenCode 一起使用。請改用 **`qwen3-coder-30b-instruct`**，它支援 **65,536 token** 上下文，且能更穩妥地處理 OpenCode 的大型請求。
-
-### Llama 3.3 與 OpenCode 不相容
-
-**`llama-3.3-70b-instruct-fp4`** **不建議搭配 OpenCode 使用**。
-**原因：** 雖然模型透過 API 可以正常運作，但當它用 OpenCode 特定的客戶端提示詞初始化時，會表現出過度積極的 tool calling 行為。這會造成驗證錯誤與較差的使用體驗，例如剛打完招呼就試圖呼叫工具。
-**建議：** 在 OpenCode 工作階段中，請使用 `gpt-oss-20b` 或 `qwen3-next-80b-a3b-instruct`。
+客戶端注意事項、執行環境特性與疑難排解說明，請查看 [docs/integrations.md](docs/integrations.md) 和 [docs/troubleshooting.md](docs/troubleshooting.md)。
 
 ## 致謝
 
-特別感謝那些讓這個堆疊能使用最佳化 Docker 映像的社群成員：
+特別感謝那些其 Docker 映像與配方工作啟發了這個堆疊的社群成員：
 
 - **Avarok 的 Thomas P. Braun**：感謝他提供通用型 vLLM 映像 `avarok/vllm-dgx-spark`，支援 non-gated activation（Nemotron）、混合模型，並分享了像 https://blog.avarok.net/dgx-spark-nemotron3-and-nvfp4-getting-to-65-tps-8c5569025eb6 這樣的文章。
 - **Christopher Owen**：感謝他提供 MXFP4 最佳化 vLLM 映像 `christopherowen/vllm-dgx-spark`，讓 DGX Spark 上的高效能推論成為可能。
-- **eugr**：感謝他對原始 vLLM 映像 `eugr/vllm-dgx-spark` 所做的大量客製化工作，以及在 NVIDIA 論壇上的優秀分享。
+- **eugr**：感謝他提供原始的 DGX Spark 社群 vLLM 儲存庫 `eugr/spark-vllm-docker`、相關客製化工作，以及在 NVIDIA 論壇上的優秀分享。
 - **Patrick Yi / scitrera.ai**：感謝他提供的 SGLang 工具模型配方，它啟發了本地 `qwen3.5-0.8b` helper 路徑。
+- **Raphael Amorim**：感謝他提供的社群 AutoRound 配方形態，它啟發了實驗性的本地 `qwen3.5-122b-a10b-int4-autoround` 路徑。
+- **Bjarke Bolding**：感謝他提供的長上下文 AutoRound 配方形態，它啟發了實驗性的本地 `qwen3-coder-next-int4-autoround` 路徑。
 
 ## 授權
 

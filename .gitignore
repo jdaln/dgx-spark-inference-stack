@@ -36,3 +36,6 @@ torchinductor/
 
 .cache/
 tmp/
+
+# Local Node installs
+waker/node_modules/

@@ -8,13 +8,23 @@ This repo does not run a single universal vLLM baseline. Different model familie
 
 | Track | Default image/tag in compose | Used by | Build source |
 | --- | --- | --- | --- |
+| Avarok general-purpose | `${VLLM_TRACK_AVAROK:-avarok/vllm-dgx-spark:v11@sha256:246723e9a74163e7828716c1587d6c5208a9cf0dc8d1195cbd33f68234b1024b}` | `compose/models-llama.yml`, the FP4/experimental Avarok-backed lanes in `compose/models-glm.yml`, `compose/models-qwen.yml`, and `compose/models-experimental.yml` | Repo-local Dockerfile in `custom-docker-containers/avarok/` or pinned upstream pull |
 | Standard | `${VLLM_TRACK_IMAGE_STANDARD:-vllm-node}` | `compose/models-nemotron.yml` and future standard-track follow-ons | Upstream helper repo in `tmp/spark-vllm-docker` |
 | TF5 (Gemma and newer TF5 Qwen services) | `vllm-node-tf5` or `${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}` | `compose/models-gemma.yml` and the TF5-backed Qwen follow-ons in `compose/models-qwen.yml` | Upstream helper repo in `tmp/spark-vllm-docker` |
-| TF5 (older GLM family default) | `${VLLM_TRACK_IMAGE_TF5:-avarok/vllm-dgx-spark:v11-tf5}` | Legacy GLM services in `compose/models-glm.yml` | Prebuilt external image |
+| TF5 (legacy GLM fallback) | `${VLLM_TRACK_IMAGE_TF5:-local/vllm-node-tf5:cu131}` | `vllm-glm-4.6v-flash-fp4` in `compose/models-glm.yml` | Repo-local custom image layered over `vllm-node-mxfp4` |
 | GLM 4.7 local TF5 variant | `local/vllm-glm-4.7-flash-awq:tf5` via the GLM 4.7 build stanza | `glm-4.7-flash-awq` | Repo-local custom image layered over `local/vllm-node-tf5:cu131` |
 | MXFP4 | `${VLLM_TRACK_IMAGE_MXFP4:-vllm-node-mxfp4}` | GPT-OSS services in `compose/models-gpt.yml` | Repo-local Dockerfile in `custom-docker-containers/vllm-node-mxfp4/` |
 
 ## What To Rebuild
+
+### `avarok/vllm-dgx-spark:v11`
+
+The Avarok-backed FP4 services can keep the pinned upstream default or consume a local rebuild, but local use now requires an explicit override because the compose default is digest-pinned:
+
+```bash
+docker build -t avarok/vllm-dgx-spark:v11 -f custom-docker-containers/avarok/Dockerfile .
+export VLLM_TRACK_AVAROK=avarok/vllm-dgx-spark:v11
+```
 
 ### `vllm-node-tf5`
 

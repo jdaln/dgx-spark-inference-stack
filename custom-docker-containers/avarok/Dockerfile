@@ -20,7 +20,7 @@
 #     serve <model> --quantization modelopt_fp4 --kv-cache-dtype fp8
 # ============================================================================
 
-FROM nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04
+FROM nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04@sha256:5e9d0c68200eb01201617eb0d29a26d9a472104a2b8240de40dab58101ec948f
 
 LABEL maintainer="avarok"
 LABEL version="v11"
@@ -38,6 +38,7 @@ RUN apt-get update && apt-get install -y \
     python3.12 python3.12-venv python3.12-dev python3-pip \
     git wget curl patch \
     cmake build-essential ninja-build \
+    libnuma-dev \
     # InfiniBand/RDMA libraries for multi-node
     libibverbs1 libibverbs-dev ibverbs-providers rdma-core perftest \
     # Network utilities
@@ -84,21 +85,25 @@ RUN git clone --recursive https://github.com/vllm-project/vllm.git . && \
     echo "Building vLLM from commit: $(git rev-parse HEAD)"
 
 # Prepare for existing torch installation
-RUN python3 use_existing_torch.py
+RUN python3 use_existing_torch.py --prefix
 
 # Remove flashinfer from requirements (we installed it separately)
 RUN sed -i "/flashinfer/d" requirements/cuda.txt || true
-RUN sed -i '/^triton\b/d' requirements/test.txt || true
+RUN sed -i '/^triton\b/d' requirements/test/cuda.txt || true
 
 # Install build requirements
-RUN pip install -r requirements/build.txt
+RUN pip install -r requirements/build/cuda.txt
+
+# fastsafetensors is resolved from sdist on arm64 and needs pybind11 when
+# vLLM is installed with --no-build-isolation.
+RUN pip install pybind11
 
 # ============================================================================
 # CMakeLists Patch for DGX Spark (GB10)
 # ============================================================================
 # This patch removes problematic SM12.x architectures from certain kernel
 # compilations that cause issues on DGX Spark's GB10 GPU
-COPY vllm_cmakelists.patch .
+COPY custom-docker-containers/avarok/vllm_cmakelists.patch .
 RUN patch -p1 < vllm_cmakelists.patch || echo "Patch may have already been applied or is not needed"
 
 # ============================================================================
@@ -134,14 +139,10 @@ RUN rm -rf /workspace/vllm
 RUN pip install ray[default]
 
 # ============================================================================
-# Download Tiktoken Encodings
+# Install Tiktoken Encodings
 # ============================================================================
 ENV TIKTOKEN_ENCODINGS_BASE=/workspace/tiktoken_encodings
-RUN mkdir -p ${TIKTOKEN_ENCODINGS_BASE} && \
-    wget -O ${TIKTOKEN_ENCODINGS_BASE}/o200k_base.tiktoken \
-        "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken" && \
-    wget -O ${TIKTOKEN_ENCODINGS_BASE}/cl100k_base.tiktoken \
-        "https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken"
+COPY manual_download/openai_gpt-oss-encodings_fix ${TIKTOKEN_ENCODINGS_BASE}
 
 # ============================================================================
 # NCCL Configuration for InfiniBand/RoCE Multi-GPU

@@ -457,7 +457,7 @@ services:
 
   vllm-mistral-nemo-12b:
     <<: *model-common
-    image: nvcr.io/nvidia/vllm:25.10-py3 #Was too new for host driver
+    image: nvcr.io/nvidia/vllm:25.10-py3@sha256:9063047cace3b0ec2db8f02727c5e5e4d582a7fd9375cbc5a086fef243ad4074 #Was too new for host driver
     container_name: vllm-mistral-nemo-12b
     command:
       - vllm

@@ -512,16 +512,15 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         if (e instanceof BusyError) {
           const retryAfterSec = e.info?.retryAfterSec ?? Math.max(1, Math.ceil(HEALTH_TIMEOUT_MS / 1000));
-          const current = e.info?.currentModel || {};
+          const currentBusy = e.info?.currentModel || {};
 
-          // Add detailed headers for nginx to capture
           const headers = {
             "Retry-After": String(retryAfterSec),
-            "X-Busy-Model": current.name || "unknown",
-            "X-Model-Uptime-Sec": String(current.uptimeSec || 0),
-            "X-Model-Idle-Sec": String(current.idleSec || 0),
-            "X-Time-Until-Release-Sec": String(current.timeUntilReleaseSec || retryAfterSec),
-            "X-Model-Will-Auto-Stop": String(current.willAutoStop || false)
+            "X-Busy-Model": currentBusy.name || "unknown",
+            "X-Model-Uptime-Sec": String(currentBusy.uptimeSec || 0),
+            "X-Model-Idle-Sec": String(currentBusy.idleSec || 0),
+            "X-Time-Until-Release-Sec": String(currentBusy.timeUntilReleaseSec || retryAfterSec),
+            "X-Model-Will-Auto-Stop": String(currentBusy.willAutoStop || false)
           };
 
           return json(
@@ -552,7 +551,6 @@ const server = http.createServer(async (req, res) => {
       if (result.status === "initializing") {
         return json(res, 202, { status: "initializing", model: result.name, message: result.message });
       }
-      // Handle error status from checkModel
       return json(res, result.statusCode || 500, { status: "error", message: result.message });
     }
 

@@ -83,7 +83,7 @@ services:
       retries: 3
 
   api-gateway:
-    image: nginx:1.27-alpine
+    image: nginx:1.27-alpine@sha256:63ffc0d1f14e4082b832c6a42e606e9a0384a526f16ddd720af7c1f018f2f7c4
     container_name: vllm-gateway
     entrypoint: ["nginx", "-g", "daemon off;"]
     cap_drop: [ALL]

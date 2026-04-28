@@ -13,7 +13,7 @@ L'obiettivo del progetto è fornire un server di inferenza per la casa. Dopo ave
 
 - **[Architettura e funzionamento](docs/architecture.md)** - Capire lo stack, il servizio waker e il flusso delle richieste.
 - **[Configurazione](docs/configuration.md)** - Variabili d'ambiente, impostazioni di rete e tuning del waker.
-- **[Guida alla scelta dei modelli](docs/models.md)** - Elenco dettagliato di oltre 29 modelli supportati, selettore rapido e casi d'uso.
+- **[Guida alla scelta dei modelli](docs/models.md)** - Catalogo modelli attuale, selettore rapido e stato di validazione.
 - **[Integrazioni](docs/integrations.md)** - Guide per **Cline** (VS Code) e **OpenCode** (agente da terminale).
 - **[Sicurezza e accesso remoto](docs/security.md)** - Hardening SSH e configurazione di port forwarding limitato.
 - **[Risoluzione problemi e monitoraggio](docs/troubleshooting.md)** - Debug, log e soluzioni agli errori comuni.
@@ -79,7 +79,7 @@ L'obiettivo del progetto è fornire un server di inferenza per la casa. Dopo ave
 6. **Testa l'API**
    ```bash
     # Request to the shipped utility helper
-    curl -X POST http://localhost:8009/v1/qwen3.5-0.8b/chat/completions \
+    curl -X POST http://localhost:8009/v1/chat/completions\
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}" \
      -d '{
@@ -98,9 +98,9 @@ L'obiettivo del progetto è fornire un server di inferenza per la casa. Dopo ave
 
 ## Inizia da qui se sei nuovo
 
-- Leggi [README.md](README.md), poi [docs/architecture.md](docs/architecture.md), poi [tools/README.md](tools/README.md).
+- Leggi [docs/architecture.md](docs/architecture.md), poi [tools/README.md](tools/README.md).
 - Considera [tools/README.md](tools/README.md) insieme a [models.json](models.json) come la fonte operativa di verità corrente.
-- Considera sperimentali i modelli fuori dal set validato in questa README finché l'harness non dice il contrario.
+- Considera questa README come un punto di ingresso breve, non come il catalogo completo dei modelli. Usa [docs/models.md](docs/models.md) per il catalogo più ampio.
 
 ## Prerequisiti
 - Docker 20.10+ con Docker Compose
@@ -112,68 +112,28 @@ L'obiettivo del progetto è fornire un server di inferenza per la casa. Dopo ave
 Le pull request sono molto benvenute. :)
 Per garantire la stabilità, però, applico un **template di pull request rigoroso**.
 
-## ⚠️ Problemi noti
+## Stato attuale
 
-### Stato attuale della validazione
+Questa README evidenzia solo i default attualmente consigliati dello stack.
 
-Con l'harness attuale e i default del repository, gli unici **modelli principali validati** al momento sono:
+- **Modelli principali validati:** `gpt-oss-20b`, `gpt-oss-120b` e `glm-4.7-flash-awq`
+- **Helper di utilità validato:** `qwen3.5-0.8b` per titoli e metadati di sessione
+- **Tutto il resto:** Presente nel repository, ma non un default di questa README finché non viene rivalidato con l'harness attuale
 
-- **`gpt-oss-20b`**
-- **`gpt-oss-120b`**
-- **`glm-4.7-flash-awq`**
+Per il catalogo modelli più ampio, i percorsi sperimentali e i casi manuali, usa [docs/models.md](docs/models.md) e [models.json](models.json).
 
-Il piccolo helper `qwen3.5-0.8b` incluso ora è l'**helper di utilità validato** per titoli e metadati di sessione, ma non fa parte di quel set di modelli principali validati.
-
-Altri modelli disponibili possono ancora funzionare, ma oltre a questo helper validato vanno trattati come **sperimentali** invece che come default raccomandati finché non vengono ritestati con gli strumenti attuali.
-
-### Modelli sperimentali (compatibilità GB10/CUDA 12.1)
-
-I seguenti modelli sono contrassegnati come **sperimentali** a causa di crash sporadici su DGX Spark (GPU GB10):
-
-- **Qwen3-Next-80B-A3B-Instruct** - Va in crash casualmente nel layer di attenzione lineare
-- **Qwen3-Next-80B-A3B-Thinking** - Stesso problema
-
-**Causa radice:** La GPU GB10 usa CUDA 12.1, ma lo stack attuale vLLM/PyTorch supporta solo CUDA ≤12.0. Questo causa errori `cudaErrorIllegalInstruction` dopo varie richieste riuscite.
-
-**Workaround:** Usa `gpt-oss-20b` o `gpt-oss-120b` per un tool calling stabile finché non sarà disponibile un'immagine vLLM aggiornata con supporto corretto per GB10.
-
-### Nemotron 3 Nano 30B (NVFP4)
-
-Il modello **`nemotron-3-nano-30b-nvfp4`** è stato riabilitato sul percorso standard aggiornato `vllm-node`, ma con l'harness attuale va ancora trattato come **sperimentale**.
-**Stato attuale:** Ora carica e risponde alle richieste sul runtime aggiornato, ma non fa parte né del set di modelli principali validati né della configurazione OpenCode distribuita.
-**Comportamento importante:** Il contenuto visibile dell'assistente dipende dalla forma di richiesta non-thinking. Il validatore delle richieste ora inserisce quel default per le richieste normali che passano dal gateway.
-**Soglia client conservativa attuale:** Circa `100000` token di prompt per uso manuale in stile OpenCode/Cline. Il soak attivo a cinque vie dello stack passa pulito intorno a `101776` token di prompt ed è già borderline intorno a `116298`.
-
-### Supporto immagini/screenshot di OpenCode su Linux
-
-OpenCode (agente AI da terminale) ha un bug noto su Linux per cui **le immagini negli appunti e le immagini tramite percorso file non funzionano** con i modelli vision. Il modello risponde con "The model you're using does not support image input" anche se i modelli VL funzionano correttamente via API.
-
-**Causa radice:** La gestione degli appunti Linux in OpenCode corrompe i dati binari dell'immagine prima della codifica (usa `.text()` invece di `.arrayBuffer()`). In pratica non viene inviato alcun dato immagine al server.
-
-**Stato:** Sembra un bug lato client OpenCode. Qualsiasi aiuto per investigarlo o correggerlo è benvenuto. Lo stack di inferenza gestisce correttamente immagini base64 quando vengono inviate bene con `curl` o altri client API.
-
-**Workaround:** Usa `curl` o altri client API per inviare immagini direttamente ai modelli VL come `qwen2.5-vl-7b`.
-
-### Qwen 2.5 Coder 7B e incompatibilità con OpenCode
-
-Il modello `qwen2.5-coder-7b-instruct` ha un limite rigido di contesto di **32.768 token**. OpenCode però invia tipicamente richieste molto grandi (buffer + input) che superano i **35.000 token**, causando `ValueError` e il fallimento delle richieste.
-
-**Raccomandazione:** Non usare `qwen2.5-coder-7b` con OpenCode per attività a lungo contesto. Usa invece **`qwen3-coder-30b-instruct`**, che supporta **65.536 token** di contesto e gestisce molto meglio le richieste grandi di OpenCode.
-
-### Llama 3.3 e incompatibilità con OpenCode
-
-Il modello **`llama-3.3-70b-instruct-fp4`** **non è consigliato con OpenCode**.
-**Motivo:** Sebbene il modello funzioni correttamente via API, mostra un comportamento di tool calling aggressivo quando viene inizializzato con i prompt specifici del client OpenCode. Questo produce errori di validazione e peggiora l'esperienza d'uso, per esempio tentando di chiamare strumenti subito dopo un saluto.
-**Raccomandazione:** Usa `gpt-oss-20b` o `qwen3-next-80b-a3b-instruct` per le sessioni OpenCode.
+Per avvertenze lato client, particolarità del runtime e note di troubleshooting, usa [docs/integrations.md](docs/integrations.md) e [docs/troubleshooting.md](docs/troubleshooting.md).
 
 ## Crediti
 
-Un ringraziamento speciale ai membri della community che hanno reso disponibili le immagini Docker ottimizzate usate da questo stack:
+Un ringraziamento speciale ai membri della community il cui lavoro su immagini Docker e ricette ha ispirato questo stack:
 
 - **Thomas P. Braun di Avarok**: Per l'immagine vLLM general purpose (`avarok/vllm-dgx-spark`) con supporto per attivazioni non gated (Nemotron), modelli ibridi e post come https://blog.avarok.net/dgx-spark-nemotron3-and-nvfp4-getting-to-65-tps-8c5569025eb6.
 - **Christopher Owen**: Per l'immagine vLLM ottimizzata MXFP4 (`christopherowen/vllm-dgx-spark`) che consente inferenza ad alte prestazioni su DGX Spark.
-- **eugr**: Per tutto il lavoro sulle personalizzazioni dell'immagine vLLM originale (`eugr/vllm-dgx-spark`) e per gli ottimi post nei forum NVIDIA.
+- **eugr**: Per il repository community vLLM per DGX Spark originale (`eugr/spark-vllm-docker`), le sue personalizzazioni e gli ottimi post nei forum NVIDIA.
 - **Patrick Yi / scitrera.ai**: Per la ricetta SGLang per modelli di utilità che ha ispirato il percorso locale dell'helper `qwen3.5-0.8b`.
+- **Raphael Amorim**: Per l'impostazione della ricetta AutoRound della community che ha ispirato il percorso locale sperimentale `qwen3.5-122b-a10b-int4-autoround`.
+- **Bjarke Bolding**: Per l'impostazione della ricetta AutoRound per contesto lungo che ha ispirato il percorso locale sperimentale `qwen3-coder-next-int4-autoround`.
 
 ## Licenza
 

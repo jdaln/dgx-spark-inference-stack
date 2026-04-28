@@ -48,10 +48,16 @@ Projenin amacı ev ortamı için bir inference sunucusu sağlamaktır. Bunu bir 
    *   **Kimlik doğrulama:** Temel image'ları çekmek için NVIDIA NGC'ye giriş yapmanız gerekir.
        1.  [NVIDIA NGC Catalog](https://catalog.ngc.nvidia.com/) üzerinde bir geliştirici hesabı oluşturun (yaptırım altındaki bir ülkede olmamalıdır).
        2.  Kimlik bilgilerinizle `docker login nvcr.io` çalıştırın.
-   *   **Build komutları:**
-       ```bash
-       # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream
-       docker build -t avarok/vllm-dgx-spark:v11 custom-docker-containers/avarok
+      **Build komutları:**
+      ```bash
+      # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream.
+      # Build from the repo root so the manually downloaded tokenizer files are included.
+      docker build -t avarok/vllm-dgx-spark:v11 -f custom-docker-containers/avarok/Dockerfile .
+
+      # If you want compose services that default to the pinned upstream Avarok image
+      # to use your local rebuild instead, export this override for the current shell
+      # or place it in .env before running docker compose.
+      export VLLM_TRACK_AVAROK=avarok/vllm-dgx-spark:v11
 
       # Build the repo MXFP4 track used by GPT-OSS.
       # This bakes the manually downloaded tiktoken files into the image.
@@ -64,7 +70,7 @@ Projenin amacı ev ortamı için bir inference sunucusu sağlamaktır. Bunu bir 
       # The active Gemma compose services expect this exact local image tag.
       git clone https://github.com/eugr/spark-vllm-docker tmp/spark-vllm-docker 2>/dev/null || git -C tmp/spark-vllm-docker pull --ff-only
       (cd tmp/spark-vllm-docker && bash build-and-copy.sh --pre-tf)
-       ```
+      ```
    *   **Not:** `vllm-node-tf5` şu anda depo içi bir Dockerfile'dan derlenmiyor. Gemma 4 veya daha yeni TF5 hattındaki Qwen modellerini çalıştırmayı planlıyorsanız, yukarıdaki upstream helper akışıyla açıkça derleyin. Tam yeniden üretim adımları ve build sırasındaki ağ gereksinimleri için [docs/runtime-baseline.md](docs/runtime-baseline.md) dosyasına bakın.
 
 5. **Stack'i başlatın**

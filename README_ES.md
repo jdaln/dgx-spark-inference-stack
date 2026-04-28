@@ -48,10 +48,16 @@ El objetivo del proyecto es proporcionar un servidor de inferencia para tu casa.
    *   **Autenticación:** Debes autenticarte en NVIDIA NGC para poder descargar las imágenes base.
        1.  Crea una cuenta de desarrollador en [NVIDIA NGC Catalog](https://catalog.ngc.nvidia.com/) (no puede estar en un país sancionado).
        2.  Ejecuta `docker login nvcr.io` con tus credenciales.
-   *   **Comandos de build:**
-       ```bash
-       # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream
-       docker build -t avarok/vllm-dgx-spark:v11 custom-docker-containers/avarok
+      **Comandos de build:**
+      ```bash
+      # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream.
+      # Build from the repo root so the manually downloaded tokenizer files are included.
+      docker build -t avarok/vllm-dgx-spark:v11 -f custom-docker-containers/avarok/Dockerfile .
+
+      # If you want compose services that default to the pinned upstream Avarok image
+      # to use your local rebuild instead, export this override for the current shell
+      # or place it in .env before running docker compose.
+      export VLLM_TRACK_AVAROK=avarok/vllm-dgx-spark:v11
 
       # Build the repo MXFP4 track used by GPT-OSS.
       # This bakes the manually downloaded tiktoken files into the image.
@@ -64,7 +70,7 @@ El objetivo del proyecto es proporcionar un servidor de inferencia para tu casa.
       # The active Gemma compose services expect this exact local image tag.
       git clone https://github.com/eugr/spark-vllm-docker tmp/spark-vllm-docker 2>/dev/null || git -C tmp/spark-vllm-docker pull --ff-only
       (cd tmp/spark-vllm-docker && bash build-and-copy.sh --pre-tf)
-       ```
+      ```
    *   **Nota:** `vllm-node-tf5` no se construye hoy desde un Dockerfile local del repo. Si piensas ejecutar Gemma 4 o los Qwen más nuevos sobre la vía TF5, constrúyelo explícitamente con el flujo helper upstream de arriba. Consulta [docs/runtime-baseline.md](docs/runtime-baseline.md) para los pasos exactos y los requisitos de red durante el build.
 
 5. **Levantar el stack**

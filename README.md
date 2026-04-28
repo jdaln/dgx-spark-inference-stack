@@ -46,29 +46,29 @@ The goal of the project is to provide an inference server for your home. After t
    *   **Auth:** You must authenticate with NVIDIA NGC to pull base images.
        1.  Create a developer account at [NVIDIA NGC Catalog](https://catalog.ngc.nvidia.com/) (must not be in a sanctioned country).
        2.  Run `docker login nvcr.io` with your credentials.
-   *   **Build Commands:**
-       ```bash
-      # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream.
-      # Build from the repo root so the manually downloaded tokenizer files are included.
-      docker build -t avarok/vllm-dgx-spark:v11 -f custom-docker-containers/avarok/Dockerfile .
+   **Build Commands:**
+   ```bash
+   # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream.
+   # Build from the repo root so the manually downloaded tokenizer files are included.
+   docker build -t avarok/vllm-dgx-spark:v11 -f custom-docker-containers/avarok/Dockerfile .
 
-      # If you want compose services that default to the pinned upstream Avarok image
-      # to use your local rebuild instead, export this override for the current shell
-      # or place it in .env before running docker compose.
-      export VLLM_TRACK_AVAROK=avarok/vllm-dgx-spark:v11
+   # If you want compose services that default to the pinned upstream Avarok image
+   # to use your local rebuild instead, export this override for the current shell
+   # or place it in .env before running docker compose.
+   export VLLM_TRACK_AVAROK=avarok/vllm-dgx-spark:v11
 
-      # Build the repo MXFP4 track used by GPT-OSS.
-      # This bakes the manually downloaded tiktoken files into the image.
-      docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dockerfile .
+   # Build the repo MXFP4 track used by GPT-OSS.
+   # This bakes the manually downloaded tiktoken files into the image.
+   docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dockerfile .
 
-      # Build the refreshed TF5 track used by GLM 4.7.
-      docker build -t local/vllm-node-tf5:cu131 -f custom-docker-containers/vllm-node-tf5/Dockerfile .
+   # Build the refreshed TF5 track used by GLM 4.7.
+   docker build -t local/vllm-node-tf5:cu131 -f custom-docker-containers/vllm-node-tf5/Dockerfile .
 
-      # Build the upstream-style TF5 track used by Gemma 4 and newer TF5 recipe imports.
-      # The active Gemma compose services expect this exact local image tag.
-      git clone https://github.com/eugr/spark-vllm-docker tmp/spark-vllm-docker 2>/dev/null || git -C tmp/spark-vllm-docker pull --ff-only
-      (cd tmp/spark-vllm-docker && bash build-and-copy.sh --pre-tf)
-       ```
+   # Build the upstream-style TF5 track used by Gemma 4 and newer TF5 recipe imports.
+   # The active Gemma compose services expect this exact local image tag.
+   git clone https://github.com/eugr/spark-vllm-docker tmp/spark-vllm-docker 2>/dev/null || git -C tmp/spark-vllm-docker pull --ff-only
+   (cd tmp/spark-vllm-docker && bash build-and-copy.sh --pre-tf)
+   ```
    *   **Note:** `vllm-node-tf5` is not built from a repo-local Dockerfile today. If you plan to run Gemma 4 or the newer TF5-track Qwen follow-ons, build it explicitly with the upstream helper flow above. See [docs/runtime-baseline.md](docs/runtime-baseline.md) for the exact reproduction notes and build-time network requirements. Compose defaults remain digest-pinned for external pulls, so local rebuilds of the Avarok lane require `VLLM_TRACK_AVAROK=avarok/vllm-dgx-spark:v11`.
 
 5. **Start the stack**

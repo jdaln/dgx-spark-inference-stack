@@ -48,10 +48,16 @@ Le but du projet est de fournir un serveur d'inférence pour la maison. Après l
    *   **Authentification :** Vous devez vous authentifier auprès de NVIDIA NGC pour récupérer les images de base.
        1.  Créez un compte développeur sur [NVIDIA NGC Catalog](https://catalog.ngc.nvidia.com/) (il ne doit pas se trouver dans un pays sous sanctions).
        2.  Exécutez `docker login nvcr.io` avec vos identifiants.
-   *   **Commandes de build :**
-       ```bash
-       # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream
-       docker build -t avarok/vllm-dgx-spark:v11 custom-docker-containers/avarok
+      **Commandes de build :**
+      ```bash
+      # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream.
+      # Build from the repo root so the manually downloaded tokenizer files are included.
+      docker build -t avarok/vllm-dgx-spark:v11 -f custom-docker-containers/avarok/Dockerfile .
+
+      # If you want compose services that default to the pinned upstream Avarok image
+      # to use your local rebuild instead, export this override for the current shell
+      # or place it in .env before running docker compose.
+      export VLLM_TRACK_AVAROK=avarok/vllm-dgx-spark:v11
 
       # Build the repo MXFP4 track used by GPT-OSS.
       # This bakes the manually downloaded tiktoken files into the image.
@@ -64,7 +70,7 @@ Le but du projet est de fournir un serveur d'inférence pour la maison. Après l
       # The active Gemma compose services expect this exact local image tag.
       git clone https://github.com/eugr/spark-vllm-docker tmp/spark-vllm-docker 2>/dev/null || git -C tmp/spark-vllm-docker pull --ff-only
       (cd tmp/spark-vllm-docker && bash build-and-copy.sh --pre-tf)
-       ```
+      ```
    *   **Note :** `vllm-node-tf5` n'est pas construit aujourd'hui à partir d'un Dockerfile local au dépôt. Si vous prévoyez d'exécuter Gemma 4 ou les nouveaux dérivés Qwen sur la voie TF5, construisez-le explicitement avec le flux helper upstream ci-dessus. Voir [docs/runtime-baseline.md](docs/runtime-baseline.md) pour les étapes exactes et les contraintes réseau au moment du build.
 
 5. **Démarrer la stack**

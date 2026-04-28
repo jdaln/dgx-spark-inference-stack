@@ -48,10 +48,16 @@ Das Ziel des Projekts ist es, einen Inferenzserver für dein Zuhause bereitzuste
    *   **Authentifizierung:** Du musst dich bei NVIDIA NGC anmelden, um Basis-Images ziehen zu können.
        1.  Erstelle ein Entwicklerkonto im [NVIDIA NGC Catalog](https://catalog.ngc.nvidia.com/) (nicht aus einem sanktionierten Land).
        2.  Führe `docker login nvcr.io` mit deinen Zugangsdaten aus.
-   *   **Build-Befehle:**
-       ```bash
-       # Avarok-Image bauen (Allzweck) - muss dieses Tag verwenden, damit lokal statt Upstream genutzt wird
-       docker build -t avarok/vllm-dgx-spark:v11 custom-docker-containers/avarok
+      **Build-Befehle:**
+      ```bash
+      # Avarok-Image bauen (Allzweck) - muss dieses Tag verwenden, damit lokal statt Upstream genutzt wird.
+      # Vom Repo-Root bauen, damit die manuell heruntergeladenen Tokenizer-Dateien eingebunden werden.
+      docker build -t avarok/vllm-dgx-spark:v11 -f custom-docker-containers/avarok/Dockerfile .
+
+      # Wenn Compose-Dienste standardmäßig das gepinnte Upstream-Avarok-Image verwenden,
+      # exportiere diese Überschreibung für die aktuelle Shell oder lege sie vor
+      # docker compose in .env ab.
+      export VLLM_TRACK_AVAROK=avarok/vllm-dgx-spark:v11
 
       # Den repoeigenen MXFP4-Track bauen, der von GPT-OSS verwendet wird.
       # Dadurch werden die manuell heruntergeladenen tiktoken-Dateien ins Image eingebettet.
@@ -64,7 +70,7 @@ Das Ziel des Projekts ist es, einen Inferenzserver für dein Zuhause bereitzuste
       # Die aktiven Gemma-Compose-Dienste erwarten genau dieses lokale Image-Tag.
       git clone https://github.com/eugr/spark-vllm-docker tmp/spark-vllm-docker 2>/dev/null || git -C tmp/spark-vllm-docker pull --ff-only
       (cd tmp/spark-vllm-docker && bash build-and-copy.sh --pre-tf)
-       ```
+      ```
    *   **Hinweis:** `vllm-node-tf5` wird derzeit nicht aus einem repo-lokalen Dockerfile gebaut. Wenn du Gemma 4 oder neuere Qwen-Folgemodelle auf dem TF5-Track nutzen willst, baue es explizit mit dem obigen Upstream-Helper-Flow. In [docs/runtime-baseline.md](docs/runtime-baseline.md) stehen die genauen Reproduktionsschritte und die Netzwerkvoraussetzungen zur Build-Zeit.
 
 5. **Stack starten**

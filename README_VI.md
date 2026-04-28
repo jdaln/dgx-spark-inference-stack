@@ -48,10 +48,16 @@ Mục tiêu của dự án là cung cấp một máy chủ suy luận cho môi t
    *   **Xác thực:** Bạn phải đăng nhập NVIDIA NGC để pull các image nền.
        1.  Tạo tài khoản nhà phát triển tại [NVIDIA NGC Catalog](https://catalog.ngc.nvidia.com/) (không được ở quốc gia bị cấm vận).
        2.  Chạy `docker login nvcr.io` bằng thông tin đăng nhập của bạn.
-   *   **Lệnh build:**
-       ```bash
-       # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream
-       docker build -t avarok/vllm-dgx-spark:v11 custom-docker-containers/avarok
+      **Lệnh build:**
+      ```bash
+      # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream.
+      # Build from the repo root so the manually downloaded tokenizer files are included.
+      docker build -t avarok/vllm-dgx-spark:v11 -f custom-docker-containers/avarok/Dockerfile .
+
+      # If you want compose services that default to the pinned upstream Avarok image
+      # to use your local rebuild instead, export this override for the current shell
+      # or place it in .env before running docker compose.
+      export VLLM_TRACK_AVAROK=avarok/vllm-dgx-spark:v11
 
       # Build the repo MXFP4 track used by GPT-OSS.
       # This bakes the manually downloaded tiktoken files into the image.
@@ -64,7 +70,7 @@ Mục tiêu của dự án là cung cấp một máy chủ suy luận cho môi t
       # The active Gemma compose services expect this exact local image tag.
       git clone https://github.com/eugr/spark-vllm-docker tmp/spark-vllm-docker 2>/dev/null || git -C tmp/spark-vllm-docker pull --ff-only
       (cd tmp/spark-vllm-docker && bash build-and-copy.sh --pre-tf)
-       ```
+      ```
    *   **Lưu ý:** `vllm-node-tf5` hiện không được build từ Dockerfile nội bộ của repo. Nếu bạn định chạy Gemma 4 hoặc các nhánh Qwen TF5 mới hơn, hãy build nó một cách tường minh bằng luồng upstream helper ở trên. Xem [docs/runtime-baseline.md](docs/runtime-baseline.md) để biết đúng các bước tái tạo và yêu cầu mạng khi build.
 
 5. **Khởi động stack**

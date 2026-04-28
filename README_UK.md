@@ -48,10 +48,16 @@
    *   **Автентифікація:** Потрібно увійти до NVIDIA NGC, щоб тягнути базові образи.
        1.  Створіть акаунт розробника в [NVIDIA NGC Catalog](https://catalog.ngc.nvidia.com/) (не з країни під санкціями).
        2.  Виконайте `docker login nvcr.io` зі своїми обліковими даними.
-   *   **Команди збирання:**
-       ```bash
-       # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream
-       docker build -t avarok/vllm-dgx-spark:v11 custom-docker-containers/avarok
+      **Команди збирання:**
+      ```bash
+      # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream.
+      # Build from the repo root so the manually downloaded tokenizer files are included.
+      docker build -t avarok/vllm-dgx-spark:v11 -f custom-docker-containers/avarok/Dockerfile .
+
+      # If you want compose services that default to the pinned upstream Avarok image
+      # to use your local rebuild instead, export this override for the current shell
+      # or place it in .env before running docker compose.
+      export VLLM_TRACK_AVAROK=avarok/vllm-dgx-spark:v11
 
       # Build the repo MXFP4 track used by GPT-OSS.
       # This bakes the manually downloaded tiktoken files into the image.
@@ -64,7 +70,7 @@
       # The active Gemma compose services expect this exact local image tag.
       git clone https://github.com/eugr/spark-vllm-docker tmp/spark-vllm-docker 2>/dev/null || git -C tmp/spark-vllm-docker pull --ff-only
       (cd tmp/spark-vllm-docker && bash build-and-copy.sh --pre-tf)
-       ```
+      ```
    *   **Примітка:** `vllm-node-tf5` зараз не збирається з локального Dockerfile цього репозиторію. Якщо ви плануєте запускати Gemma 4 або новіші TF5-варіанти Qwen, зберіть його явно через upstream helper flow вище. Див. [docs/runtime-baseline.md](docs/runtime-baseline.md) для точних кроків і мережевих вимог під час збирання.
 
 5. **Запустіть стек**

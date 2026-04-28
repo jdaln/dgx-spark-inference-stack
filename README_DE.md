@@ -79,7 +79,7 @@ Das Ziel des Projekts ist es, einen Inferenzserver für dein Zuhause bereitzuste
 6. **API testen**
    ```bash
     # Anfrage an den ausgelieferten Utility-Helfer
-    curl -X POST http://localhost:8009/v1/qwen3.5-0.8b/chat/completions \
+    curl -X POST http://localhost:8009/v1/chat/completions\
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}" \
      -d '{

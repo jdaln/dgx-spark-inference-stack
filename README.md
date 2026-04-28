@@ -83,7 +83,7 @@ The goal of the project is to provide an inference server for your home. After t
 6. **Test the API**
    ```bash
     # Request to the shipped utility helper
-    curl -X POST http://localhost:8009/v1/qwen3.5-0.8b/chat/completions \
+   curl -X POST http://localhost:8009/v1/chat/completions \
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}" \
      -d '{

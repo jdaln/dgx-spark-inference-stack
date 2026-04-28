@@ -2,7 +2,7 @@
 
 ARG BUILD_JOBS=16
 
-FROM nvcr.io/nvidia/pytorch:26.01-py3 AS base
+FROM nvcr.io/nvidia/pytorch:26.01-py3@sha256:1b6dd8dc60741fb99b9aa343fa03fc897fbb64fbdcb1c8afcbd48c75cba57255 AS base
 
 ARG BUILD_JOBS
 ENV MAX_JOBS=${BUILD_JOBS}
@@ -248,7 +248,7 @@ RUN --mount=type=cache,id=ccache,target=/root/.ccache \
     --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
     uv build --no-build-isolation --wheel . --out-dir=/workspace/wheels -v
 
-FROM nvcr.io/nvidia/pytorch:26.01-py3 AS runner
+FROM nvcr.io/nvidia/pytorch:26.01-py3@sha256:1b6dd8dc60741fb99b9aa343fa03fc897fbb64fbdcb1c8afcbd48c75cba57255 AS runner
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_BREAK_SYSTEM_PACKAGES=1

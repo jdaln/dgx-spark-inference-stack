@@ -48,7 +48,7 @@ services:
 
   vllm-qwen3-vl-32b-fp4:
     <<: *model-profiled
-    image: avarok/vllm-dgx-spark:v11
+    image: ${VLLM_TRACK_AVAROK:-avarok/vllm-dgx-spark:v11@sha256:246723e9a74163e7828716c1587d6c5208a9cf0dc8d1195cbd33f68234b1024b}
     container_name: vllm-qwen3-vl-32b-fp4
     command:
       - serve
@@ -91,7 +91,7 @@ services:
 
   vllm-qwen3.5-0.8b:
     <<: *model-common
-    image: scitrera/dgx-spark-sglang:0.5.9-t5
+    image: scitrera/dgx-spark-sglang:0.5.9-t5@sha256:a055011be7feb2e43ad8dbc365e3903f869c63b992864691f7edf83015bb941d
     container_name: vllm-qwen3.5-0.8b
     entrypoint: []
     command:
@@ -698,7 +698,7 @@ services:
   vllm-qwen2.5-1.5b:
     # Legacy fallback small model. No longer the always-on utility helper.
     <<: *model-profiled
-    image: avarok/vllm-dgx-spark:v11
+    image: ${VLLM_TRACK_AVAROK:-avarok/vllm-dgx-spark:v11@sha256:246723e9a74163e7828716c1587d6c5208a9cf0dc8d1195cbd33f68234b1024b}
     container_name: vllm-qwen2.5-1.5b
     command:
       - serve
@@ -734,7 +734,7 @@ services:
 
   vllm-qwen25-vl-7b:
     <<: *model-profiled
-    image: nvcr.io/nvidia/vllm:25.10-py3
+    image: nvcr.io/nvidia/vllm:25.10-py3@sha256:9063047cace3b0ec2db8f02727c5e5e4d582a7fd9375cbc5a086fef243ad4074
     container_name: vllm-qwen25-vl-7b
     command:
       - vllm
@@ -769,7 +769,7 @@ services:
 
   vllm-qwen3-coder-30b:
     <<: *model-profiled
-    image: avarok/vllm-dgx-spark:v11
+    image: ${VLLM_TRACK_AVAROK:-avarok/vllm-dgx-spark:v11@sha256:246723e9a74163e7828716c1587d6c5208a9cf0dc8d1195cbd33f68234b1024b}
     container_name: vllm-qwen3-coder-30b
     command:
       - serve
@@ -812,7 +812,7 @@ services:
 
   vllm-qwen25-coder-7b:
     <<: *model-profiled
-    image: nvcr.io/nvidia/vllm:25.10-py3
+    image: nvcr.io/nvidia/vllm:25.10-py3@sha256:9063047cace3b0ec2db8f02727c5e5e4d582a7fd9375cbc5a086fef243ad4074
     container_name: vllm-qwen25-coder-7b
     command:
       - vllm
@@ -848,7 +848,7 @@ services:
 
   vllm-qwen-math:
     <<: *model-profiled
-    image: nvcr.io/nvidia/vllm:25.10-py3
+    image: nvcr.io/nvidia/vllm:25.10-py3@sha256:9063047cace3b0ec2db8f02727c5e5e4d582a7fd9375cbc5a086fef243ad4074
     container_name: vllm-qwen-math
     command:
       - vllm
@@ -884,7 +884,7 @@ services:
 
   vllm-qwen3-vl-30b:
     <<: *model-profiled
-    image: christopherowen/vllm-dgx-spark:v12
+    image: ${VLLM_TRACK_IMAGE_STANDARD:-vllm-node}
     container_name: vllm-qwen3-vl-30b
     command:
       - vllm
@@ -921,7 +921,7 @@ services:
 
   vllm-qwen3-vl-30b-thinking:
     <<: *model-profiled
-    image: christopherowen/vllm-dgx-spark:v12
+    image: ${VLLM_TRACK_IMAGE_STANDARD:-vllm-node}
     container_name: vllm-qwen3-vl-30b-thinking
     command:
       - vllm

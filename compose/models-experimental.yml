@@ -7,7 +7,7 @@ services:
   
   vllm-qwen3-next-80b-fp4:
     profiles: ["models"]
-    image: avarok/vllm-dgx-spark:v11
+    image: ${VLLM_TRACK_AVAROK:-avarok/vllm-dgx-spark:v11@sha256:246723e9a74163e7828716c1587d6c5208a9cf0dc8d1195cbd33f68234b1024b}
     container_name: vllm-qwen3-next-80b-instruct-fp4
     command:
       - serve
@@ -76,7 +76,7 @@ services:
 
   vllm-qwen3-next-80b-thinking-fp4:
     profiles: ["models"]
-    image: avarok/vllm-dgx-spark:v11
+    image: ${VLLM_TRACK_AVAROK:-avarok/vllm-dgx-spark:v11@sha256:246723e9a74163e7828716c1587d6c5208a9cf0dc8d1195cbd33f68234b1024b}
     container_name: vllm-qwen3-next-80b-thinking-fp4
     command:
       - serve
@@ -344,7 +344,7 @@ services:
   
   vllm-phi-4-multimodal-fp4:
     profiles: ["models"]
-    image: avarok/vllm-dgx-spark:v11
+    image: ${VLLM_TRACK_AVAROK:-avarok/vllm-dgx-spark:v11@sha256:246723e9a74163e7828716c1587d6c5208a9cf0dc8d1195cbd33f68234b1024b}
     container_name: vllm-phi-4-multimodal-fp4
     command:
       - serve
@@ -415,7 +415,7 @@ services:
 
   vllm-phi-4-reasoning-plus-fp4:
     profiles: ["models"]
-    image: avarok/vllm-dgx-spark:v11
+    image: ${VLLM_TRACK_AVAROK:-avarok/vllm-dgx-spark:v11@sha256:246723e9a74163e7828716c1587d6c5208a9cf0dc8d1195cbd33f68234b1024b}
     container_name: vllm-phi-4-reasoning-plus-fp4
     command:
       - serve
@@ -495,7 +495,7 @@ services:
   # 3. 'masked_gemm' runs but decoder produces empty strings (null output).
   vllm-nemotron-3-nano-30b-fp8:
     profiles: ["models"]
-    image: avarok/vllm-dgx-spark:v11
+    image: ${VLLM_TRACK_AVAROK:-avarok/vllm-dgx-spark:v11@sha256:246723e9a74163e7828716c1587d6c5208a9cf0dc8d1195cbd33f68234b1024b}
     container_name: vllm-nemotron-3-nano-30b-fp8
     command:
       - serve

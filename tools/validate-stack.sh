@@ -200,7 +200,7 @@ assert_env_value "$GPT_120B_JSON" "TIKTOKEN_ENCODINGS_BASE" "/workspace/vllm/tik
 
 assert_shared_health_url_resolution "shared health-url resolution handles model ids, container names, and fallback templates"
 
-assert_equals "$(jq -r '.image // ""' <<<"$UTILITY_JSON")" "scitrera/dgx-spark-sglang:0.5.9-t5" "qwen3.5-0.8b uses the SGLang utility image"
+assert_equals "$(jq -r '.image // ""' <<<"$UTILITY_JSON" | sed 's/@sha256:.*//')" "scitrera/dgx-spark-sglang:0.5.9-t5" "qwen3.5-0.8b uses the SGLang utility image"
 assert_flag_value "$UTILITY_JSON" "--model-path" "Qwen/Qwen3.5-0.8B" "qwen3.5-0.8b points at the Qwen 3.5 utility checkpoint"
 assert_flag_value "$UTILITY_JSON" "--served-model-name" "qwen3.5-0.8b" "qwen3.5-0.8b keeps the local served model id"
 assert_flag_value "$UTILITY_JSON" "--mem-fraction-static" "0.05" "qwen3.5-0.8b uses the validated low-footprint utility memory fraction"

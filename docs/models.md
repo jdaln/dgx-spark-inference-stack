@@ -203,11 +203,31 @@ Gemma 4 is the other main OSS SOTA opt-in family in this repo, especially if you
   - **Strengths:** healthy local startup is now verified on this host; gateway plain-text chat returns visible answers by default, structured `tool_calls` work, and explicit `reasoning_effort=high` also works once you give it enough completion budget. The dedicated image keeps the repo's known-good TF5 vLLM runtime while pinning the upstream Transformers/HF Hub layer so `qwen3_5` support is reproducible from a clean clone.
   - **Tradeoffs:** still experimental; it currently runs the conservative single-GPU BF16/eager profile (`gpu_memory_utilization=0.70`, `max_num_batched_tokens=16384`, `kv_cache_dtype=auto`, `--enforce-eager`) instead of an official FP8 recipe, and practical long-context headroom still needs broader soak coverage
 
+- `vllm-huihui-qwen36-35b-a3b-opus-abliterated` → served as **`huihui-qwen3.6-35b-a3b-claude-4.7-opus-abliterated`**
+  - **Type:** experimental Huihui Qwen 3.6 A3B Opus-style abliterated variant on the dedicated TF5-based `qwen3_5` runtime
+  - **Best for:** opt-in uncensored Qwen 3.6 MoE chat and tool experiments when you want the larger 35B A3B family shape with the repo's live-validated Qwen parser stack
+  - **Strengths:** healthy startup is now verified on this host; direct and gateway plain-text chat return visible answers, structured `tool_calls` work, explicit `reasoning_effort=high` returns the final answer in visible content, and a live gateway streaming sanity check also emits visible `content` deltas. The lane reuses the repo's existing Opus-distilled Qwen reasoning parser path, now extended to promote bare answers and raw Qwen `<tool_call>` markup out of the reasoning channel. After rebuilding the live request-validator container so it picked up the repo's default non-thinking logic, a real 5-way gateway soak now also passes on the default path at roughly `253552` prompt tokens with a `512`-token completion budget.
+  - **Tradeoffs:** still experimental; it keeps the same conservative single-GPU eager profile used for the other community Qwen bring-ups here (`gpu_memory_utilization=0.70`, `max_num_batched_tokens=16384`, `load_format=fastsafetensors`, `--enforce-eager`) rather than an official FP8 recipe. The next bundled soak tier at `18` repeats hard-fails against the model's `262144` token context cap, and under the stricter `256`-token completion budget the same long-context tier still truncates the standard structured soak answer before the final heading, so `512` is the current clean soak budget for this harness
+
+- `vllm-jackrong-qwen35-35b-a3b-opus-distilled` → served as **`jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled`**
+  - **Type:** experimental Jackrong Qwen 3.5 A3B Opus-style reasoning-distilled text/tool variant on the TF5-based `qwen3_5` runtime
+  - **Best for:** experimental long-context reasoning and tool work when you want a Qwen-family lane that now behaves cleanly on the stack's real gateway path
+  - **Strengths:** healthy startup is verified on this host; with the generic Qwen 3.5 0.8B chat template source plus the shared `qwen3_opus_distilled` reasoning parser, default gateway plain-text chat now returns visible answers, `reasoningEffort=high` behaves like the other Qwen reasoning lanes, structured OpenAI-style `tool_calls` are live-validated on both the direct and gateway paths for `tool_choice=auto` and `tool_choice=required`, and a real 5-way gateway soak passes at roughly `253552` prompt tokens with a `512`-token completion budget while emitting visible `Summary`, `Risks`, and `Next Changes` headings
+  - **Tradeoffs:** still experimental; the working lane relies on the conservative eager single-GPU profile (`gpu_memory_utilization=0.70`, `max_num_batched_tokens=16384`, `--enforce-eager`) rather than the original more aggressive TF5/ray runtime shape, and it remains `--language-model-only` because the checkpoint does not ship the image processor files vLLM expects for multimodal initialization
+
 - `vllm-huihui-qwen35-35b-a3b-abliterated` → served as **`huihui-qwen3.5-35b-a3b-abliterated`**
   - **Type:** experimental Qwen 3.5 MoE multimodal/tool-capable variant on the TF5 lane
   - **Best for:** opt-in long-context general chat and tool workflows when you want more headroom than the validated 131K-class defaults
   - **Strengths:** gateway-path text, structured tool calling, and image input are all verified; richer five-user prompts stayed coherent through roughly `253603` prompt tokens
   - **Tradeoffs:** still experimental; the shipped OpenCode guidance is a conservative `200000`, and manual reads still flatten some repo-specific details into a too-simple single-tenant story
+
+### Experimental Mistral variants
+
+- `vllm-dolphin-mistral-24b-venice-fp8` → served as **`dolphin-mistral-24b-venice-fp8`**
+  - **Type:** experimental Dolphin/Mistral 24B Venice FP8 multimodal/tool lane on a nonstandard `runner=generate` path
+  - **Best for:** opt-in Mistral-family tool workflows when you specifically want the Dolphin Venice checkpoint and its custom tool/template path
+  - **Strengths:** the live local path follows the checkpoint's unusual shape instead of forcing a generic Mistral recipe: direct snapshot serving, `runner=generate`, HF tokenizer/config/load formats, compressed-tensors quantization, the vendored Mistral parallel tool chat template, and the repo's custom Dolphin tool parser. Direct and gateway requests now return structured `tool_calls` on this host.
+  - **Tradeoffs:** still experimental; this lane is different enough from the repo's other Mistral services that contributors should treat the model card and local snapshot layout as part of the runtime contract, and broader non-tool behavioral coverage is still thin.
 
 ### Coding specialists
 

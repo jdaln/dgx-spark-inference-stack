@@ -20,6 +20,33 @@ const qwenTargetConfig = {
   normalizeTextContent: false
 };
 
+const qwenOpusTargetConfig = {
+  modelId: "qwen3.6-35b-a3b-opus-distilled",
+  maxModelLen: 262144,
+  toolSupport: "full",
+  validatorProfile: "default",
+  multimodal: false,
+  normalizeTextContent: false
+};
+
+const huihuiQwenOpusAbliteratedTargetConfig = {
+  modelId: "huihui-qwen3.6-35b-a3b-claude-4.7-opus-abliterated",
+  maxModelLen: 262144,
+  toolSupport: "full",
+  validatorProfile: "default",
+  multimodal: false,
+  normalizeTextContent: false
+};
+
+const jackrongQwenOpusReasoningTargetConfig = {
+  modelId: "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled",
+  maxModelLen: 262144,
+  toolSupport: "full",
+  validatorProfile: "default",
+  multimodal: false,
+  normalizeTextContent: true
+};
+
 const gemmaTargetConfig = {
   modelId: "gemma4-26b-a4b",
   maxModelLen: 262144,
@@ -46,6 +73,56 @@ test("plain Qwen chat defaults to non-thinking mode", () => {
   assert.equal(result.max_tokens, 64);
   assert.equal(result.max_completion_tokens, 64);
   assert.deepEqual(result.messages, [{ role: "user", content: "Reply with exactly READY" }]);
+});
+
+test("Opus-distilled Qwen chat defaults to non-thinking mode", () => {
+  const result = runProcess(
+    {
+      model: "qwen3.6-35b-a3b-opus-distilled",
+      messages: [{ role: "user", content: "Reply with exactly READY" }],
+      max_tokens: 64
+    },
+    qwenOpusTargetConfig
+  );
+
+  assert.equal(result.thinking, undefined);
+  assert.equal(result.chat_template_kwargs.enable_thinking, false);
+  assert.equal(result.chat_template_kwargs.thinking, false);
+  assert.equal(result.max_tokens, 64);
+  assert.equal(result.max_completion_tokens, 64);
+});
+
+test("Huihui Opus-abliterated Qwen chat defaults to non-thinking mode", () => {
+  const result = runProcess(
+    {
+      model: "huihui-qwen3.6-35b-a3b-claude-4.7-opus-abliterated",
+      messages: [{ role: "user", content: "Reply with exactly READY" }],
+      max_tokens: 64
+    },
+    huihuiQwenOpusAbliteratedTargetConfig
+  );
+
+  assert.equal(result.thinking, undefined);
+  assert.equal(result.chat_template_kwargs.enable_thinking, false);
+  assert.equal(result.chat_template_kwargs.thinking, false);
+  assert.equal(result.max_tokens, 64);
+  assert.equal(result.max_completion_tokens, 64);
+});
+
+test("Jackrong Qwen reasoning-distilled chat defaults to non-thinking mode", () => {
+  const result = runProcess(
+    {
+      model: "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled",
+      messages: [{ role: "user", content: "Reply with exactly READY" }],
+      max_tokens: 64
+    },
+    jackrongQwenOpusReasoningTargetConfig
+  );
+
+  assert.equal(result.chat_template_kwargs.enable_thinking, false);
+  assert.equal(result.chat_template_kwargs.thinking, false);
+  assert.equal(result.max_tokens, 64);
+  assert.equal(result.max_completion_tokens, 64);
 });
 
 test("Qwen tool calls are preserved under default non-thinking mode", () => {
@@ -94,6 +171,40 @@ test("Qwen snake_case reasoning_effort none disables thinking", () => {
   assert.equal(result.chat_template_kwargs.thinking, false);
 });
 
+test("Jackrong Qwen tool calls are preserved under default non-thinking mode", () => {
+  const tools = [
+    {
+      type: "function",
+      function: {
+        name: "get_weather",
+        description: "Get current weather for a location",
+        parameters: {
+          type: "object",
+          properties: {
+            city: { type: "string" }
+          },
+          required: ["city"]
+        }
+      }
+    }
+  ];
+
+  const result = runProcess(
+    {
+      model: "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled",
+      messages: [{ role: "user", content: "Use the provided tool for Zurich." }],
+      tools,
+      tool_choice: "auto",
+      max_tokens: 128
+    },
+    jackrongQwenOpusReasoningTargetConfig
+  );
+
+  assert.equal(result.chat_template_kwargs.enable_thinking, false);
+  assert.equal(result.tool_choice, "auto");
+  assert.deepEqual(result.tools, tools);
+});
+
 test("Qwen camelCase reasoningEffort high enables thinking", () => {
   const result = runProcess({
     model: "qwen3.6-27b-fp8",
@@ -107,6 +218,57 @@ test("Qwen camelCase reasoningEffort high enables thinking", () => {
   assert.equal(result.chat_template_kwargs.enable_thinking, true);
   assert.equal(result.chat_template_kwargs.thinking, true);
   assert.deepEqual(result.messages, [{ role: "user", content: "Think, then reply with exactly HIGH" }]);
+});
+
+test("Opus-distilled Qwen camelCase reasoningEffort high enables thinking", () => {
+  const result = runProcess(
+    {
+      model: "qwen3.6-35b-a3b-opus-distilled",
+      messages: [{ role: "user", content: "Think, then reply with exactly HIGH" }],
+      reasoningEffort: "high",
+      max_tokens: 256
+    },
+    qwenOpusTargetConfig
+  );
+
+  assert.equal(result.reasoningEffort, undefined);
+  assert.equal(result.thinking, undefined);
+  assert.equal(result.chat_template_kwargs.enable_thinking, true);
+  assert.equal(result.chat_template_kwargs.thinking, true);
+});
+
+test("Huihui Opus-abliterated Qwen camelCase reasoningEffort high enables thinking", () => {
+  const result = runProcess(
+    {
+      model: "huihui-qwen3.6-35b-a3b-claude-4.7-opus-abliterated",
+      messages: [{ role: "user", content: "Think, then reply with exactly HIGH" }],
+      reasoningEffort: "high",
+      max_tokens: 256
+    },
+    huihuiQwenOpusAbliteratedTargetConfig
+  );
+
+  assert.equal(result.reasoningEffort, undefined);
+  assert.equal(result.thinking, undefined);
+  assert.equal(result.chat_template_kwargs.enable_thinking, true);
+  assert.equal(result.chat_template_kwargs.thinking, true);
+});
+
+test("Jackrong Qwen camelCase reasoningEffort high enables thinking", () => {
+  const result = runProcess(
+    {
+      model: "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled",
+      messages: [{ role: "user", content: "Think, then reply with exactly HIGH" }],
+      reasoningEffort: "high",
+      max_tokens: 256
+    },
+    jackrongQwenOpusReasoningTargetConfig
+  );
+
+  assert.equal(result.reasoningEffort, undefined);
+  assert.equal(result.thinking, undefined);
+  assert.equal(result.chat_template_kwargs.enable_thinking, true);
+  assert.equal(result.chat_template_kwargs.thinking, true);
 });
 
 test("explicit top-level Qwen thinking is normalized into chat_template_kwargs", () => {
@@ -144,6 +306,24 @@ test("high-context Qwen requests are capped with the smaller Qwen buffer", () =>
     messages: [{ role: "user", content }],
     max_tokens: 999999
   });
+
+  const estimatedInput = Math.ceil(content.length / 4) + 520;
+  const expectedMaxTokens = 262144 - estimatedInput - 4096;
+
+  assert.equal(result.max_tokens, expectedMaxTokens);
+  assert.equal(result.max_completion_tokens, expectedMaxTokens);
+});
+
+test("Jackrong reasoning-distilled requests use the smaller Qwen buffer", () => {
+  const content = "x".repeat(800000);
+  const result = runProcess(
+    {
+      model: "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled",
+      messages: [{ role: "user", content }],
+      max_tokens: 999999
+    },
+    jackrongQwenOpusReasoningTargetConfig
+  );
 
   const estimatedInput = Math.ceil(content.length / 4) + 520;
   const expectedMaxTokens = 262144 - estimatedInput - 4096;

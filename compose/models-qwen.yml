@@ -453,6 +453,76 @@ services:
       <<: *healthcheck-default
       start_period: 1800s
 
+  vllm-huihui-qwen36-35b-a3b-opus-abliterated:
+    <<: *model-profiled
+    build: *huihui-qwen36-27b-build
+    image: ${HUIHUI_QWEN36_35B_A3B_OPUS_ABLITERATED_IMAGE:-vllm-node-mxfp4-qwen35}
+    container_name: vllm-huihui-qwen36-35b-a3b-opus-abliterated
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-moe-runtime/run.sh
+    command:
+      - vllm
+      - serve
+      - huihui-ai/Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - huihui-qwen3.6-35b-a3b-claude-4.7-opus-abliterated
+      - --max-model-len
+      - "${HUIHUI_QWEN36_35B_A3B_OPUS_ABLITERATED_MAX_MODEL_LEN:-262144}"
+      - --max-num-batched-tokens
+      - "${HUIHUI_QWEN36_35B_A3B_OPUS_ABLITERATED_MAX_NUM_BATCHED_TOKENS:-16384}"
+      - --gpu-memory-utilization
+      - "${HUIHUI_QWEN36_35B_A3B_OPUS_ABLITERATED_GPU_MEMORY_UTILIZATION:-0.70}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser-plugin
+      - /workspace/plugins/qwen3_opus_distilled_reasoning_parser.py
+      - --reasoning-parser
+      - qwen3_opus_distilled
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - fastsafetensors
+      - --attention-backend
+      - flashinfer
+      - --enforce-eager
+      - --disable-uvicorn-access-log
+      - --disable-log-stats
+      - --enable-prefix-caching
+      - --chat-template
+      - /workspace/unsloth.jinja
+      - --tensor-parallel-size
+      - "1"
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+      - ../mods/fix-qwen3-coder-next:/workspace/mods/fix-qwen3-coder-next:ro
+      - ../mods/fix-qwen3.5-chat-template:/workspace/mods/fix-qwen3.5-chat-template:ro
+      - ../mods/fix-qwen3.5-moe-runtime:/workspace/mods/fix-qwen3.5-moe-runtime:ro
+      - ../plugins:/workspace/plugins:ro
+    environment:
+      <<: *env-common
+      HF_HUB_CACHE: /models
+      HUGGINGFACE_HUB_CACHE: /models
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      VLLM_MARLIN_USE_ATOMIC_ADD: "1"
+      QWEN35_CHAT_TEMPLATE_MODEL_ID: Qwen/Qwen3.5-0.8B
+      QWEN35_CHAT_TEMPLATE_CACHE_ROOT: /models
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
   vllm-qwen35-122b-autoround:
     <<: *model-profiled
     image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
@@ -535,11 +605,11 @@ services:
       - fp8
       - --load-format
       - fastsafetensors
+      - --chat-template
+      - /workspace/unsloth.jinja
       - --attention-backend
       - flashinfer
       - --enable-prefix-caching
-      - --chat-template
-      - /workspace/unsloth.jinja
       - --tensor-parallel-size
       - "1"
     volumes:
@@ -586,14 +656,16 @@ services:
       - --max-model-len
       - "${JACKRONG_QWEN35_35B_A3B_OPUS_DISTILLED_MAX_MODEL_LEN:-262144}"
       - --max-num-batched-tokens
-      - "${JACKRONG_QWEN35_35B_A3B_OPUS_DISTILLED_MAX_NUM_BATCHED_TOKENS:-32768}"
+      - "${JACKRONG_QWEN35_35B_A3B_OPUS_DISTILLED_MAX_NUM_BATCHED_TOKENS:-16384}"
       - --gpu-memory-utilization
-      - "${JACKRONG_QWEN35_35B_A3B_OPUS_DISTILLED_GPU_MEMORY_UTILIZATION:-0.80}"
+      - "${JACKRONG_QWEN35_35B_A3B_OPUS_DISTILLED_GPU_MEMORY_UTILIZATION:-0.70}"
       - --enable-auto-tool-choice
       - --tool-call-parser
-      - qwen3_xml
+      - qwen3_coder
+      - --reasoning-parser-plugin
+      - /workspace/plugins/qwen3_opus_distilled_reasoning_parser.py
       - --reasoning-parser
-      - qwen3
+      - qwen3_opus_distilled
       - --kv-cache-dtype
       - fp8
       - --load-format
@@ -604,10 +676,11 @@ services:
       - --enable-prefix-caching
       - --chat-template
       - /workspace/unsloth.jinja
+      - --enforce-eager
+      - --disable-uvicorn-access-log
+      - --disable-log-stats
       - --tensor-parallel-size
       - "1"
-      - --distributed-executor-backend
-      - ray
     volumes:
       - ../vllm_cache_huggingface:/root/.cache/huggingface
       - ../models:/models
@@ -617,15 +690,15 @@ services:
       - ../mods/fix-qwen3-coder-next:/workspace/mods/fix-qwen3-coder-next:ro
       - ../mods/fix-qwen3.5-chat-template:/workspace/mods/fix-qwen3.5-chat-template:ro
       - ../mods/fix-qwen3.5-moe-runtime:/workspace/mods/fix-qwen3.5-moe-runtime:ro
+      - ../plugins:/workspace/plugins:ro
     environment:
       <<: *env-common
       HF_HUB_CACHE: /models
       HUGGINGFACE_HUB_CACHE: /models
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
-      RAY_memory_usage_threshold: "0.99"
       VLLM_MARLIN_USE_ATOMIC_ADD: "1"
-      QWEN35_CHAT_TEMPLATE_MODEL_ID: Jackrong/Qwen3.5-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled
+      QWEN35_CHAT_TEMPLATE_MODEL_ID: Qwen/Qwen3.5-0.8B
       QWEN35_CHAT_TEMPLATE_CACHE_ROOT: /models
     healthcheck:
       <<: *healthcheck-default
@@ -958,6 +1031,66 @@ services:
       VLLM_FLASHINFER_MOE_BACKEND: "cutlass"
       VLLM_USE_FLASHINFER_MOE_FP4: "1"
       #VLLM_USE_FLASHINFER_MOE_FP4: "0" #try if problems
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
+  vllm-qwen36-35b-a3b-opus-distilled:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
+    container_name: vllm-qwen36-35b-a3b-opus-distilled
+    entrypoint:
+      - /bin/bash
+      - /workspace/mods/fix-qwen3.5-moe-runtime/run.sh
+    command:
+      - vllm
+      - serve
+      - hesamation/Qwen3.6-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - qwen3.6-35b-a3b-opus-distilled
+      - --max-model-len
+      - "${QWEN36_35B_A3B_OPUS_DISTILLED_MAX_MODEL_LEN:-262144}"
+      - --max-num-batched-tokens
+      - "${QWEN36_35B_A3B_OPUS_DISTILLED_MAX_NUM_BATCHED_TOKENS:-16384}"
+      - --gpu-memory-utilization
+      - "${QWEN36_35B_A3B_OPUS_DISTILLED_GPU_MEMORY_UTILIZATION:-0.84}"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser-plugin
+      - /workspace/plugins/qwen3_opus_distilled_reasoning_parser.py
+      - --reasoning-parser
+      - qwen3_opus_distilled
+      - --chat-template
+      - /workspace/unsloth.jinja
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - fastsafetensors
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../mods:/workspace/mods:ro
+      - ../plugins:/workspace/plugins:ro
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      VLLM_API_KEY: "${VLLM_API_KEY:-63TestTOKEN0REPLACEME}"
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_CONFIGURE_LOGGING: "${VLLM_LOGGING:-0}"
+      HF_HUB_DISABLE_XET: "1"
+      HF_HUB_ENABLE_HF_TRANSFER: "0"
+      HF_HUB_ETAG_TIMEOUT: "120"
+      HF_HUB_DOWNLOAD_TIMEOUT: "120"
+      QWEN35_CHAT_TEMPLATE_MODEL_ID: Qwen/Qwen3.5-0.8B
+      QWEN35_CHAT_TEMPLATE_CACHE_ROOT: /models
     healthcheck:
       <<: *healthcheck-default
       start_period: 1800s

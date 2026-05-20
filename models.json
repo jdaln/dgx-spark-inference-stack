@@ -147,6 +147,18 @@
     "lifecycle": "normal",
     "experimental": true
   },
+  "dolphin-mistral-24b-venice-fp8": {
+    "container": "vllm-dolphin-mistral-24b-venice-fp8",
+    "port": 8000,
+    "maxModelLen": 131072,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal",
+    "multimodal": true,
+    "sourceRecipe": "local-variant:dphn-dolphin-mistral-24b-venice-fp8",
+    "experimental": true,
+    "notes": "Experimental local variant for `dphn/Dolphin-Mistral-24B-Venice-Edition-FP8`. The validated compose path on this host uses `runner=generate`, `tool_call_parser=dolphin_mistral` via the repo plugin, `quantization=compressed-tensors`, `max_model_len=131072`, `kv_cache_dtype=fp8`, and `limit_mm_per_prompt.image=10` with the vendored Mistral parallel tool template. Direct and gateway-path tool calling now return structured `tool_calls`, but the lane should still be treated as experimental until broader behavioral coverage is built out."
+  },
   "nemotron-3-nano-30b-nvfp4": {
     "container": "vllm-nemotron-3-nano-30b-nvfp4",
     "port": 8000,
@@ -200,6 +212,17 @@
     "experimental": true,
     "notes": "Experimental local mirror of Spark Arena's tested official `qwen3.6-27b-fp8-mtp-vllm` recipe for `Qwen/Qwen3.6-27B-FP8`. It matches the same local TF5-track and wrapper mapping as `qwen3.6-27b-fp8`, but preserves the upstream MTP speculative-decoding setting (`speculative_config={\"method\":\"mtp\",\"num_speculative_tokens\":2}`). The cold-start path uses the cached generic `Qwen/Qwen3.5-0.8B` chat template for the same pre-download bootstrap reason as the non-MTP variant. Basic local validation now confirms healthy startup, visible plain-text replies, default tool calling, and explicit thinking on this stack. Thinking-plus-tool-calling also works, but it needs a larger completion budget because the model can spend hundreds of tokens on its reasoning trace before emitting the final tool call. The shipped OpenCode config exposes it as an experimental `240000`-ceiling lane, and the request validator maps OpenCode reasoning-effort overrides to the same binary Qwen thinking controls used by the non-MTP variant while keeping some headroom below the raw `262144` service cap for real completions."
   },
+  "qwen3.6-35b-a3b-opus-distilled": {
+    "container": "vllm-qwen36-35b-a3b-opus-distilled",
+    "port": 8000,
+    "maxModelLen": 262144,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal",
+    "sourceRecipe": "local-variant:hesamation-qwen3.6-35b-a3b-claude-4.6-opus",
+    "experimental": true,
+    "notes": "Experimental distilled reasoning lane for `hesamation/Qwen3.6-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled`. It now follows the same validator behavior as the other Qwen 3.6 reasoning lanes on this stack: normal requests default to non-thinking to preserve visible final answers, and OpenCode reasoning-effort overrides are mapped into the binary Qwen thinking flags carried in `chat_template_kwargs`. Because this distilled checkpoint can omit the closing `</think>` token that the stock Qwen parser expects, the local compose path also loads a narrow parser fallback that extracts common one-line final-answer markers back into visible `message.content` for explicit-thinking requests, including streamed responses when the model never cleanly closes its reasoning block."
+  },
   "qwen3.6-35b-a3b-fp8": {
     "container": "vllm-qwen3.6-35b-a3b-fp8",
     "port": 8000,
@@ -233,6 +256,17 @@
     "experimental": true,
     "notes": "Experimental single-GPU abliterated variant for `huihui-ai/Huihui-Qwen3.6-27B-abliterated`, a BF16 fine-tune of `Qwen/Qwen3.6-27B`. The working local compose path follows a conservative community-Qwen shape on this host rather than an official FP8 lane: `tensor_parallel_size=1`, `gpu_memory_utilization=0.70`, `max_num_batched_tokens=16384`, `kv_cache_dtype=auto`, `load_format=fastsafetensors`, `--enforce-eager`, and the vendored Qwen runtime/template wrappers. Unlike the repo's standard images, this service uses a dedicated TF5-based image that keeps the known-good compiled vLLM runtime, pins upstream `huggingface/transformers` at `eb981ae8688d459f40f35b0e0c352b5ca3cb3613` plus `huggingface_hub==1.5.0`, and applies a small local `w8a8_utils.py` guard so the checkpoint's `qwen3_5` model type works reproducibly from a clean clone without rebuilding vLLM itself. Because this checkpoint is not guaranteed to be cached before the first startup, the cold-start template bootstrap still points at the already-cached generic `Qwen/Qwen3.5-0.8B` snapshot rather than the target model itself. Live validation is now in place on this harness too: healthy bring-up, visible default gateway chat, structured gateway `tool_calls`, and explicit `reasoning_effort=high` behavior all work once the validator maps non-thinking control through `chat_template_kwargs` instead of the model's broken top-level `thinking` flag. Keep it experimental until restart cycling and broader long-context soak coverage are rechecked on this path."
   },
+  "huihui-qwen3.6-35b-a3b-claude-4.7-opus-abliterated": {
+    "container": "vllm-huihui-qwen36-35b-a3b-opus-abliterated",
+    "port": 8000,
+    "maxModelLen": 262144,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "lifecycle": "normal",
+    "sourceRecipe": "local-variant:huihui-qwen3.6-35b-a3b-claude-4.7-opus-abliterated",
+    "experimental": true,
+    "notes": "Experimental local variant for `huihui-ai/Huihui-Qwen3.6-35B-A3B-Claude-4.7-Opus-abliterated`. The validated compose path on this host keeps the same conservative abliterated-Qwen runtime shape already proven here: the dedicated `qwen3_5`-capable TF5 overlay image, single-GPU tensor parallelism, `gpu_memory_utilization=0.70`, `max_num_batched_tokens=16384`, `load_format=fastsafetensors`, `--enforce-eager`, and the vendored Qwen runtime/template wrappers. Because the upstream lineage is a Qwen 3.6 A3B Opus-distilled adapter, this lane reuses the local streamed-answer fallback parser from the existing 35B Opus-distilled service; that parser now also promotes bare answers and raw Qwen `<tool_call>` markup out of the reasoning channel. Live validation now passes on this host for direct and gateway plain-text chat, structured `tool_calls`, explicit `reasoning_effort=high`, and a gateway streaming sanity check with visible content deltas. After rebuilding the live request-validator container so it picked up the repo's default non-thinking logic, a real 5-way gateway soak also passes on the default path at roughly `253552` prompt tokens with a `512`-token completion budget; the next bundled tier at `18` repeats fails calibration because the prompt alone reaches the model's `262144` token context cap. Under the stricter `256`-token completion budget, the same long-context tier still returns visible content but truncates the standard structured soak answer before the final heading, so `512` is the current clean soak budget for this harness. Keep it experimental until restart cycling is rechecked on this path."
+  },
   "qwen3.5-122b-a10b-int4-autoround": {
     "container": "vllm-qwen35-122b-autoround",
     "port": 8000,
@@ -260,13 +294,13 @@
     "container": "vllm-jackrong-qwen35-35b-a3b-opus-distilled",
     "port": 8000,
     "maxModelLen": 262144,
-    "toolSupport": "none",
+    "toolSupport": "full",
     "validatorProfile": "default",
     "lifecycle": "exclusive",
     "normalizeTextContent": true,
     "sourceRecipe": "local-variant:jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled",
     "experimental": true,
-    "notes": "Experimental TF5-track single-GPU reasoning variant for `Jackrong/Qwen3.5-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled`. The local compose path uses the vendored Qwen3/Coder-Next MoE crash/slowness workaround, installs the checkpoint's bundled chat template from the mounted local model cache as `/workspace/unsloth.jinja`, keeps the service offline against the local `/models` cache, and runs the text chat path with `reasoning-parser qwen3`, the XML-oriented `tool-call-parser qwen3_xml`, `kv-cache-dtype fp8`, and a 262144-token cap. The first successful local startup on this host also needed `--language-model-only` because the checkpoint does not ship the image processor files vLLM expects for multimodal initialization, plus `RAY_memory_usage_threshold=0.99` and a truly exclusive lane during compile/autotune startup. Plain text chat works on both the direct and gateway paths, but structured OpenAI-style `tool_calls` are not currently surfaced by vLLM for this checkpoint, so the stack treats it as text-only for now. The current long-context evidence is not yet promotable: the richer default stack-summary soak prompt already fails around `59758` prompt tokens because the model spends the completion budget on a generic reasoning preamble instead of the requested headings, and even a strict minimal `Reply with ok.` probe drifts into visible `Thinking Process` output. Treat the service as a wired text-only bring-up with no practical long-context ceiling established yet."
+    "notes": "Experimental TF5-track single-GPU reasoning variant for `Jackrong/Qwen3.5-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled`. The local compose path now keeps the vendored Qwen3/Coder-Next MoE crash/slowness workaround but swaps the checkpoint's bundled chat template for the known-good `Qwen/Qwen3.5-0.8B` template, mounts the shared `qwen3_opus_distilled` reasoning parser plugin, and runs the lane on the conservative eager single-GPU profile (`gpu_memory_utilization=0.70`, `max_num_batched_tokens=16384`, `kv-cache-dtype fp8`, `load_format=fastsafetensors`, `--enforce-eager`) with `--language-model-only` because the checkpoint does not ship the image processor files vLLM expects for multimodal initialization. With that runtime shape, gateway plain-text chat now returns visible answers by default, `reasoningEffort=high` behaves like the other Qwen-family reasoning lanes by putting the chain into the `reasoning` field, the richer default stack-summary harness passes cleanly on the real gateway path at roughly `253552` prompt tokens with a `512`-token completion budget, and structured OpenAI-style `tool_calls` are now live-validated on both the direct and gateway paths for `tool_choice=auto` and `tool_choice=required`. Treat it as a working experimental long-context reasoning/tool lane on this host, while keeping the current conservative eager single-GPU runtime profile and the `--language-model-only` multimodal limitation in mind."
   },
   "qwen3-coder-next-int4-autoround": {
     "container": "vllm-qwen3-coder-next-autoround",

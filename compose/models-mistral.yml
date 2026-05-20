@@ -491,6 +491,64 @@ services:
       <<: *healthcheck-default
       start_period: 1800s
 
+  vllm-dolphin-mistral-24b-venice-fp8:
+    <<: *model-common
+    image: avarok/vllm-dgx-spark:v11-tf5
+    container_name: vllm-dolphin-mistral-24b-venice-fp8
+    command:
+      - serve
+      - /models/models--dphn--Dolphin-Mistral-24B-Venice-Edition-FP8/snapshots/26bbbeb19e545c8fe1516cb8d8db5c590184c82d
+      - --runner
+      - generate
+      - --tokenizer-mode
+      - hf
+      - --config-format
+      - hf
+      - --load-format
+      - hf
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --download-dir
+      - /models
+      - --served-model-name
+      - dolphin-mistral-24b-venice-fp8
+      - --chat-template
+      - /workspace/tool_chat_template_mistral_parallel.jinja
+      - --enable-auto-tool-choice
+      - --tool-parser-plugin
+      - /workspace/plugins/dolphin_mistral_tool_parser.py
+      - --tool-call-parser
+      - dolphin_mistral
+      - --gpu-memory-utilization
+      - "${DOLPHIN_MISTRAL_24B_VENICE_FP8_GPU_MEMORY_UTILIZATION:-0.82}"
+      - --max-num-seqs
+      - "${DOLPHIN_MISTRAL_24B_VENICE_FP8_MAX_NUM_SEQS:-8}"
+      - --max-model-len
+      - "${DOLPHIN_MISTRAL_24B_VENICE_FP8_MAX_MODEL_LEN:-131072}"
+      - --quantization
+      - compressed-tensors
+      - --kv-cache-dtype
+      - fp8
+      - --limit-mm-per-prompt
+      - '{"image":10}'
+      - --disable-uvicorn-access-log
+      - --disable-log-stats
+    volumes:
+      - ../vllm_cache_huggingface:/root/.cache/huggingface
+      - ../models:/models
+      - ../plugins/dolphin_mistral_tool_parser.py:/workspace/plugins/dolphin_mistral_tool_parser.py:ro
+      - ../shared/tool_chat_template_mistral_parallel.jinja:/workspace/tool_chat_template_mistral_parallel.jinja:ro
+      - ../flashinfer_cache:/root/.cache/flashinfer
+      - ../torch_extensions:/root/.cache/torch_extensions
+      - ../torchinductor:/tmp/torchinductor_root
+    environment:
+      <<: *env-common
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 1800s
+
 
 
 

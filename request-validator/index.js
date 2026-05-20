@@ -70,28 +70,37 @@ function shouldNormalizeTextContent(targetConfig) {
 
 const DEFAULT_NON_THINKING_MODELS = new Set([
   "glm-4.7-flash-awq",
+  "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled",
   "nemotron-3-nano-30b-nvfp4",
   "huihui-qwen3.5-35b-a3b-abliterated",
   "huihui-qwen3.6-27b-abliterated",
+  "huihui-qwen3.6-35b-a3b-claude-4.7-opus-abliterated",
   "qwen3.5-122b-a10b-int4-autoround",
   "qwen3.6-27b-fp8",
   "qwen3.6-27b-fp8-mtp",
+  "qwen3.6-35b-a3b-opus-distilled",
   "qwen3.6-35b-a3b-fp8",
   "qwen3.6-35b-a3b-fp8-mtp"
 ]);
 
 const OPENCODE_BINARY_REASONING_MODELS = new Set([
+  "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled",
   "huihui-qwen3.6-27b-abliterated",
+  "huihui-qwen3.6-35b-a3b-claude-4.7-opus-abliterated",
   "qwen3.6-27b-fp8",
   "qwen3.6-27b-fp8-mtp",
+  "qwen3.6-35b-a3b-opus-distilled",
   "qwen3.6-35b-a3b-fp8",
   "qwen3.6-35b-a3b-fp8-mtp"
 ]);
 
 const SMALL_CONTEXT_BUFFER_MODELS = new Set([
+  "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled",
   "huihui-qwen3.6-27b-abliterated",
+  "huihui-qwen3.6-35b-a3b-claude-4.7-opus-abliterated",
   "qwen3.6-27b-fp8",
   "qwen3.6-27b-fp8-mtp",
+  "qwen3.6-35b-a3b-opus-distilled",
   "qwen3.6-35b-a3b-fp8",
   "qwen3.6-35b-a3b-fp8-mtp"
 ]);

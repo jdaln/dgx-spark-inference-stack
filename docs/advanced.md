@@ -1,5 +1,7 @@
 # Advanced Usage
 
+If you are using a coding agent to add or validate a model, hand it `AGENTS.md` first. This page is the human-oriented companion, while `AGENTS.md` captures the repo-specific workflow and failure modes the agent should follow.
+
 ## Adding a New Model
 
 1. Add a model service to a compose file under `compose/` (usually one of the existing family files such as `compose/models-qwen.yml`, `compose/models-gemma.yml`, or a new `compose/models-custom.yml` if there is no existing family fit):
@@ -67,6 +69,11 @@ bash tools/reload-control-plane.sh
 If the model is intended to participate in the normal gateway workflow, run at least:
 ```bash
 bash tools/smoke-gateway.sh
+```
+
+If the model needed a custom parser, chat template, or model-specific wrapper, also add and run a targeted live gateway regression under `tools/` before treating the lane as working. The current example is:
+```bash
+node --test tools/dolphin-gateway-tool-call.test.mjs
 ```
 
 8. Always run a soak after adding a new model to determine the real safe context ceiling on this host.

@@ -15,7 +15,7 @@
 
 import http from "node:http";
 import { pathToFileURL } from "node:url";
-import { isOpenAIErrorEnvelope, makeOpenAIError, writeOpenAIError } from "../shared/error-response.mjs";
+import { makeOpenAIError, writeOpenAIError } from "../shared/error-response.mjs";
 import { loadModelsConfig } from "../shared/models-config.mjs";
 
 const PORT = Number(process.env.PORT || 18081);
@@ -260,32 +260,6 @@ function forwardedResponseHeaders(headers) {
     }
   }
   return forwardedHeaders;
-}
-
-function legacyWakerErrorToOpenAI(wakerBody, modelId, statusCode) {
-  if (wakerBody?.error === "busy" || wakerBody?.busy === true) {
-    const currentName = wakerBody?.currentModel?.name || wakerBody?.running?.[0]?.name || "another model";
-    return makeOpenAIError({
-      message: `Model '${modelId}' cannot start because '${currentName}' is already running. Retry when the active model is released.`,
-      type: "rate_limit_error",
-      param: "model",
-      code: "model_busy"
-    });
-  }
-
-  const message =
-    typeof wakerBody?.message === "string"
-      ? wakerBody.message
-      : typeof wakerBody?.error === "string"
-        ? wakerBody.error
-        : `Waker returned HTTP ${statusCode} while preparing model '${modelId}'.`;
-
-  return makeOpenAIError({
-    message,
-    type: statusCode === 404 ? "not_found_error" : "api_error",
-    param: statusCode === 404 ? "model" : null,
-    code: statusCode === 404 ? "model_not_found" : "internal_error"
-  });
 }
 
 // Rough estimate of tokens from text.
@@ -682,10 +656,7 @@ const server = http.createServer(async (req, res) => {
       const forwardedHeaders = forwardedResponseHeaders(wakerRes.headers);
 
       log(`Model not ready, forwarding waker's response (Status: ${wakerRes.status})`);
-      if (isOpenAIErrorEnvelope(wakerBody)) {
-        return json(res, wakerRes.status, wakerBody, forwardedHeaders);
-      }
-      return json(res, wakerRes.status, legacyWakerErrorToOpenAI(wakerBody, modelId, wakerRes.status), forwardedHeaders);
+      return json(res, wakerRes.status, wakerBody, forwardedHeaders);
     }
 
     // Waker confirmed the model is ready, proceed to process the body and proxy.
@@ -704,7 +675,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-export { processBody, legacyWakerErrorToOpenAI };
+export { processBody };
 
 if (isMainModule()) {
   server.setTimeout(0);

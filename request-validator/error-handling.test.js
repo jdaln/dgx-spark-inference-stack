@@ -103,14 +103,6 @@ test("validator returns OpenAI-compatible errors on gateway failure paths", asyn
       );
     }
 
-    if (wakerMode === "legacy-busy") {
-      return writeJson(res, 429, {
-        ok: false,
-        error: "busy",
-        currentModel: { name: "vllm-other" }
-      }, { "Retry-After": "15" });
-    }
-
     if (wakerMode === "invalid-json") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end("{not json");
@@ -169,12 +161,6 @@ test("validator returns OpenAI-compatible errors on gateway failure paths", asyn
     assert.equal(externalBusy.response.headers.get("x-dgx-busy-workload"), "comfyui");
     assert.equal(externalBusy.response.headers.get("x-dgx-external-gpu-policy"), "block");
     assert.equal(externalBusy.body.error.code, "external_gpu_busy");
-
-    wakerMode = "legacy-busy";
-    const legacyBusy = await post('{"model":"sample","messages":[{"role":"user","content":"hi"}]}');
-    assert.equal(legacyBusy.response.status, 429);
-    assert.equal(legacyBusy.body.error.code, "model_busy");
-    assert.match(legacyBusy.body.error.message, /vllm-other/);
 
     wakerMode = "invalid-json";
     const invalidWaker = await post('{"model":"sample","messages":[{"role":"user","content":"hi"}]}');

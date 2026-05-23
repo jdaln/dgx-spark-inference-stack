@@ -15,6 +15,7 @@
 
 import http from "node:http";
 import { pathToFileURL } from "node:url";
+import { isOpenAIErrorEnvelope, makeOpenAIError, writeOpenAIError } from "../shared/error-response.mjs";
 import { loadModelsConfig } from "../shared/models-config.mjs";
 
 const PORT = Number(process.env.PORT || 18081);
@@ -248,6 +249,43 @@ function shouldDisableThinkingByDefault(targetConfig, data) {
 function json(res, code, obj, headers = {}) {
   res.writeHead(code, { ...headers, "Content-Type": "application/json" });
   res.end(JSON.stringify(obj));
+}
+
+function forwardedResponseHeaders(headers) {
+  const forwardedHeaders = {};
+  for (const [key, value] of headers.entries()) {
+    const k = key.toLowerCase();
+    if (k === "retry-after" || k.startsWith("x-dgx-") || k.startsWith("x-busy-") || k.startsWith("x-model-")) {
+      forwardedHeaders[key] = value;
+    }
+  }
+  return forwardedHeaders;
+}
+
+function legacyWakerErrorToOpenAI(wakerBody, modelId, statusCode) {
+  if (wakerBody?.error === "busy" || wakerBody?.busy === true) {
+    const currentName = wakerBody?.currentModel?.name || wakerBody?.running?.[0]?.name || "another model";
+    return makeOpenAIError({
+      message: `Model '${modelId}' cannot start because '${currentName}' is already running. Retry when the active model is released.`,
+      type: "rate_limit_error",
+      param: "model",
+      code: "model_busy"
+    });
+  }
+
+  const message =
+    typeof wakerBody?.message === "string"
+      ? wakerBody.message
+      : typeof wakerBody?.error === "string"
+        ? wakerBody.error
+        : `Waker returned HTTP ${statusCode} while preparing model '${modelId}'.`;
+
+  return makeOpenAIError({
+    message,
+    type: statusCode === 404 ? "not_found_error" : "api_error",
+    param: statusCode === 404 ? "model" : null,
+    code: statusCode === 404 ? "model_not_found" : "internal_error"
+  });
 }
 
 // Rough estimate of tokens from text.
@@ -544,7 +582,12 @@ function proxyRequest(req, res, body, target) {
   });
   proxyReq.on("error", (err) => {
     warn(`Proxy error to ${target.host}:`, err.message);
-    json(res, 502, { error: "Bad Gateway", message: err.message });
+    writeOpenAIError(res, 502, {
+      message: `Upstream model service for '${target.modelId}' is unavailable.`,
+      type: "api_error",
+      param: null,
+      code: "upstream_unavailable"
+    });
   });
   proxyReq.write(body);
   proxyReq.end();
@@ -570,17 +613,32 @@ const server = http.createServer(async (req, res) => {
       try {
         modelId = JSON.parse(body).model;
       } catch {
-        return json(res, 400, { error: "Invalid JSON body" });
+        return writeOpenAIError(res, 400, {
+          message: "Request body is not valid JSON.",
+          type: "invalid_request_error",
+          param: null,
+          code: "invalid_json"
+        });
       }
     }
 
     if (!modelId) {
-      return json(res, 400, { error: "Missing 'model' field in request body" });
+      return writeOpenAIError(res, 400, {
+        message: "Request body is missing required field 'model'.",
+        type: "invalid_request_error",
+        param: "model",
+        code: "missing_model"
+      });
     }
 
     const targetConfig = MODEL_CONFIG[modelId];
     if (!targetConfig) {
-      return json(res, 404, { error: `Model '${modelId}' not found or not configured` });
+      return writeOpenAIError(res, 404, {
+        message: `Model '${modelId}' is not configured in models.json.`,
+        type: "not_found_error",
+        param: "model",
+        code: "model_not_found"
+      });
     }
 
     // Call the waker's blocking ensure endpoint with a long timeout (21 min)
@@ -596,7 +654,12 @@ const server = http.createServer(async (req, res) => {
     } catch (err) {
       clearTimeout(timeout);
       warn(`Waker fetch error for ${modelId}:`, err.message);
-      return json(res, 504, { error: "Gateway Timeout", message: "Waker service took too long to respond or is unreachable" });
+      return writeOpenAIError(res, 504, {
+        message: `Waker service timed out or is unreachable while preparing model '${modelId}'.`,
+        type: "api_error",
+        param: null,
+        code: "waker_timeout"
+      });
     } finally {
       clearTimeout(timeout);
     }
@@ -606,22 +669,23 @@ const server = http.createServer(async (req, res) => {
       wakerBody = await wakerRes.json();
     } catch (err) {
       warn(`Failed to parse waker response for ${modelId}:`, err.message);
-      return json(res, 502, { error: "Bad Gateway", message: "Invalid response from waker service" });
+      return writeOpenAIError(res, 502, {
+        message: `Waker service returned invalid JSON while preparing model '${modelId}'.`,
+        type: "api_error",
+        param: null,
+        code: "waker_invalid_response"
+      });
     }
 
     // If the model isn't ready (e.g., busy or error), forward the waker's response.
     if (wakerRes.status !== 200 || !wakerBody.ok) {
-      // Filter headers: only forward relevant ones, exclude hop-by-hop or conflicting headers
-      const forwardedHeaders = {};
-      for (const [key, value] of wakerRes.headers.entries()) {
-        const k = key.toLowerCase();
-        if (k === "retry-after" || k.startsWith("x-")) {
-          forwardedHeaders[key] = value;
-        }
-      }
+      const forwardedHeaders = forwardedResponseHeaders(wakerRes.headers);
 
       log(`Model not ready, forwarding waker's response (Status: ${wakerRes.status})`);
-      return json(res, wakerRes.status, wakerBody, forwardedHeaders);
+      if (isOpenAIErrorEnvelope(wakerBody)) {
+        return json(res, wakerRes.status, wakerBody, forwardedHeaders);
+      }
+      return json(res, wakerRes.status, legacyWakerErrorToOpenAI(wakerBody, modelId, wakerRes.status), forwardedHeaders);
     }
 
     // Waker confirmed the model is ready, proceed to process the body and proxy.
@@ -631,11 +695,16 @@ const server = http.createServer(async (req, res) => {
 
   } catch (err) {
     warn("Main handler error:", err);
-    json(res, 500, { error: "Internal Server Error", message: err.message });
+    writeOpenAIError(res, 500, {
+      message: "Internal request-validator error.",
+      type: "api_error",
+      param: null,
+      code: "internal_error"
+    });
   }
 });
 
-export { processBody };
+export { processBody, legacyWakerErrorToOpenAI };
 
 if (isMainModule()) {
   server.setTimeout(0);

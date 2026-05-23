@@ -4,6 +4,8 @@ WORKDIR /app
 COPY waker/package.json waker/package-lock.json* ./
 RUN npm ci --omit=dev
 RUN mkdir -p /shared
+COPY shared/error-response.mjs /shared/error-response.mjs
 COPY shared/models-config.mjs /shared/models-config.mjs
-COPY waker/index.js waker/gpu-monitor.js ./
+COPY shared/workloads-config.mjs /shared/workloads-config.mjs
+COPY waker/index.js waker/gpu-monitor.js waker/external-workloads.js ./
 CMD ["node","index.js"]

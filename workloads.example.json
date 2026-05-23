@@ -1,0 +1,14 @@
+{
+  "workloads": {
+    "comfyui": {
+      "container": "comfyui",
+      "kind": "comfyui",
+      "role": "external-gpu",
+      "healthUrl": "http://comfyui:8188/",
+      "busyUrl": "http://comfyui:8188/queue",
+      "gpuPolicy": "external-exclusive",
+      "idleAction": "observe",
+      "restartAfterExclusiveLlm": false
+    }
+  }
+}

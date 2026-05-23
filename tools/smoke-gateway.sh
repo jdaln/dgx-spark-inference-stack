@@ -167,10 +167,10 @@ printf '%s' '{"model":"'"$DEFAULT_MODEL"'","messages":[{"role":"user","content":
 request_json "$TMP_DIR/busy.json" "$TMP_DIR/busy.headers" "$TMP_DIR/busy.body"
 BUSY_STATUS="$(status_code_from_headers "$TMP_DIR/busy.headers")"
 assert_status "$BUSY_STATUS" "429" "busy-path request returned 429 while coder model was active"
-if jq -e '.error == "busy"' "$TMP_DIR/busy.body" >/dev/null; then
-  echo "OK: busy-path response preserved busy error"
+if jq -e '.error.code == "model_busy" and (.error.message | type == "string")' "$TMP_DIR/busy.body" >/dev/null; then
+  echo "OK: busy-path response uses OpenAI-compatible busy error"
 else
-  echo "FAIL: busy-path response did not preserve busy error" >&2
+  echo "FAIL: busy-path response did not use OpenAI-compatible busy error" >&2
   cat "$TMP_DIR/busy.body" >&2
   exit 1
 fi

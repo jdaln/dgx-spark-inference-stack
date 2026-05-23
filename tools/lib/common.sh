@@ -33,10 +33,25 @@ require_cmd() {
   return "$missing"
 }
 
+compose_cmd() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+    return
+  fi
+
+  if command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "$@"
+    return
+  fi
+
+  echo "Missing Docker Compose: install the docker compose plugin or docker-compose." >&2
+  return 1
+}
+
 render_active_compose_json() {
   local output_path="$1"
 
-  docker compose --profile models -f "$ROOT_COMPOSE_FILE" config --format json > "$output_path"
+  compose_cmd --profile models -f "$ROOT_COMPOSE_FILE" config --format json > "$output_path"
 }
 
 render_fragment_compose_json() {
@@ -64,7 +79,7 @@ networks:
     internal: true
 EOF
 
-  docker compose --profile models -f "$stub_path" -f "$fragment_path" config --format json > "$output_path"
+  compose_cmd --profile models -f "$stub_path" -f "$fragment_path" config --format json > "$output_path"
   rm -f "$stub_path"
 }
 

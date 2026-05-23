@@ -1,5 +1,9 @@
 # Integration Guides
 
+## ComfyUI Coexistence
+
+If you also run `ComfyUI-DGX-Spark-Docker-opinionated` on the same DGX Spark host, see [ComfyUI coexistence](./comfyui-coexistence.md). The inference stack can detect ComfyUI as an external GPU workload and return standard OpenAI-compatible busy errors to OpenCode, Cline, Copilot-compatible clients, and other OpenAI-compatible clients.
+
 ## Cline Integration Guide
 
 To use this stack with the [Cline](https://github.com/cline/cline) VS Code extension:

@@ -1,0 +1,8 @@
+services:
+  comfy:
+    labels:
+      dgx.spark.gpu-workload: "true"
+      dgx.spark.workload.name: "comfyui"
+      dgx.spark.workload.kind: "comfyui"
+      dgx.spark.scheduler.policy: "external-exclusive"
+      dgx.spark.restart-after-exclusive-llm: "false"

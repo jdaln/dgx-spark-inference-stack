@@ -25,7 +25,7 @@ const HEALTH_TIMEOUT_MS = Number(process.env.HEALTH_TIMEOUT_MS || 900_000);
 const DOCKER_STOP_TIMEOUT_SECONDS = Number(process.env.DOCKER_STOP_TIMEOUT_SECONDS || 5);
 const TICK_MS = Number(process.env.TICK_MS || 1000);
 const STOP_DEBOUNCE_MS = Number(process.env.STOP_DEBOUNCE_MS || 20_000);
-const BUSY_STATUS_CODE = Number(process.env.BUSY_STATUS_CODE || 409); // 409 = Conflict
+const BUSY_STATUS_CODE = Number(process.env.BUSY_STATUS_CODE || 429); // 429 = Too Many Requests (rate_limit_error)
 const MODELS_CONFIG_PATH = process.env.MODELS_CONFIG_PATH || "/config/models.json";
 const MODEL_HEALTH_URL_TEMPLATE = process.env.MODEL_HEALTH_URL_TEMPLATE || "http://{name}:8000/health";
 const EXTERNAL_GPU_POLICY = parseExternalGpuPolicy(process.env.EXTERNAL_GPU_POLICY || "observe");
@@ -341,10 +341,14 @@ async function ensureModelLocked(modelKey) {
       const others = await getRunningManagedExcept(name);
       if (others.length > 0) {
         const current = await getContainerSummary(others[0]);
-        const retryAfterSec = Math.max(1, Math.ceil(HEALTH_TIMEOUT_MS / 1000));
+        const retryAfterSec = current.timeUntilReleaseSec ?? Math.max(1, Math.ceil(HEALTH_TIMEOUT_MS / 1000));
+        const busyModelId = MODELS_CONFIG.byContainer[current.name] || current.name;
+        const releaseHint = current.willAutoStop && current.timeUntilReleaseSec !== null
+          ? `Expected to auto-stop in ~${current.timeUntilReleaseSec}s.`
+          : "It will not auto-stop; stop it manually to free the GPU.";
         log(`[waker] BUSY: ${current.name} is running; refusing to start ${name}.`);
         throw new BusyError({
-          message: `Model '${modelKey}' cannot start because managed LLM container '${current.name}' is already running. Retry when it is released.`,
+          message: `Model '${modelKey}' cannot start because '${busyModelId}' is already running. ${releaseHint}`,
           code: "model_busy",
           headers: {
             "Retry-After": String(retryAfterSec),
@@ -376,7 +380,8 @@ async function ensureModelLocked(modelKey) {
           const blocker = blockingExternal[0];
           throw new BusyError({
             statusCode: 429,
-            message: `GPU is busy with external workload '${blocker.name}'. Retry after it finishes, stop it manually, or set EXTERNAL_GPU_POLICY=observe.`,
+            message: `GPU is busy with external workload '${blocker.name}'. Retry in ${EXTERNAL_BUSY_RETRY_AFTER_SECONDS}s, stop it manually, or set EXTERNAL_GPU_POLICY=observe.`,
+
             code: "external_gpu_busy",
             headers: {
               "Retry-After": String(EXTERNAL_BUSY_RETRY_AFTER_SECONDS),

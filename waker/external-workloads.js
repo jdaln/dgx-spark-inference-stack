@@ -98,6 +98,7 @@ export function discoverExternalWorkloads(containerSummaries, options) {
       const summary = summarizeExternalWorkload(container, name, options);
       if (summary) {
         byContainer.set(summary.container, summary);
+        break; // one entry per physical container; ignore remaining aliases
       }
     }
   }

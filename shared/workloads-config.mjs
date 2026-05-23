@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 
 const ALLOWED_IDLE_ACTIONS = new Set(["observe", "block", "stop-idle", "stop-always"]);
+const IMPLEMENTED_IDLE_ACTIONS = new Set(["observe"]);
 export const SUPPORTED_WORKLOAD_GPU_POLICIES = new Set(["external-exclusive", "observe"]);
 
 function formatPath(filePath) {
@@ -71,6 +72,9 @@ export function normalizeWorkloadsConfig(raw, filePath) {
     const idleAction = optionalString(value.idleAction, "observe");
     if (!ALLOWED_IDLE_ACTIONS.has(idleAction)) {
       fail(filePath, `workload '${id}' has invalid idleAction '${idleAction}'`);
+    }
+    if (!IMPLEMENTED_IDLE_ACTIONS.has(idleAction)) {
+      console.warn(`[workloads-config] ${formatPath(filePath)}: workload '${id}' idleAction '${idleAction}' is not yet implemented and will be treated as 'observe'.`);
     }
 
     const gpuPolicy = parseWorkloadGpuPolicy(value.gpuPolicy, "external-exclusive");

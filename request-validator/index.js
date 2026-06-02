@@ -568,9 +568,23 @@ function proxyRequest(req, res, body, target) {
 }
 
 // Main server logic
+const MODELS_LIST_RESPONSE = {
+  object: "list",
+  data: MODELS_CONFIG.entries.map((entry) => ({
+    id: entry.model,
+    object: "model",
+    created: 0,
+    owned_by: "dgx-spark"
+  }))
+};
+
 const server = http.createServer(async (req, res) => {
   if (req.url === "/healthz" && req.method === "GET") {
     return json(res, 200, { status: "ok" });
+  }
+
+  if (req.url === "/v1/models" && req.method === "GET") {
+    return json(res, 200, MODELS_LIST_RESPONSE);
   }
 
   // Read the entire request body first

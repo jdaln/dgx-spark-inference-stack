@@ -132,6 +132,49 @@ const inspectContainer = (name) => dockerRequest("GET", d(`/containers/${encodeU
 const startContainer = (name) => dockerRequest("POST", d(`/containers/${encodeURIComponent(name)}/start`));
 const stopContainer = (name, t) => dockerRequest("POST", d(`/containers/${encodeURIComponent(name)}/stop?t=${t}`));
 
+// Fetch the tail of a container's combined stdout/stderr logs.
+// Returns a plain UTF-8 string with Docker's 8-byte multiplexed frame headers stripped.
+function getContainerLogsTail(name, tail = 40) {
+  return new Promise((resolve) => {
+    const path = d(`/containers/${encodeURIComponent(name)}/logs?stdout=1&stderr=1&tail=${tail}`);
+    let reqOpts;
+    if (DOCKER_HOST.startsWith("unix://") || DOCKER_HOST.startsWith("/")) {
+      const socketPath = DOCKER_HOST.startsWith("unix://") ? DOCKER_HOST.slice(7) : DOCKER_HOST;
+      reqOpts = { socketPath, path, method: "GET" };
+    } else {
+      const u = new URL(DOCKER_HOST);
+      reqOpts = { protocol: u.protocol, hostname: u.hostname, port: u.port || 2375, path, method: "GET" };
+    }
+    const rq = http.request(reqOpts, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => {
+        try {
+          const buf = Buffer.concat(chunks);
+          // Non-TTY containers prefix each frame with an 8-byte header:
+          // [stream(1)][0,0,0][size(4 BE)] then `size` bytes of payload.
+          let out = "";
+          let i = 0;
+          let framed = true;
+          while (i + 8 <= buf.length) {
+            const stream = buf[i];
+            if (stream !== 1 && stream !== 2) { framed = false; break; }
+            const size = buf.readUInt32BE(i + 4);
+            if (i + 8 + size > buf.length) { framed = false; break; }
+            out += buf.slice(i + 8, i + 8 + size).toString("utf8");
+            i += 8 + size;
+          }
+          resolve(framed ? out : buf.toString("utf8"));
+        } catch {
+          resolve("");
+        }
+      });
+    });
+    rq.on("error", () => resolve(""));
+    rq.end();
+  });
+}
+
 // -------- health wait (pure http/https) --------
 function httpOk(url, graceMs = 10_000) {
   return new Promise((resolve) => {
@@ -155,6 +198,47 @@ async function waitHttpOk(url, deadlineMs) {
     attempts++;
     const ok = await httpOk(url, 5_000);
     if (ok) return true;
+    await sleep(1_000);
+  }
+  throw new Error(`health timeout after ${attempts} attempts for ${url}`);
+}
+
+// Like waitHttpOk, but also polls the container's lifecycle state.
+// If the container exits before becoming healthy, throws an error tagged
+// with { reason: "container_exited", exitCode, logsTail } so callers can
+// surface a precise failure instead of waiting out the full health timeout.
+async function waitHealthyOrExit(url, name, deadlineMs) {
+  let attempts = 0;
+  while (now() < deadlineMs) {
+    attempts++;
+    const ok = await httpOk(url, 5_000);
+    if (ok) return true;
+
+    // Check whether the container died while we were probing.
+    try {
+      const insp = await inspectContainer(name);
+      const status = insp?.State?.Status || "";
+      const running = !!insp?.State?.Running;
+      if (!running && status && status !== "created" && status !== "restarting") {
+        const exitCode = Number(insp?.State?.ExitCode ?? -1);
+        const oomKilled = !!insp?.State?.OOMKilled;
+        const logsTail = await getContainerLogsTail(name, 120);
+        const err = new Error(
+          `container '${name}' exited (status=${status}, exitCode=${exitCode}` +
+            (oomKilled ? ", OOMKilled=true" : "") + `) before becoming healthy`
+        );
+        err.reason = "container_exited";
+        err.exitCode = exitCode;
+        err.containerStatus = status;
+        err.oomKilled = oomKilled;
+        err.logsTail = logsTail;
+        throw err;
+      }
+    } catch (e) {
+      // Re-throw our tagged error; swallow transient inspect failures.
+      if (e && e.reason === "container_exited") throw e;
+    }
+
     await sleep(1_000);
   }
   throw new Error(`health timeout after ${attempts} attempts for ${url}`);
@@ -456,8 +540,44 @@ async function ensureModelLocked(modelKey) {
     const url = resolveHealthUrl(modelKey, name);
     log(`[waker] waiting health ${url} up to ${fmtS(HEALTH_TIMEOUT_MS)}`);
     try {
-      await waitHttpOk(url, now() + HEALTH_TIMEOUT_MS);
+      await waitHealthyOrExit(url, name, now() + HEALTH_TIMEOUT_MS);
     } catch (e) {
+      if (e && e.reason === "container_exited") {
+        const tail = (e.logsTail || "").trim();
+        // Cap embedded tail by both line count and byte size so a single
+        // very wide traceback line cannot blow up the JSON response.
+        const MAX_TAIL_BYTES = 8000;
+        let tailForMsg;
+        if (!tail) {
+          tailForMsg = "(no container logs captured)";
+        } else {
+          tailForMsg = tail.split("\n").slice(-60).join("\n");
+          if (Buffer.byteLength(tailForMsg, "utf8") > MAX_TAIL_BYTES) {
+            tailForMsg = "…(truncated)…\n" + tailForMsg.slice(-MAX_TAIL_BYTES);
+          }
+        }
+        warn(
+          `[waker] container '${name}' exited (exitCode=${e.exitCode}` +
+            (e.oomKilled ? ", OOMKilled=true" : "") + `) during ensure; last logs:\n${tail || "(empty)"}`
+        );
+        throw new WakerHttpError({
+          statusCode: 502,
+          message:
+            `Model '${modelKey}' failed to start: container '${name}' exited with status=${e.containerStatus} ` +
+            `exitCode=${e.exitCode}` + (e.oomKilled ? " (OOMKilled)" : "") +
+            ` before reporting healthy.\nLast container log lines:\n${tailForMsg}`,
+          type: "api_error",
+          param: "model",
+          code: "model_start_failed",
+          info: {
+            container: name,
+            exitCode: e.exitCode,
+            containerStatus: e.containerStatus,
+            oomKilled: e.oomKilled,
+            healthUrl: url
+          }
+        });
+      }
       throw new WakerHttpError({
         statusCode: 503,
         message: `Model '${modelKey}' did not report healthy before the health timeout.`,

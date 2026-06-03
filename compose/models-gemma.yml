@@ -61,6 +61,8 @@ services:
       - /models
       - --served-model-name
       - gemma4-26b-a4b
+      - --chat-template
+      - /workspace/tool_chat_template_gemma4.jinja
       - --max-model-len
       - "${GEMMA4_26B_A4B_MAX_MODEL_LEN:-262144}"
       - --gpu-memory-utilization
@@ -89,6 +91,7 @@ services:
       - ../flashinfer_cache:/root/.cache/flashinfer
       - ../torch_extensions:/root/.cache/torch_extensions
       - ../torchinductor:/tmp/torchinductor_root
+      - ../shared/tool_chat_template_gemma4.jinja:/workspace/tool_chat_template_gemma4.jinja:ro
     environment:
       <<: *env-common
       RAY_memory_usage_threshold: "${GEMMA4_26B_A4B_RAY_MEMORY_USAGE_THRESHOLD:-0.99}"
@@ -114,6 +117,8 @@ services:
       - /models
       - --served-model-name
       - huihui-gemma4-e2b-abliterated
+      - --chat-template
+      - /workspace/tool_chat_template_gemma4.jinja
       - --max-model-len
       - "${HUIHUI_GEMMA4_E2B_MAX_MODEL_LEN:-131072}"
       - --gpu-memory-utilization
@@ -140,6 +145,7 @@ services:
       - ../flashinfer_cache:/root/.cache/flashinfer
       - ../torch_extensions:/root/.cache/torch_extensions
       - ../torchinductor:/tmp/torchinductor_root
+      - ../shared/tool_chat_template_gemma4.jinja:/workspace/tool_chat_template_gemma4.jinja:ro
     environment:
       <<: *env-common
       RAY_memory_usage_threshold: "${HUIHUI_GEMMA4_E2B_RAY_MEMORY_USAGE_THRESHOLD:-0.99}"
@@ -165,6 +171,8 @@ services:
       - /models
       - --served-model-name
       - gemma4-31b
+      - --chat-template
+      - /workspace/tool_chat_template_gemma4.jinja
       - --max-model-len
       - "${GEMMA4_31B_MAX_MODEL_LEN:-262144}"
       - --gpu-memory-utilization
@@ -193,9 +201,11 @@ services:
       - ../flashinfer_cache:/root/.cache/flashinfer
       - ../torch_extensions:/root/.cache/torch_extensions
       - ../torchinductor:/tmp/torchinductor_root
+      - ../shared/tool_chat_template_gemma4.jinja:/workspace/tool_chat_template_gemma4.jinja:ro
     environment:
       <<: *env-common
       TORCHINDUCTOR_AUTOGRAD_CACHE: "0"
+      VLLM_DISABLE_COMPILE_CACHE: "1"
       RAY_memory_usage_threshold: "${GEMMA4_31B_RAY_MEMORY_USAGE_THRESHOLD:-0.99}"
     healthcheck:
       <<: *healthcheck-default

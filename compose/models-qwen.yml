@@ -172,6 +172,8 @@ services:
       - --disable-uvicorn-access-log
       - --disable-log-stats
       - --enable-prefix-caching
+      - --compilation-config
+      - '{"pass_config":{"fuse_norm_quant":false,"fuse_act_quant":false}}'
       - --tensor-parallel-size
       - "${QWEN36_27B_FP8_TENSOR_PARALLEL_SIZE:-1}"
       - --pipeline-parallel-size
@@ -238,6 +240,8 @@ services:
       - --speculative-config
       - '{"method":"mtp","num_speculative_tokens":2}'
       - --enable-prefix-caching
+      - --compilation-config
+      - '{"pass_config":{"fuse_norm_quant":false,"fuse_act_quant":false}}'
       - --tensor-parallel-size
       - "${QWEN36_27B_FP8_MTP_TENSOR_PARALLEL_SIZE:-1}"
       - --pipeline-parallel-size
@@ -302,6 +306,8 @@ services:
       - --disable-uvicorn-access-log
       - --disable-log-stats
       - --enable-prefix-caching
+      - --compilation-config
+      - '{"pass_config":{"fuse_norm_quant":false,"fuse_act_quant":false}}'
       - --tensor-parallel-size
       - "${QWEN36_35B_A3B_FP8_TENSOR_PARALLEL_SIZE:-1}"
       - --pipeline-parallel-size
@@ -368,6 +374,8 @@ services:
       - --speculative-config
       - '{"method":"mtp","num_speculative_tokens":2}'
       - --enable-prefix-caching
+      - --compilation-config
+      - '{"pass_config":{"fuse_norm_quant":false,"fuse_act_quant":false}}'
       - --tensor-parallel-size
       - "${QWEN36_35B_A3B_FP8_MTP_TENSOR_PARALLEL_SIZE:-1}"
       - --pipeline-parallel-size

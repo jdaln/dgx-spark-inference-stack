@@ -540,6 +540,11 @@ services:
       - ../models:/models
       - ../plugins/dolphin_mistral_tool_parser.py:/workspace/plugins/dolphin_mistral_tool_parser.py:ro
       - ../shared/tool_chat_template_mistral_parallel.jinja:/workspace/tool_chat_template_mistral_parallel.jinja:ro
+      # Overlay tokenizer_config.json: upstream snapshot claims tokenizer_class=LlamaTokenizerFast,
+      # but tokenizer.json is byte-level BPE (Tekken-V3). The Llama class hardcodes a SentencePiece
+      # decoder, which both miscodes prompts (off-topic output) and leaks Ġ/Ċ markers into responses.
+      # Forcing PreTrainedTokenizerFast lets HF use the decoder declared inside tokenizer.json.
+      - ../mods/fix-dolphin-mistral-tokenizer/tokenizer_config.json:/models/models--dphn--Dolphin-Mistral-24B-Venice-Edition-FP8/snapshots/26bbbeb19e545c8fe1516cb8d8db5c590184c82d/tokenizer_config.json:ro
       - ../flashinfer_cache:/root/.cache/flashinfer
       - ../torch_extensions:/root/.cache/torch_extensions
       - ../torchinductor:/tmp/torchinductor_root

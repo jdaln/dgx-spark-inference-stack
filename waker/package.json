@@ -7,7 +7,7 @@
   },
   "dependencies": {
     "express": "^4.22.1",
-    "http-proxy-middleware": "^2.0.9",
+    "http-proxy-middleware": "^2.0.10",
     "undici": "^6.25.0"
   }
 }

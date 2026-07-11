@@ -14,6 +14,10 @@ This stack is not "done" when a container starts or when a direct `/v1/chat/comp
 - Do not change `gateway.conf` for a normal model addition. New models should route through `models.json` plus `request-validator`.
 - Treat every new model as `experimental` until gateway-path validation and context soak are complete.
 - A healthy direct path does not prove the gateway path. Validate both.
+- Compose bind mounts are resolved relative to the compose fragment location. Check them carefully when mounting repo assets.
+- The files a container mounts may not be the files you think you downloaded. Confirm the live model store, not just a repo-local copy.
+- Waker and the control plane can interfere with slow cold starts or long pulls.
+- `waker` and `request-validator` read the bind-mounted `/config/models.json` at startup. Rebuilding an image is not enough if the host `models.json` entry is still stale, and gateway behavior can disagree with direct-path behavior until you reload the control plane.
 
 ## Workflow
 
@@ -39,17 +43,6 @@ This stack is not "done" when a container starts or when a direct `/v1/chat/comp
    - `node tools/soak-context.mjs --model <model-id> --target-prompt-tokens <n>`
 15. Once validation is complete, commit the production runtime shape rather than the noisy debug shape. Disable access/request/stats logs in compose using the flags that the specific runtime image supports.
 16. Update repo docs after validation, not before.
-
-## Common Pitfalls
-
-- Compose bind mounts are resolved relative to the compose fragment location. Check them carefully when mounting repo assets.
-- The files a container mounts may not be the files you think you downloaded. Confirm the live model store, not just a repo-local copy.
-- Model-family similarity can be misleading. If the card or snapshot layout says the checkpoint wants a different runner, tokenizer/config format, quantization mode, or chat template path, treat that as the starting constraint instead of trying to force the house default first.
-- Waker and the control plane can interfere with slow cold starts or long pulls.
-- `waker` and `request-validator` read the bind-mounted `/config/models.json` at startup. Rebuilding an image is not enough if the host `models.json` entry is still stale, and gateway behavior can disagree with direct-path behavior until you reload the control plane.
-- Direct-path success and gateway-path success are different checks.
-- If a model claims tool support, verify structured `tool_calls`, not just a `200` response, and check both direct and gateway paths before promoting the lane.
-- Do not leave verbose runtime logging enabled after bring-up. Use the image-appropriate access/request/stats log suppression flags before treating the compose service as final.
 
 ## Deliverable
 

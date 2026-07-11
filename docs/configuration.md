@@ -4,7 +4,6 @@
 
 - **Conservative defaults:** `gpt-oss-20b`, `gpt-oss-120b`, and `glm-4.7-flash-awq`
 - **Utility helper:** `qwen3.5-0.8b`
-- **Current OSS SOTA opt-in families:** use `qwen3.6-35b-a3b-fp8-mtp` or `qwen3.6-35b-a3b-fp8` for long-context text/tool work, and `gemma4-26b-a4b` for multimodal / tool-capable work in its size class
 
 Promote an experimental lane to your own daily default only after a real gateway-path soak on this host, not just a single healthy startup.
 
@@ -57,12 +56,7 @@ For long first cold starts, also keep these distinctions in mind:
 - `tools/run-model.sh` waits on the model container's Docker healthcheck, so increasing `HEALTH_TIMEOUT_MS` alone will not help a manual recreate run
 - Waker idle-stop now treats a model that has never become healthy as still starting, even if Docker health has already flipped from `starting` to `unhealthy`
 
-### Model Configuration Features
-- **GPU Memory Utilization**: Configurable allocation (default ~82%, small models ~5-12%)
-- **Concurrent Sequences**: Tuned per service rather than one global default
-- **Custom Tokenizers**: Support for custom tiktoken encodings
-- **Persistent Cache**: HuggingFace cache persisted to `./vllm_cache_huggingface`
-- **Official recipe mirrors**: The Qwen 3.6 lanes keep the upstream Spark Arena FP8 / MTP recipe shape as closely as practical while still fitting this repo's control-plane behavior
+Per-model runtime tuning lives in each model's compose service: GPU memory utilization (~82% default, ~5-12% for small models), max concurrent sequences, and custom tiktoken encodings where needed. The HuggingFace cache persists to `./vllm_cache_huggingface`.
 
 ## Operational Entry Points
 

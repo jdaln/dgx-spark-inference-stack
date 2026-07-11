@@ -24,11 +24,14 @@ If you only want the current recommended defaults, stop at the next section. Eve
 - **`glm-4.7-flash-awq`** → validated long-context coding/chat path on the current harness
 - **`qwen3.5-0.8b`** → validated small utility helper for titles, tagging, and session metadata
 
-### 🏁 Current OSS SOTA opt-in families
-- **`qwen3.6-35b-a3b-fp8-mtp`** → leading OSS SOTA long-context text/tool lane on this host when you want the best measured Qwen 3.6 latency
+### 🏁 Current opt-in families
+
+The two strongest open-weights opt-in families here are Qwen 3.6 for long-context text/tools and Gemma 4 26B for multimodal.
+
+- **`qwen3.6-35b-a3b-fp8-mtp`** → long-context text/tool lane with the best measured Qwen 3.6 latency on this host
 - **`qwen3.6-35b-a3b-fp8`** → same Qwen 3.6 family without MTP if you want the simpler baseline
 - **`qwen3.6-27b-fp8`** and **`qwen3.6-27b-fp8-mtp`** → smaller official Qwen 3.6 baselines with the same Spark Arena-style recipe shape
-- **`gemma4-26b-a4b`** → OSS SOTA multimodal/tool-capable lane for its size class on this host
+- **`gemma4-26b-a4b`** → multimodal/tool-capable lane for its size class on this host
 
 ### ⚗️ Other deliberate opt-in experiments
 - **Reasoning:** `qwen3-next-80b-a3b-thinking-fp4`, `deepseek-r1-distill-qwen-32b`, `phi-4-reasoning-plus-fp4`, `nemotron-3-nano-30b-nvfp4`
@@ -36,8 +39,6 @@ If you only want the current recommended defaults, stop at the next section. Eve
 - **Vision / multimodal:** `huihui-gemma4-e2b-abliterated`, `qwen3-vl-32b-instruct-fp4`, `qwen3-vl-30b-thinking-instruct`, `glm-4.6v-flash-fp4`, `phi-4-multimodal-instruct-fp4`, `qwen2.5-vl-7b`
 - **Other long-context / recipe experiments:** `huihui-qwen3.5-35b-a3b-abliterated`
 - **Other specialist lanes:** `deepseek-ocr`, `eurollm-22b-instruct-fp4`, `step-audio-r1-fp4` (disabled), `gemma4-31b` (manual-only on this host)
-
-The full catalog below still documents the broader model set. Treat those entries as availability notes, not as implicit promotion to default status.
 
 ---
 
@@ -102,33 +103,36 @@ The full catalog below still documents the broader model set. Treat those entrie
   - **Strengths:** better step-by-step reliability than the instruct version
   - **Tradeoffs:** typically uses more tokens / slower per answer
 
-### Qwen 3.6 official baselines (current OSS SOTA text/tool family)
+### Qwen 3.6 official baselines
 
 If you want one of the strongest open-weights text/tool lanes in this repo today and are comfortable with experimental status, start with the 35B A3B variants here.
+
+Family-wide notes (all four lanes):
+- Mirrors Spark Arena's tested DGX Spark recipe shape: 262K context target, FP8 KV cache, FlashInfer attention, Qwen tool/reasoning parsers. The local mirror swaps the upstream nightly image for the repo's TF5 baseline.
+- Local gateway checks confirm healthy startup, visible plain-text answers, structured `tool_calls`, and explicit thinking.
+- Non-thinking is the default gateway/OpenCode mode for reliable visible output; deliberate thinking needs a larger completion budget.
+- Qwen lanes bootstrap their chat template from the cached generic `Qwen/Qwen3.5-0.8B` snapshot on cold start, because the template installer runs before the target model's first download.
+- The two 35B A3B lanes run a `0.84` memory envelope (upstream recipe is `0.80`) to coexist with the `qwen3.5-0.8b` utility helper; restart stability still needs more cycling. Both passed an isolated 5-way soak at about `238644` prompt tokens.
 
 - `vllm-qwen3.6-27b-fp8` → served as **`qwen3.6-27b-fp8`**
   - **Type:** official Qwen 3.6 dense FP8 baseline
   - **Best for:** upstream-tested general chat, coding, and tool-use experiments
-  - **Strengths:** mirrors Spark Arena's tested DGX Spark recipe shape closely, including the 262K context target, FP8 KV cache, FlashInfer attention, and Qwen tool/reasoning parsers; local gateway checks now confirm healthy startup, visible plain-text answers, structured `tool_calls`, and explicit thinking
-  - **Tradeoffs:** still experimental on this repo; the local mirror swaps the upstream nightly image for the repo's TF5 baseline, keeps non-thinking as the default gateway/OpenCode mode for reliable visible output, and needs a larger completion budget when deliberate thinking is enabled
 
 - `vllm-qwen3.6-27b-fp8-mtp` → served as **`qwen3.6-27b-fp8-mtp`**
   - **Type:** official Qwen 3.6 dense FP8 baseline with MTP speculative decoding
   - **Best for:** latency experiments against the 27B baseline without changing the base checkpoint
-  - **Strengths:** keeps the upstream-tested `mtp` speculative path with `2` speculative tokens, and the local gateway path now confirms visible plain-text answers, default tool calling, and explicit thinking
-  - **Tradeoffs:** still experimental and not yet benchmarked locally for latency wins; explicit thinking plus tool use needs a much larger completion budget because the model can spend hundreds of tokens on its reasoning trace before emitting the final tool call
+  - **Strengths:** keeps the upstream-tested `mtp` speculative path with `2` speculative tokens
+  - **Tradeoffs:** not yet benchmarked locally for latency wins; explicit thinking plus tool use needs a much larger completion budget because the model can spend hundreds of tokens on its reasoning trace before emitting the final tool call
 
 - `vllm-qwen3.6-35b-a3b-fp8` → served as **`qwen3.6-35b-a3b-fp8`**
   - **Type:** official Qwen 3.6 A3B FP8 MoE baseline
   - **Best for:** larger Qwen 3.6 chat / coding experiments using the tested Spark Arena recipe defaults
-  - **Strengths:** mirrors the tested 262K single-GPU recipe with the same Qwen parser stack and local runtime/template wrappers; local gateway checks now confirm healthy startup, visible plain-text answers, structured `tool_calls`, explicit high reasoning, an isolated 5-way soak at about `238644` prompt tokens, and successful coexistence with the `qwen3.5-0.8b` utility helper after the local memory envelope was tuned to `0.84`
-  - **Tradeoffs:** still experimental on this repo because the local memory envelope now intentionally diverges from the upstream `0.80` recipe and restart stability still needs more cycling; like the 27B baseline model, deliberate thinking needs a larger completion budget than plain non-thinking responses
 
 - `vllm-qwen3.6-35b-a3b-fp8-mtp` → served as **`qwen3.6-35b-a3b-fp8-mtp`**
   - **Type:** official Qwen 3.6 A3B FP8 MoE baseline with MTP speculative decoding
   - **Best for:** trying the upstream speculative-decoding recipe as an alternate larger Qwen 3.6 A3B model variant
-  - **Strengths:** preserves the upstream `mtp` decoding config while keeping the same local image and wrapper mapping as the non-MTP variant; local gateway checks now confirm healthy startup, visible plain-text answers, structured `tool_calls`, explicit high reasoning, an isolated 5-way soak at about `238644` prompt tokens, and coexistence with the `qwen3.5-0.8b` utility helper at the tuned `0.84` envelope; on the 5-way soak it cut average request time from about `87.6s` to `37.2s` and raised observed completion throughput from about `9.0` to `16.9` tokens/s, and on a simpler 1-way repeated benchmark it still beat the tuned baseline at about `20.7s` vs. `25.1s` and `33.0` vs. `28.9` completion tokens/s
-  - **Tradeoffs:** still experimental because the local memory envelope now intentionally diverges from the upstream `0.80` recipe and the observed win should still be rechecked after more restart cycling; deliberate thinking/tool use may still need a larger completion budget than the plain-text path
+  - **Strengths:** preserves the upstream `mtp` decoding config with the same local image and wrapper mapping as the non-MTP variant. On the 5-way soak (~`238644` prompt tokens), MTP halved average request time vs the non-MTP lane (`87.6s` → `37.2s`) and raised completion throughput (`9.0` → `16.9` tok/s). A 1-way repeated benchmark also beat the tuned baseline: `20.7s` vs `25.1s`, `33.0` vs `28.9` completion tok/s.
+  - **Tradeoffs:** the observed win should be rechecked after more restart cycling
 
 ### Vision-Language (VL)
 
@@ -176,13 +180,13 @@ If you want one of the strongest open-weights text/tool lanes in this repo today
 
 ### Gemma 4
 
-Gemma 4 is the other main OSS SOTA opt-in family in this repo, especially if you care about multimodal quality and tool use in this size range.
+Gemma 4 is the other main opt-in family in this repo, especially if you care about multimodal quality and tool use in this size range.
 
 - `vllm-gemma4-26b-a4b` → served as **`gemma4-26b-a4b`**
   - **Type:** multimodal Gemma 4 MoE model (text + image) with native tool calling
   - **Best for:** experimental Gemma-family coding/chat, image Q&A, and agent-style tool use
   - **Strengths:** verified gateway-path image input and function calling on the current stack; large raw 256K context window
-  - **Tradeoffs:** still experimental; current interactive guidance is `240000` prompt tokens, and explicit thinking mode can burn completion budget quickly
+  - **Tradeoffs:** current interactive guidance is `240000` prompt tokens, and explicit thinking mode can burn completion budget quickly
 
 - `vllm-gemma4-31b` → served as **`gemma4-31b`**
   - **Type:** dense Gemma 4 multimodal model (text + image)
@@ -192,34 +196,38 @@ Gemma 4 is the other main OSS SOTA opt-in family in this repo, especially if you
 - `vllm-huihui-gemma4-e2b-abliterated` → served as **`huihui-gemma4-e2b-abliterated`**
   - **Type:** experimental Huihui Gemma 4 E2B multimodal abliterated variant on a dedicated Gemma-capable TF5 overlay image
   - **Best for:** opt-in uncensored Gemma-family chat, vision, and tool experiments when you want the standard Gemma runtime shape with the Huihui abliterated weights
-  - **Strengths:** healthy startup is now verified on this host; gateway-path plain text, structured `tool_calls`, and image input all work, and explicit reasoning requests behave like the shipped Gemma lane by returning the final answer in visible content. It also reuses the repo's existing Gemma 4 parser/runtime shape while pinning a Gemma-capable Transformers overlay instead of introducing a model-specific vLLM fork.
-  - **Tradeoffs:** still experimental; this checkpoint is a BF16 `Gemma4ForConditionalGeneration` model with a native `131072` context window, so it cannot inherit the larger `240000`-class client ceiling used by the validated Gemma 4 26B lane. Treat `120000` as the current conservative client limit until long-context soak coverage exists.
+  - **Strengths:** gateway-path plain text, structured `tool_calls`, and image input all work, and explicit reasoning requests behave like the shipped Gemma lane by returning the final answer in visible content. It also reuses the repo's existing Gemma 4 parser/runtime shape while pinning a Gemma-capable Transformers overlay instead of introducing a model-specific vLLM fork.
+  - **Tradeoffs:** this checkpoint is a BF16 `Gemma4ForConditionalGeneration` model with a native `131072` context window, so it cannot inherit the larger `240000`-class client ceiling used by the validated Gemma 4 26B lane. Treat `120000` as the current conservative client limit until long-context soak coverage exists.
 
 ### Experimental Qwen variants
+
+Family-wide notes (all four lanes):
+- Healthy startup and the gateway path are live-validated: plain-text chat returns visible answers by default (non-thinking), structured `tool_calls` work, and explicit high reasoning works once given enough completion budget.
+- All run the conservative single-GPU eager profile (`gpu_memory_utilization=0.70`, `max_num_batched_tokens=16384`, `--enforce-eager`) rather than an official FP8 recipe.
 
 - `vllm-huihui-qwen36-27b-abliterated` → served as **`huihui-qwen3.6-27b-abliterated`**
   - **Type:** experimental Huihui Qwen 3.6 BF16 abliterated variant on a dedicated TF5-based `qwen3_5` runtime with pinned Transformers/Hugging Face Hub overlays
   - **Best for:** opt-in uncensored Qwen 3.6 chat and tool experiments when you want the Qwen parser stack and a live-validated gateway path
-  - **Strengths:** healthy local startup is now verified on this host; gateway plain-text chat returns visible answers by default, structured `tool_calls` work, and explicit `reasoning_effort=high` also works once you give it enough completion budget. The dedicated image keeps the repo's known-good TF5 vLLM runtime while pinning the upstream Transformers/HF Hub layer so `qwen3_5` support is reproducible from a clean clone.
-  - **Tradeoffs:** still experimental; it currently runs the conservative single-GPU BF16/eager profile (`gpu_memory_utilization=0.70`, `max_num_batched_tokens=16384`, `kv_cache_dtype=auto`, `--enforce-eager`) instead of an official FP8 recipe, and practical long-context headroom still needs broader soak coverage
+  - **Strengths:** the dedicated image keeps the repo's known-good TF5 vLLM runtime while pinning the upstream Transformers/HF Hub layer so `qwen3_5` support is reproducible from a clean clone
+  - **Tradeoffs:** adds `kv_cache_dtype=auto` to the shared BF16/eager profile; practical long-context headroom still needs broader soak coverage
 
 - `vllm-huihui-qwen36-35b-a3b-opus-abliterated` → served as **`huihui-qwen3.6-35b-a3b-claude-4.7-opus-abliterated`**
   - **Type:** experimental Huihui Qwen 3.6 A3B Opus-style abliterated variant on the dedicated TF5-based `qwen3_5` runtime
   - **Best for:** opt-in uncensored Qwen 3.6 MoE chat and tool experiments when you want the larger 35B A3B family shape with the repo's live-validated Qwen parser stack
-  - **Strengths:** healthy startup is now verified on this host; direct and gateway plain-text chat return visible answers, structured `tool_calls` work, explicit `reasoning_effort=high` returns the final answer in visible content, and a live gateway streaming sanity check also emits visible `content` deltas. The lane reuses the repo's existing Opus-distilled Qwen reasoning parser path, now extended to promote bare answers and raw Qwen `<tool_call>` markup out of the reasoning channel. After rebuilding the live request-validator container so it picked up the repo's default non-thinking logic, a real 5-way gateway soak now also passes on the default path at roughly `253552` prompt tokens with a `512`-token completion budget.
-  - **Tradeoffs:** still experimental; it keeps the same conservative single-GPU eager profile used for the other community Qwen bring-ups here (`gpu_memory_utilization=0.70`, `max_num_batched_tokens=16384`, `load_format=fastsafetensors`, `--enforce-eager`) rather than an official FP8 recipe. The next bundled soak tier at `18` repeats hard-fails against the model's `262144` token context cap, and under the stricter `256`-token completion budget the same long-context tier still truncates the standard structured soak answer before the final heading, so `512` is the current clean soak budget for this harness
+  - **Strengths:** a live gateway streaming sanity check emits visible `content` deltas. The lane reuses the repo's existing Opus-distilled Qwen reasoning parser path, now extended to promote bare answers and raw Qwen `<tool_call>` markup out of the reasoning channel. 5-way gateway soak passes at roughly `253552` prompt tokens (`512`-token completion budget).
+  - **Tradeoffs:** adds `load_format=fastsafetensors` to the shared eager profile. Soak fails at the `262144`-token cap tier; use a `512`-token completion budget (`256` truncates).
 
 - `vllm-jackrong-qwen35-35b-a3b-opus-distilled` → served as **`jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled`**
   - **Type:** experimental Jackrong Qwen 3.5 A3B Opus-style reasoning-distilled text/tool variant on the TF5-based `qwen3_5` runtime
   - **Best for:** experimental long-context reasoning and tool work when you want a Qwen-family lane that now behaves cleanly on the stack's real gateway path
-  - **Strengths:** healthy startup is verified on this host; with the generic Qwen 3.5 0.8B chat template source plus the shared `qwen3_opus_distilled` reasoning parser, default gateway plain-text chat now returns visible answers, `reasoningEffort=high` behaves like the other Qwen reasoning lanes, structured OpenAI-style `tool_calls` are live-validated on both the direct and gateway paths for `tool_choice=auto` and `tool_choice=required`, and a real 5-way gateway soak passes at roughly `253552` prompt tokens with a `512`-token completion budget while emitting visible `Summary`, `Risks`, and `Next Changes` headings
-  - **Tradeoffs:** still experimental; the working lane relies on the conservative eager single-GPU profile (`gpu_memory_utilization=0.70`, `max_num_batched_tokens=16384`, `--enforce-eager`) rather than the original more aggressive TF5/ray runtime shape, and it remains `--language-model-only` because the checkpoint does not ship the image processor files vLLM expects for multimodal initialization
+  - **Strengths:** uses the generic Qwen 3.5 0.8B chat template source plus the shared `qwen3_opus_distilled` reasoning parser. Structured OpenAI-style `tool_calls` are live-validated on both the direct and gateway paths for `tool_choice=auto` and `tool_choice=required`. 5-way gateway soak passes at roughly `253552` prompt tokens (`512`-token completion budget) while emitting visible `Summary`, `Risks`, and `Next Changes` headings.
+  - **Tradeoffs:** relies on the shared eager profile rather than the original more aggressive TF5/ray runtime shape, and remains `--language-model-only` because the checkpoint does not ship the image processor files vLLM expects for multimodal initialization
 
 - `vllm-huihui-qwen35-35b-a3b-abliterated` → served as **`huihui-qwen3.5-35b-a3b-abliterated`**
   - **Type:** experimental Qwen 3.5 MoE multimodal/tool-capable variant on the TF5 lane
   - **Best for:** opt-in long-context general chat and tool workflows when you want more headroom than the validated 131K-class defaults
-  - **Strengths:** gateway-path text, structured tool calling, and image input are all verified; richer five-user prompts stayed coherent through roughly `253603` prompt tokens
-  - **Tradeoffs:** still experimental; the shipped OpenCode guidance is a conservative `200000`, and manual reads still flatten some repo-specific details into a too-simple single-tenant story
+  - **Strengths:** image input is verified on the gateway path alongside text and structured tool calling; richer five-user prompts stayed coherent through roughly `253603` prompt tokens
+  - **Tradeoffs:** the shipped OpenCode guidance is a conservative `200000`
 
 ### Experimental Mistral variants
 
@@ -227,7 +235,7 @@ Gemma 4 is the other main OSS SOTA opt-in family in this repo, especially if you
   - **Type:** experimental Dolphin/Mistral 24B Venice FP8 multimodal/tool lane on a nonstandard `runner=generate` path
   - **Best for:** opt-in Mistral-family tool workflows when you specifically want the Dolphin Venice checkpoint and its custom tool/template path
   - **Strengths:** the live local path follows the checkpoint's unusual shape instead of forcing a generic Mistral recipe: direct snapshot serving, `runner=generate`, HF tokenizer/config/load formats, compressed-tensors quantization, the vendored Mistral parallel tool chat template, and the repo's custom Dolphin tool parser. Direct and gateway requests now return structured `tool_calls` on this host.
-  - **Tradeoffs:** still experimental; this lane is different enough from the repo's other Mistral services that contributors should treat the model card and local snapshot layout as part of the runtime contract, and broader non-tool behavioral coverage is still thin.
+  - **Tradeoffs:** broader non-tool behavioral coverage is still thin.
 
 ### Coding specialists
 
@@ -263,7 +271,7 @@ Gemma 4 is the other main OSS SOTA opt-in family in this repo, especially if you
   - **Type:** efficient MoE reasoning model, NVFP4
   - **Best for:** production agent workloads, long prompts, fast reasoning at scale
   - **Strengths:** strong efficiency and throughput
-  - **Tradeoffs:** still experimental on the current harness; visible answers depend on the non-thinking request shape now enforced by the validator
+  - **Tradeoffs:** visible answers depend on the non-thinking request shape now enforced by the validator
 
 ### Multilingual / EU
 

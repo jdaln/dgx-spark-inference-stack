@@ -1,6 +1,6 @@
 # Tools and Validation Harness
 
-The repo's supported operational tooling now lives under `tools/`. The old top-level `debugging/` folder has been folded into this area so newcomers only have one place to look for validation scripts, manual probes, and optional compatibility workarounds.
+Operational tooling lives under `tools/` (the old `debugging/` folder was merged here).
 
 If the docs and scripts disagree, prefer `tools/` plus `models.json` over older notes.
 

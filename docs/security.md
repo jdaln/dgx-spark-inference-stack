@@ -43,8 +43,6 @@ Create a dedicated `pfwd` user that can **only** forward traffic to the gateway 
 
 ### Protection layers
 
-Two independent restriction layers are applied so that a misconfiguration in one does not expose the server:
-
 | Layer | Mechanism | Where |
 |---|---|---|
 | 1st | Per-key options in `authorized_keys` | evaluates at key authentication time |

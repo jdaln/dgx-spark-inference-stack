@@ -3,11 +3,13 @@
 🌍 **Read this in other languages**:
 [Deutsch](README_DE.md) | [Español](README_ES.md) | [Français](README_FR.md) | [Italiano](README_IT.md) | [日本語](README_JA.md) | [简体中文](README_ZH_CN.md) | [繁體中文](README_ZH_TW.md) | [Русский](README_RU.md) | [Українська](README_UK.md) | [Português](README_PT.md) | [한국어](README_KO.md) | [العربية](README_AR.md) | [Tiếng Việt](README_VI.md) | [Türkçe](README_TR.md)
 
-Your Nvidia DGX Spark should not be another side project. Start using it! This is a Docker-based inference stack for serving large language models (LLMs) using NVIDIA vLLM with intelligent resource management. This stack provides on-demand model loading with automatic idle shutdown, a single main-model scheduling lane with an optional utility helper, and a unified API gateway.
+Your Nvidia DGX Spark should not be another side project. Start using it! A Docker-based stack for serving LLMs with NVIDIA vLLM: on-demand model loading, automatic idle shutdown, a single main-model lane plus an optional utility helper, and an nginx API gateway.
 
 The goal of the project is to provide an inference server for your home. After testing this and adding new models for a month, I decided to release it for the community. Please understand that this is a hobby project and that concrete help to improve it is highly appreciated. It is based on information I found on the Internet and on the NVIDIA Forums, I really hope it helps driving forward homelabs. This is mainly focused on the single DGX Spark setup and must work on it by default but adding support for 2 is welcome.
 
 ## Documentation
+
+New? Read [docs/architecture.md](docs/architecture.md), then [tools/README.md](tools/README.md).
 
 - **[Architecture & How It Works](docs/architecture.md)** - Understanding the stack, waker service, and request flow.
 - **[Configuration](docs/configuration.md)** - Environment variables, network settings, and waker tuning.
@@ -41,7 +43,7 @@ The goal of the project is to provide an inference server for your home. After t
    ```
 
 4. **Build Custom Docker Images (MANDATORY)**
-   The stack uses custom-optimized vLLM images that should be built locally to ensure maximum performance.
+   The stack uses custom vLLM images; build them locally.
    *   **Time:** Expect ~20 minutes per image.
    *   **Auth:** You must authenticate with NVIDIA NGC to pull base images.
        1.  Create a developer account at [NVIDIA NGC Catalog](https://catalog.ngc.nvidia.com/) (must not be in a sanctioned country).
@@ -100,12 +102,6 @@ The goal of the project is to provide an inference server for your home. After t
    ```
    For model-specific bring-up, smoke, soak, and manual probe commands, see [tools/README.md](tools/README.md).
 
-## Start Here If You Are New
-
-- Read [docs/architecture.md](docs/architecture.md), then [tools/README.md](tools/README.md).
-- Treat [tools/README.md](tools/README.md) plus [models.json](models.json) as the current operational source of truth.
-- Treat this README as the short entry point, not the full model catalog. Use [docs/models.md](docs/models.md) for the broader catalog.
-
 ## Prerequisites
 - Docker 20.10+ with Docker Compose
 - NVIDIA GPU(s) with CUDA support and NVIDIA Container Toolkit
@@ -119,8 +115,6 @@ However, to ensure stability, I enforce a strict **Pull Request Template**.
 Maintainer note: Docker base-image digest refreshes and GitHub Action pin refreshes are gated through Renovate's Dependency Dashboard and scheduled monthly in UTC. If you want one earlier, approve that update from the GitHub Renovate Dependency Dashboard issue.
 
 ## Current Status
-
-The README only highlights the stack's current recommended defaults.
 
 - **Validated main models:** `gpt-oss-20b`, `gpt-oss-120b`, and `glm-4.7-flash-awq`
 - **Validated utility helper:** `qwen3.5-0.8b` for titles and session metadata

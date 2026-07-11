@@ -1,6 +1,6 @@
 # Advanced Usage
 
-If you are using a coding agent to add or validate a model, hand it `AGENTS.md` first. This page is the human-oriented companion, while `AGENTS.md` captures the repo-specific workflow and failure modes the agent should follow.
+If you are using a coding agent to add or validate a model, hand it `AGENTS.md` first.
 
 ## Adding a New Model
 
@@ -76,9 +76,7 @@ If the model needed a custom parser, chat template, or model-specific wrapper, a
 node --test tools/dolphin-gateway-tool-call.test.mjs
 ```
 
-8. Always run a soak after adding a new model to determine the real safe context ceiling on this host.
-
-This is mandatory for new-model bring-up in this repo. Do not guess the context limit from the checkpoint card or from the raw `max_position_embeddings` value. Use `tools/soak-context.mjs` to find the highest clean tier and the first borderline tier on the actual gateway path.
+8. Always soak a new model; never trust the checkpoint card or `max_position_embeddings`. Use `tools/soak-context.mjs` to find the highest clean tier and first borderline tier on the gateway path.
 
 Example pattern:
 ```bash

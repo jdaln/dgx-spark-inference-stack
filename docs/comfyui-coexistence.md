@@ -73,8 +73,7 @@ With ComfyUI running, `runningExternal` should include an entry like:
 }
 ```
 
-The `health` field in `/debug/state` is resolved from `http://host.docker.internal:${COMFY_PORT:-8188}/`, not from a shared inter-container network.
-In this minimal mode, the stack detects ComfyUI from Docker state and labels alone. `health` is omitted unless you opt into a `dgx.spark.health-url` label or workload-config entry later.
+The `health` field in `/debug/state` is resolved only from a `dgx.spark.health-url` label or the workloads config `healthUrl`; when neither is set it reads `"unknown"`.
 
 ## Expected Busy Error
 

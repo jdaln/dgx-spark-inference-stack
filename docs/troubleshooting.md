@@ -2,8 +2,7 @@
 
 Use [tools/README.md](../tools/README.md) for the maintained probe and validation commands. This page focuses on failure modes and what the outputs mean.
 
-> [!IMPORTANT]
-> The conservative defaults in this repo remain `gpt-oss-20b`, `gpt-oss-120b`, and `glm-4.7-flash-awq`. If you are deliberately testing the current OSS SOTA open-weights families, that mainly means Qwen 3.6 for long-context text/tool use and Gemma 4 26B for multimodal or tool-capable work in its size class.
+For model recommendations, see [docs/models.md](models.md).
 
 ## Monitoring and Debugging
 
@@ -33,22 +32,14 @@ Returns per model:
 - Min/mean/max GPU memory usage (MB)
 - Last used timestamp
 
-### View logs
-> [!NOTE]
-> By default, Docker logging uses `json-file` with rotation (10MB, 3 files) and vLLM request/stats logging is suppressed. Waker verbose logging is off by default. You can disable all Docker logging by setting `DOCKER_LOG_DRIVER=none`.
-
 ### Check container status
 ```bash
 docker compose ps
 ```
 
-### Default State of logging
-- **Docker Logging:** Enabled (`json-file`) with rotation (10MB, 3 files).
-- **vLLM Logging:** Request and usage statistics logging is disabled.
-- **Nginx Logging:** Logs are redirected to stdout/stderr and captured by Docker, but contain no sensitive request data.
-- **Waker Logging:** Verbose logging is disabled.
-
 ### Controlling Logs
+Defaults: Docker logging uses `json-file` with rotation (10MB, 3 files); vLLM request/stats logging and waker verbose logging are off; nginx logs go to stdout/stderr (captured by Docker) and contain no sensitive request data.
+
 You can toggle logging levels using environment variables when starting the stack:
 
 ```bash
@@ -123,7 +114,7 @@ If an external GPU workload (e.g. ComfyUI) is blocking instead, the code is `ext
 - Verify GPU memory is sufficient
 
 #### Qwen 3.6 reasoning or tool-use replies stop early
-- The Qwen 3.6 lanes are the repo's current OSS SOTA open-weights text/tool family, but on this stack they deliberately default to non-thinking mode for more reliable visible answers and structured `tool_calls`
+- The Qwen 3.6 lanes deliberately default to non-thinking mode for more reliable visible answers and structured `tool_calls`
 - If you explicitly enable reasoning, raise the completion budget substantially before assuming the model is broken; the reasoning trace can consume hundreds of tokens before the final answer or tool call appears
 - If plain non-thinking works but explicit reasoning does not, compare non-streaming first before blaming the parser or client SSE handling
 
@@ -198,15 +189,4 @@ python3 tools/test-model.py --model <model-id> --tool-call
 #### Streaming client breaks while non-streaming works
 - Some clients are stricter about SSE delta shape for tool calls than the plain non-streaming OpenAI response.
 - First compare against a non-streaming probe. If non-streaming works and only streaming breaks, the problem may be client-side SSE/tool-call expectations rather than the model output itself.
-- The repo keeps an optional compatibility shim in `tools/streaming-proxy/` that converts a successful non-streaming tool-call response back into SSE.
-
-```bash
-docker build -t vllm-streaming-proxy -f tools/streaming-proxy/Dockerfile tools/streaming-proxy
-
-docker run --rm -p 9000:9000 \
-  --add-host host.docker.internal:host-gateway \
-  -e UPSTREAM_BASE=http://host.docker.internal:8009/v1 \
-  vllm-streaming-proxy
-```
-
-- Then point the affected client at `http://localhost:9000/v1` instead of the normal gateway.
+- The repo keeps an optional compatibility shim in `tools/streaming-proxy/` that converts a successful non-streaming tool-call response back into SSE. Build and run commands are in [tools/README.md](../tools/README.md); then point the affected client at `http://localhost:9000/v1` instead of the normal gateway.

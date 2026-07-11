@@ -32,7 +32,8 @@ The stack consists of four main components:
 - `GET /healthz` - Waker health check
 - `GET /debug/state` - Current state and configuration
 - `POST /ensure/<model>` - Ensure a model is running and healthy
-- `POST /touch/<model>` - Update last-seen timestamp (prevent idle shutdown)
+- `POST /touch/<container>` - Update last-seen timestamp (prevent idle shutdown); takes the container name and is only reachable inside the compose network
+- `POST /check/<model>` - Non-blocking status: 200 ready / 202 initializing / 429 busy / stored start failure
 
 ## Project Structure
 

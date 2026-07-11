@@ -24,7 +24,7 @@ Returns:
 curl http://localhost:8009/debug/gpu-stats | jq
 
 # Specific model
-curl http://localhost:8009/debug/gpu-stats/vllm-gpt-oss-120b | jq
+curl http://localhost:8009/debug/gpu-stats/vllm-oss120b | jq
 ```
 
 Returns per model:
@@ -73,37 +73,33 @@ docker logs -f vllm-qwen3.6-35b-a3b-fp8-mtp
 
 ### HTTP 429 - Model Unavailable
 
-When a model is busy (another model is currently loaded), you'll receive a detailed response:
+When a model is busy (another model is currently loaded), you'll receive an OpenAI-compatible rate-limit error:
 
 ```json
 {
-  "ok": false,
-  "error": "busy",
-  "requested": "qwen3.6-35b-a3b-fp8-mtp",
-  "currentModel": {
-    "name": "vllm-gpt-oss-20b",
-    "uptimeSec": 245,
-    "idleSec": 120,
-    "timeUntilReleaseSec": 180,
-    "willAutoStop": true
-  },
-  "retryAfterSec": 180
+  "error": {
+    "message": "Model 'qwen3.6-35b-a3b-fp8-mtp' cannot start because 'gpt-oss-20b' is already running. Expected to auto-stop in ~180s.",
+    "type": "rate_limit_error",
+    "param": "model",
+    "code": "model_busy"
+  }
 }
 ```
 
-**Fields:**
-- `requested`: The model you tried to access
-- `currentModel.name`: The model currently loaded in GPU memory
-- `currentModel.uptimeSec`: How long the current model has been running
-- `currentModel.idleSec`: How long since the current model was last used
-- `currentModel.timeUntilReleaseSec`: Estimated seconds until the model may be released (if idle)
-- `currentModel.willAutoStop`: Whether the model will auto-stop when idle (true if past minimum uptime)
-- `retryAfterSec`: Recommended retry delay (also in `Retry-After` header)
+The detail travels in response headers:
+
+- `Retry-After`: Recommended retry delay in seconds
+- `X-DGX-Busy-Container` / `X-DGX-Busy-Model`: What is currently loaded in GPU memory
+- `X-Model-Uptime-Sec` / `X-Model-Idle-Sec`: How long the current model has been running / unused
+- `X-Time-Until-Release-Sec`: Estimated seconds until the model may be released (if idle)
+- `X-Model-Will-Auto-Stop`: Whether the model will auto-stop when idle (true once past minimum uptime)
+
+If an external GPU workload (e.g. ComfyUI) is blocking instead, the code is `external_gpu_busy` and the headers include `X-DGX-Busy-Workload` and `X-DGX-External-GPU-Policy`. See [Error Contract](error-contract.md) for the full code table.
 
 **What to do:**
-- Wait for `timeUntilReleaseSec` seconds if the model is idle and will auto-stop
-- Use `retryAfterSec` as a safe retry delay
-- If `idleSec` is low, the model is actively being used - retry later
+- Wait for `X-Time-Until-Release-Sec` seconds if the model is idle and will auto-stop
+- Use `Retry-After` as a safe retry delay
+- If `X-Model-Idle-Sec` is low, the model is actively being used - retry later
 
 ### Common Issues
 
@@ -114,10 +110,10 @@ When a model is busy (another model is currently loaded), you'll receive a detai
 - Verify HuggingFace access for model downloads
 
 #### Always getting HTTP 429 (Busy)
-- Check the error response - it shows which model is loaded and when it will be released
-- Look at `idleSec` and `timeUntilReleaseSec` in the response
-- If `willAutoStop` is `true`, the model will release after `timeUntilReleaseSec`
-- If `willAutoStop` is `false`, the model hasn't reached minimum uptime yet
+- Check the error response headers - they show which model is loaded and when it will be released
+- Look at `X-Model-Idle-Sec` and `X-Time-Until-Release-Sec`
+- If `X-Model-Will-Auto-Stop` is `true`, the model will release after `X-Time-Until-Release-Sec`
+- If `X-Model-Will-Auto-Stop` is `false`, the model hasn't reached minimum uptime yet
 - Check waker state for more details: `curl http://localhost:8009/debug/state`
 - To force immediate switch: `docker compose stop vllm-gpt-oss-20b` (or other model)
 
@@ -176,7 +172,7 @@ sudo swapon -a
 
 #### Models keep stopping
 - Increase `IDLE_STOP_SECONDS` or set to 0 to disable auto-stop
-- Use `/touch/<model>` endpoint to keep model alive
+- Keep the model alive with any small periodic request through the gateway, or POST the waker's internal `/touch/<container>` endpoint from inside the compose network (it is not exposed through the gateway) - see [Advanced Usage](advanced.md#persistent-model-keep-alive)
 - Check `NO_STOP_BEFORE_SECONDS` isn't too low
 - For long cold starts, also verify you are on the updated waker logic: containers that have never reached `healthy` once are now protected from idle reaping even if Docker health has already flipped from `starting` to `unhealthy`
 

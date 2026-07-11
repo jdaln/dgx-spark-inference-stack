@@ -36,12 +36,20 @@ Located in `docker-compose.yml` under the `waker` service:
 - `DOCKER_STOP_TIMEOUT_SECONDS`: Grace period for container stop (default: 5)
 - `TICK_MS`: State check interval (default: 1000)
 - `STOP_DEBOUNCE_MS`: Debounce delay before stopping idle containers (default: 20000 = 20 sec)
-- `BUSY_STATUS_CODE`: HTTP code for busy responses (code default: 409; set to 429 in docker-compose.yml)
+- `BUSY_STATUS_CODE`: HTTP code for busy responses (default: 429)
+- `ENSURE_ERROR_TTL_MS`: How long `/check` reports a recent background start failure before allowing a fresh start attempt (default: 30000)
 - `MODEL_HEALTH_URL_TEMPLATE`: Health URL template with `{name}` placeholder (default in this repo: `http://{name}:8000/health`)
 
 Model inventory is no longer configured via `MODELS_JSON`, `UTILITY_CONTAINER`, or `EXCLUSIVE_CONTAINERS` environment variables. Those are now derived from `models.json`, and the current utility container is auto-ignored by waker from that same shared inventory.
 
 After changing `models.json`, run `bash tools/reload-control-plane.sh` so `waker` and `request-validator` reload the mounted config. If you also changed which model is the utility helper, `bash tools/reload-control-plane.sh --stop-stale-utility` will stop the old helper container after the reload.
+
+### Request Validator Configuration
+- `PORT`: Validator HTTP port (default: 18081)
+- `WAKER_URL`: Waker base URL (default: `http://waker:18080`)
+- `MODELS_CONFIG_PATH`: Path to the mounted model inventory (default: `/config/models.json`)
+- `MAX_BODY_BYTES`: Request body size cap; oversized bodies get a 413 envelope (default: 67108864 = 64 MB, matching the gateway's `client_max_body_size`)
+- `VERBOSE`: Set to `1` for per-request logging (default: `0`)
 
 For long first cold starts, also keep these distinctions in mind:
 

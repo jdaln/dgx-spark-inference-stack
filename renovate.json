@@ -4,6 +4,9 @@
   "pinDigests": true,
   "timezone": "Etc/UTC",
   "dependencyDashboard": true,
+  "docker-compose": {
+    "fileMatch": ["(^|/)compose/[^/]+\\.ya?ml$"]
+  },
   "customManagers": [
     {
       "customType": "regex",

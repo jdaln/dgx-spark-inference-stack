@@ -123,7 +123,10 @@ If you want broader multi-model concurrency:
 
 ## Persistent Model Keep-Alive
 
-Create a cron job to touch the model:
+The waker's `/touch/<container>` endpoint resets the idle timer, but it lives on the internal Docker network and is not exposed through the gateway. Create a cron job that touches it from inside the waker container:
+
 ```bash
-*/4 * * * * curl -X POST http://localhost:8009/debug/touch/vllm-qwen3.6-35b-a3b-fp8-mtp
+*/4 * * * * docker exec vllm-waker node -e "fetch('http://127.0.0.1:18080/touch/vllm-qwen3.6-35b-a3b-fp8-mtp',{method:'POST'})"
 ```
+
+Alternatively set `IDLE_STOP_SECONDS=0` on the waker service to disable idle shutdown entirely.

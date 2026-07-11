@@ -80,7 +80,9 @@ cleanup() {
   if [[ "$DEFAULT_WAS_RUNNING" -eq 0 ]]; then
     docker compose --profile models -f "$ROOT_COMPOSE_FILE" stop "$DEFAULT_SERVICE" >/dev/null 2>&1 || true
   fi
+  rm -rf "$TMP_DIR"
 }
+# Replaces the earlier tmp-dir trap; bash keeps only one EXIT trap.
 trap cleanup EXIT
 
 request_json() {

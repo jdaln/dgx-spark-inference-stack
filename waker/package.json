@@ -4,10 +4,5 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.js"
-  },
-  "dependencies": {
-    "express": "^4.22.1",
-    "http-proxy-middleware": "^2.0.9",
-    "undici": "^6.25.0"
   }
 }

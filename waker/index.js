@@ -33,6 +33,7 @@ const EXTERNAL_GPU_CONTAINER_NAMES = parseNameSet(process.env.EXTERNAL_GPU_CONTA
 const WORKLOADS_CONFIG_PATH = process.env.WORKLOADS_CONFIG_PATH || "";
 const EXTERNAL_WORKLOAD_PROBE_TIMEOUT_MS = Number(process.env.EXTERNAL_WORKLOAD_PROBE_TIMEOUT_MS || 3000);
 const EXTERNAL_BUSY_RETRY_AFTER_SECONDS = Number(process.env.EXTERNAL_BUSY_RETRY_AFTER_SECONDS || 30);
+const ENSURE_ERROR_TTL_MS = Number(process.env.ENSURE_ERROR_TTL_MS || 30_000);
 
 const DOCKER_HOST = process.env.DOCKER_HOST || "unix:///var/run/docker.sock";
 const DOCKER_API_VERSION = process.env.DOCKER_API_VERSION || "";
@@ -116,7 +117,11 @@ function dockerRequest(method, path, body) {
         const text = buf.toString("utf8");
         const ok = res.statusCode >= 200 && res.statusCode < 300;
         if (res.statusCode === 204) return resolve(null);
-        if (!ok) return reject(new Error(`Docker ${method} ${path} -> ${res.statusCode} ${res.statusMessage} ${text}`));
+        if (!ok) {
+          const error = new Error(`Docker ${method} ${path} -> ${res.statusCode} ${res.statusMessage} ${text}`);
+          error.statusCode = res.statusCode;
+          return reject(error);
+        }
         try { resolve(text ? JSON.parse(text) : null); }
         catch { resolve(text); }
       });
@@ -277,9 +282,25 @@ class BusyError extends Error {
   }
 }
 
+function dockerUnavailableError(action) {
+  return new WakerHttpError({
+    statusCode: 503,
+    message: `Docker API is unavailable; cannot ${action}. Retry shortly.`,
+    type: "service_unavailable_error",
+    param: null,
+    code: "docker_unavailable",
+    headers: { "Retry-After": "5" }
+  });
+}
+
+// Throws docker_unavailable when the container list cannot be read: the
+// single-tenant guard must fail closed, never assume the GPU is free.
 async function getRunningManagedExcept(exceptName) {
-  let cs = [];
-  try { cs = await listContainers(true); } catch (e) { err("[waker] docker list error:", e.message || e); }
+  let cs;
+  try { cs = await listContainers(true); } catch (e) {
+    err("[waker] docker list error:", e.message || e);
+    throw dockerUnavailableError("verify GPU availability");
+  }
   const names = new Set();
   for (const c of cs) {
     if (c.State !== "running") continue;
@@ -293,13 +314,14 @@ async function getRunningManagedExcept(exceptName) {
   return [...names];
 }
 
+// Same fail-closed contract as getRunningManagedExcept.
 async function getRunningExternalWorkloads() {
-  let cs = [];
+  let cs;
   try {
     cs = await listContainers(true);
   } catch (e) {
     err("[waker] docker list error:", e.message || e);
-    return [];
+    throw dockerUnavailableError("verify external GPU workloads");
   }
 
   const running = cs.filter((container) => container.State === "running");
@@ -398,7 +420,20 @@ function withEnsureLock(fn) {
 }
 
 async function ensureModel(modelKey) {
-  return withEnsureLock(() => ensureModelLocked(modelKey));
+  return withEnsureLock(async () => {
+    const entry = resolveModelEntry(modelKey);
+    const name = entry?.container || resolveContainerName(modelKey);
+    try {
+      const out = await ensureModelLocked(modelKey);
+      lastEnsureError.delete(name);
+      return out;
+    } catch (e) {
+      // Remember the failure so /check polling can report it instead of
+      // silently re-triggering start attempts forever.
+      lastEnsureError.set(name, { error: e, atMs: now() });
+      throw e;
+    }
+  });
 }
 
 async function ensureModelLocked(modelKey) {
@@ -505,12 +540,23 @@ async function ensureModelLocked(modelKey) {
       insp = await inspectContainer(name);
     } catch (e) {
       warn(`[waker] container inspect failed for ${name}:`, e.message || e);
+      if (e?.statusCode === 404) {
+        throw new WakerHttpError({
+          statusCode: 404,
+          message: `Container '${name}' for model '${modelKey}' is not available. Create it with the models profile before requesting the model.`,
+          type: "not_found_error",
+          param: "model",
+          code: "model_not_found"
+        });
+      }
+      // Anything else (daemon down, 5xx) is a transient Docker failure, not a missing model.
       throw new WakerHttpError({
-        statusCode: 404,
-        message: `Container '${name}' for model '${modelKey}' is not available. Create it with the models profile before requesting the model.`,
-        type: "not_found_error",
-        param: "model",
-        code: "model_not_found"
+        statusCode: 503,
+        message: `Docker API is unavailable while preparing model '${modelKey}'. Retry shortly.`,
+        type: "service_unavailable_error",
+        param: null,
+        code: "docker_unavailable",
+        headers: { "Retry-After": "5" }
       });
     }
 
@@ -603,6 +649,9 @@ async function ensureModelLocked(modelKey) {
 // -------- check (non-blocking status) --------
 // A map to keep track of models that are currently in the process of starting up.
 const starting = new Map();
+// Last ensure failure per container, so /check can surface it briefly
+// instead of restarting a crash-looping container on every poll.
+const lastEnsureError = new Map();
 
 async function checkModel(modelKey) {
   const entry = resolveModelEntry(modelKey);
@@ -621,7 +670,19 @@ async function checkModel(modelKey) {
   log(`[waker] check request for model key: ${modelKey} -> container: ${name}`);
 
   // 1. Single-tenant guard: check if another model is running.
-  const others = await getRunningManagedExcept(name);
+  let others;
+  try {
+    others = await getRunningManagedExcept(name);
+  } catch (e) {
+    return {
+      status: "error",
+      statusCode: e.statusCode || 503,
+      message: e.message || "Docker API is unavailable.",
+      type: e.type || "service_unavailable_error",
+      param: e.param ?? null,
+      code: e.code || "docker_unavailable"
+    };
+  }
   if (others.length > 0) {
     const current = await getContainerSummary(others[0]);
     log(`[waker] BUSY on check: ${current.name} is running.`);
@@ -633,14 +694,24 @@ async function checkModel(modelKey) {
   try {
     insp = await inspectContainer(name);
   } catch (e) {
-    // If the container doesn't exist, it's an error.
+    if (e?.statusCode === 404) {
+      // If the container doesn't exist, it's an error.
+      return {
+        status: "error",
+        message: `Container '${name}' for model '${modelKey}' is not available.`,
+        statusCode: 404,
+        type: "not_found_error",
+        param: "model",
+        code: "model_not_found"
+      };
+    }
     return {
       status: "error",
-      message: `Container '${name}' for model '${modelKey}' is not available.`,
-      statusCode: 404,
-      type: "not_found_error",
-      param: "model",
-      code: "model_not_found"
+      message: `Docker API is unavailable while checking model '${modelKey}'. Retry shortly.`,
+      statusCode: 503,
+      type: "service_unavailable_error",
+      param: null,
+      code: "docker_unavailable"
     };
   }
 
@@ -651,6 +722,7 @@ async function checkModel(modelKey) {
     if (isHealthy) {
       log(`[waker] READY on check: ${name} is running and healthy.`);
       healthyOnce.add(name);
+      lastEnsureError.delete(name);
       lastSeenMs.set(name, now()); // Touch the model to keep it alive.
       return { status: "ready", name };
     } else {
@@ -662,6 +734,23 @@ async function checkModel(modelKey) {
   // 4. If it's stopped, trigger a start but don't wait.
   // Avoid re-triggering if a start is already in progress.
   if (!starting.has(name)) {
+    // If the last start attempt failed recently, report that failure instead
+    // of immediately restarting a container that is likely to fail again.
+    const recent = lastEnsureError.get(name);
+    if (recent && now() - recent.atMs < ENSURE_ERROR_TTL_MS) {
+      const e = recent.error;
+      log(`[waker] ERROR on check: reporting recent ensure failure for ${name} (${e.code || "internal_error"}).`);
+      return {
+        status: "error",
+        statusCode: e.statusCode || 500,
+        message: e.message || "Model start failed.",
+        type: e.type || "api_error",
+        param: e.param ?? "model",
+        code: e.code || "internal_error",
+        headers: e.headers || {}
+      };
+    }
+    lastEnsureError.delete(name);
     log(`[waker] STARTING on check: ${name} was stopped, initiating start.`);
     starting.set(name, true);
     // This is "fire and forget" - we start the process and immediately return.
@@ -823,11 +912,19 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === "GET" && u.pathname === "/debug/state") {
-      // expose who's currently running (if any) for visibility
-      const running = await getRunningManagedExcept("__none__");
+      // expose who's currently running (if any) for visibility;
+      // degrade gracefully here if Docker is unreachable — this is read-only
+      let running = [];
+      let externalWorkloads = [];
+      try {
+        running = await getRunningManagedExcept("__none__");
+        externalWorkloads = await getRunningExternalWorkloads();
+      } catch (e) {
+        warn("[waker] /debug/state docker unavailable:", e.message || e);
+      }
       const current = running.length ? await getContainerSummary(running[0]) : null;
       const runningManaged = await getRunningManagedSummaries();
-      const runningExternal = await Promise.all((await getRunningExternalWorkloads()).map(withExternalHealth));
+      const runningExternal = await Promise.all(externalWorkloads.map(withExternalHealth));
       return json(res, 200, {
         config: {
           PORT, MANAGE_PREFIX, IGNORE: [...IGNORE],
@@ -938,7 +1035,7 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, { status: "ready", model: result.name });
       }
       if (result.status === "busy") {
-        const retryAfterSec = result.timeUntilReleaseSec || Math.max(1, Math.ceil(HEALTH_TIMEOUT_MS / 1000));
+        const retryAfterSec = Math.max(1, result.timeUntilReleaseSec ?? Math.ceil(HEALTH_TIMEOUT_MS / 1000));
         const headers = {
           "Retry-After": String(retryAfterSec),
           "X-DGX-Busy-Container": result.name || "unknown",
@@ -959,7 +1056,7 @@ const server = http.createServer(async (req, res) => {
         type: result.type || "api_error",
         param: result.param ?? null,
         code: result.code || "internal_error"
-      });
+      }, result.headers || {});
     }
 
     return notFound(res);

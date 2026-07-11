@@ -177,3 +177,134 @@ test("validator returns OpenAI-compatible errors on gateway failure paths", asyn
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test("validator rejects oversized request bodies with a 413 envelope", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "validator-bodycap-"));
+  const modelsPath = path.join(tempDir, "models.json");
+  await fs.writeFile(
+    modelsPath,
+    JSON.stringify({
+      sample: {
+        container: "127.0.0.1",
+        port: 9,
+        maxModelLen: 4096
+      }
+    }),
+    "utf8"
+  );
+
+  const validatorPort = await getFreePort();
+  const baseUrl = `http://127.0.0.1:${validatorPort}`;
+  const logs = [];
+  const child = spawn(process.execPath, ["index.js"], {
+    cwd: __dirname,
+    env: {
+      ...process.env,
+      PORT: String(validatorPort),
+      WAKER_URL: "http://127.0.0.1:9",
+      MODELS_CONFIG_PATH: modelsPath,
+      MAX_BODY_BYTES: "1024",
+      VERBOSE: "0"
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+
+  child.stdout.on("data", (chunk) => logs.push(chunk.toString("utf8")));
+  child.stderr.on("data", (chunk) => logs.push(chunk.toString("utf8")));
+
+  try {
+    await waitForServer(baseUrl, child, logs);
+
+    const bigBody = JSON.stringify({ model: "sample", messages: [{ role: "user", content: "x".repeat(4096) }] });
+    const response = await fetch(new URL("/v1/chat/completions", baseUrl), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: bigBody,
+      signal: AbortSignal.timeout(5000)
+    });
+    assert.equal(response.status, 413);
+    const parsed = await response.json();
+    assert.equal(parsed.error.code, "request_too_large");
+    assert.equal(parsed.error.type, "invalid_request_error");
+    assert.equal(child.exitCode, null, `validator crashed:\n${logs.join("")}`);
+  } finally {
+    await stopChild(child);
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("validator survives upstream dying mid-stream", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "validator-stream-"));
+
+  const upstream = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.write("data: chunk1\n\n");
+    setTimeout(() => res.socket.destroy(), 50);
+  });
+  const upstreamPort = await listen(upstream);
+
+  const modelsPath = path.join(tempDir, "models.json");
+  await fs.writeFile(
+    modelsPath,
+    JSON.stringify({
+      sample: {
+        container: "127.0.0.1",
+        port: upstreamPort,
+        maxModelLen: 4096
+      }
+    }),
+    "utf8"
+  );
+
+  const waker = http.createServer((req, res) => {
+    writeJson(res, 200, { ok: true, name: "127.0.0.1", healthUrl: "http://127.0.0.1/health" });
+  });
+  const wakerPort = await listen(waker);
+
+  const validatorPort = await getFreePort();
+  const baseUrl = `http://127.0.0.1:${validatorPort}`;
+  const logs = [];
+  const child = spawn(process.execPath, ["index.js"], {
+    cwd: __dirname,
+    env: {
+      ...process.env,
+      PORT: String(validatorPort),
+      WAKER_URL: `http://127.0.0.1:${wakerPort}`,
+      MODELS_CONFIG_PATH: modelsPath,
+      VERBOSE: "0"
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+
+  child.stdout.on("data", (chunk) => logs.push(chunk.toString("utf8")));
+  child.stderr.on("data", (chunk) => logs.push(chunk.toString("utf8")));
+
+  try {
+    await waitForServer(baseUrl, child, logs);
+
+    let timedOut = false;
+    try {
+      const response = await fetch(new URL("/v1/chat/completions", baseUrl), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: '{"model":"sample","messages":[{"role":"user","content":"hi"}],"stream":true}',
+        signal: AbortSignal.timeout(5000)
+      });
+      await response.text();
+    } catch (e) {
+      // A truncated stream is expected; hanging until the abort timeout is not.
+      timedOut = /timeout/i.test(String(e.name || "")) || /timeout/i.test(String(e.cause?.name || ""));
+    }
+
+    assert.equal(timedOut, false, "response must terminate promptly when upstream dies");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    assert.equal(child.exitCode, null, `validator crashed:\n${logs.join("")}`);
+    const health = await fetch(new URL("/healthz", baseUrl));
+    assert.equal(health.status, 200);
+  } finally {
+    await stopChild(child);
+    await new Promise((resolve) => waker.close(resolve));
+    await new Promise((resolve) => upstream.close(resolve));
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});

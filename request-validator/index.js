@@ -15,10 +15,12 @@
 
 import http from "node:http";
 import { pathToFileURL } from "node:url";
-import { makeOpenAIError, writeOpenAIError } from "../shared/error-response.mjs";
+import { isOpenAIErrorEnvelope, makeOpenAIError, writeOpenAIError } from "../shared/error-response.mjs";
 import { loadModelsConfig } from "../shared/models-config.mjs";
 
 const PORT = Number(process.env.PORT || 18081);
+// Matches the gateway's client_max_body_size 64m; direct callers get the same cap.
+const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 64 * 1024 * 1024);
 const VERBOSE = (process.env.VERBOSE || "0") !== "0";
 const WAKER_URL = process.env.WAKER_URL || "http://waker:18080";
 const MODELS_CONFIG_PATH = process.env.MODELS_CONFIG_PATH || "/config/models.json";
@@ -438,7 +440,7 @@ function processBody(body, targetConfig, url) {
           const lastRole = fixedMessages[fixedMessages.length - 1].role;
           if (lastRole === msg.role) {
             // Insert a placeholder message to fix alternation
-            const placeholderRole = lastRoTestle === "user" ? "assistant" : "user";
+            const placeholderRole = lastRole === "user" ? "assistant" : "user";
             const placeholderContent = placeholderRole === "assistant" ? "Understood." : "Continue.";
             log(`Inserting ${placeholderRole} placeholder to fix alternation for ${data.model}`);
             fixedMessages.push({ role: placeholderRole, content: placeholderContent });
@@ -539,6 +541,62 @@ function isMainModule() {
   return import.meta.url === pathToFileURL(process.argv[1]).href;
 }
 
+// Buffer the request body with a byte cap and stream error handling.
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    let done = false;
+    const fail = (err) => {
+      if (done) return;
+      done = true;
+      reject(err);
+    };
+    req.on("data", (chunk) => {
+      if (done) return;
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        const err = new Error("request body too large");
+        err.code = "body_too_large";
+        fail(err);
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (done) return;
+      done = true;
+      resolve(Buffer.concat(chunks).toString("utf8"));
+    });
+    req.on("error", fail);
+  });
+}
+
+// Hop-by-hop headers must not be forwarded; the body is fully re-buffered,
+// so the recomputed content-length is the only valid framing upstream.
+const HOP_BY_HOP_HEADERS = new Set([
+  "transfer-encoding",
+  "connection",
+  "keep-alive",
+  "expect",
+  "upgrade",
+  "te",
+  "trailer",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "proxy-connection"
+]);
+
+function forwardableRequestHeaders(headers) {
+  const forwarded = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase())) {
+      forwarded[key] = value;
+    }
+  }
+  return forwarded;
+}
+
 // Proxy request to the final vLLM container
 function proxyRequest(req, res, body, target) {
   log(`Proxying to ${target.host}:${target.port}${req.url}`);
@@ -547,21 +605,34 @@ function proxyRequest(req, res, body, target) {
     port: target.port,
     path: req.url,
     method: req.method,
-    headers: { ...req.headers, "content-length": Buffer.byteLength(body) },
+    headers: { ...forwardableRequestHeaders(req.headers), "content-length": Buffer.byteLength(body) },
   };
 
   const proxyReq = http.request(options, (proxyRes) => {
     res.writeHead(proxyRes.statusCode, proxyRes.headers);
     proxyRes.pipe(res);
+    proxyRes.on("error", (err) => {
+      warn(`Upstream response error from ${target.host}:`, err.message);
+      res.destroy();
+    });
   });
   proxyReq.on("error", (err) => {
     warn(`Proxy error to ${target.host}:`, err.message);
+    if (res.headersSent) {
+      // Response already streaming; too late for an error envelope.
+      res.destroy();
+      return;
+    }
     writeOpenAIError(res, 502, {
       message: `Upstream model service for '${target.modelId}' is unavailable.`,
       type: "api_error",
       param: null,
       code: "upstream_unavailable"
     });
+  });
+  // Stop upstream generation when the client disconnects mid-response.
+  res.on("close", () => {
+    if (!res.writableEnded) proxyReq.destroy();
   });
   proxyReq.write(body);
   proxyReq.end();
@@ -588,11 +659,27 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Read the entire request body first
-  const body = await new Promise((resolve) => {
-    let data = "";
-    req.on("data", (chunk) => (data += chunk));
-    req.on("end", () => resolve(data));
-  });
+  let body;
+  try {
+    body = await readBody(req);
+  } catch (err) {
+    if (err.code === "body_too_large") {
+      return writeOpenAIError(
+        res,
+        413,
+        {
+          message: `Request body exceeds the ${MAX_BODY_BYTES} byte limit.`,
+          type: "invalid_request_error",
+          param: null,
+          code: "request_too_large"
+        },
+        { Connection: "close" }
+      );
+    }
+    // Client aborted or socket error while uploading; nothing left to answer.
+    res.destroy();
+    return;
+  }
 
   try {
     // Determine the target model from the request body
@@ -619,7 +706,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    const targetConfig = MODEL_CONFIG[modelId];
+    const targetConfig = Object.hasOwn(MODEL_CONFIG, modelId) ? MODEL_CONFIG[modelId] : undefined;
     if (!targetConfig) {
       return writeOpenAIError(res, 404, {
         message: `Model '${modelId}' is not configured in models.json.`,
@@ -635,7 +722,7 @@ const server = http.createServer(async (req, res) => {
 
     let wakerRes;
     try {
-      wakerRes = await fetch(`${WAKER_URL}/ensure/${modelId}`, {
+      wakerRes = await fetch(`${WAKER_URL}/ensure/${encodeURIComponent(modelId)}`, {
         method: "POST",
         signal: controller.signal
       });
@@ -670,6 +757,14 @@ const server = http.createServer(async (req, res) => {
       const forwardedHeaders = forwardedResponseHeaders(wakerRes.headers);
 
       log(`Model not ready, forwarding waker's response (Status: ${wakerRes.status})`);
+      if (wakerRes.status !== 200 && !isOpenAIErrorEnvelope(wakerBody)) {
+        wakerBody = makeOpenAIError({
+          message: `Waker service returned status ${wakerRes.status} while preparing model '${modelId}'.`,
+          type: "api_error",
+          param: null,
+          code: "waker_error"
+        });
+      }
       return json(res, wakerRes.status, wakerBody, forwardedHeaders);
     }
 

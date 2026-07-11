@@ -174,24 +174,34 @@
 
 {%- set ns = namespace(prev_message_type=None) -%}
 {%- set loop_messages = messages -%}
+{#- Count leading system/developer messages so they all fold into one system turn -#}
+{%- set ns_sys = namespace(leading=0) -%}
+{%- for m in messages -%}
+    {%- if loop.index0 == ns_sys.leading and m['role'] in ['system', 'developer'] -%}
+        {%- set ns_sys.leading = ns_sys.leading + 1 -%}
+    {%- endif -%}
+{%- endfor -%}
 {{- bos_token -}}
 {#- Handle System/Tool Definitions Block -#}
-{%- if (enable_thinking is defined and enable_thinking) or tools or messages[0]['role'] in ['system', 'developer'] -%}
+{%- if (enable_thinking is defined and enable_thinking) or tools or ns_sys.leading > 0 -%}
     {{- '<|turn>system\n' -}}
     {#- Inject Thinking token at the very top of the FIRST system turn -#}
     {%- if enable_thinking is defined and enable_thinking -%}
         {{- '<|think|>\n' -}}
         {%- set ns.prev_message_type = 'think' -%}
     {%- endif -%}
-    {%- if messages[0]['role'] in ['system', 'developer'] -%}
-        {%- if messages[0]['content'] is string -%}
-            {{- messages[0]['content'] | trim -}}
-        {%- elif messages[0]['content'] is sequence -%}
-            {%- for item in messages[0]['content'] -%}
-                {{- item['text'] | trim + ' '-}}
-            {%- endfor -%}
-        {%- endif -%}
-        {%- set loop_messages = messages[1:] -%}
+    {%- if ns_sys.leading > 0 -%}
+        {%- for sys_message in messages[:ns_sys.leading] -%}
+            {%- if not loop.first -%}{{- '\n\n' -}}{%- endif -%}
+            {%- if sys_message['content'] is string -%}
+                {{- sys_message['content'] | trim -}}
+            {%- elif sys_message['content'] is sequence -%}
+                {%- for item in sys_message['content'] -%}
+                    {{- item['text'] | trim + ' '-}}
+                {%- endfor -%}
+            {%- endif -%}
+        {%- endfor -%}
+        {%- set loop_messages = messages[ns_sys.leading:] -%}
     {%- endif -%}
     {%- if tools -%}
         {%- for tool in tools %}

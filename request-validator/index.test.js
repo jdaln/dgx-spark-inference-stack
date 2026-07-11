@@ -331,3 +331,85 @@ test("Jackrong reasoning-distilled requests use the smaller Qwen buffer", () => 
   assert.equal(result.max_tokens, expectedMaxTokens);
   assert.equal(result.max_completion_tokens, expectedMaxTokens);
 });
+
+const llamaTargetConfig = {
+  modelId: "llama-3.3-70b-instruct-fp4",
+  maxModelLen: 131072,
+  toolSupport: "full",
+  validatorProfile: "default",
+  multimodal: false,
+  normalizeTextContent: false
+};
+
+test("gemma messages pass through unmodified (structure is owned by the chat template)", () => {
+  const messages = [
+    { role: "system", content: "You are terse." },
+    { role: "system", content: "Answer in French." },
+    { role: "user", content: [{ type: "text", text: "Describe this" }, { type: "image_url", image_url: { url: "data:x" } }] },
+    { role: "assistant", content: "", tool_calls: [{ id: "a", function: { name: "f", arguments: "{}" } }] },
+    { role: "tool", tool_call_id: "a", content: "result-a" },
+    { role: "tool", tool_call_id: "b", content: "result-b" },
+    { role: "user", content: "and again" },
+    { role: "user", content: "with a second user turn" }
+  ];
+
+  const result = runProcess(
+    { model: "gemma4-26b-a4b", messages, max_tokens: 64 },
+    gemmaTargetConfig
+  );
+
+  assert.deepEqual(result.messages, messages);
+});
+
+test("llama with tools gets a system instruction after existing system messages", () => {
+  const result = runProcess(
+    {
+      model: "llama-3.3-70b-instruct-fp4",
+      messages: [
+        { role: "system", content: "You are helpful." },
+        { role: "user", content: "hi" }
+      ],
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "list_files",
+            description: "List files",
+            parameters: {
+              type: "object",
+              properties: {
+                paths: { type: "array", description: "Paths", items: { type: "string" } }
+              }
+            }
+          }
+        }
+      ],
+      max_tokens: 64
+    },
+    llamaTargetConfig
+  );
+
+  assert.equal(result.messages.length, 3);
+  assert.equal(result.messages[0].content, "You are helpful.");
+  assert.equal(result.messages[1].role, "system");
+  assert.match(result.messages[1].content, /raw JSON values/);
+  assert.equal(result.messages[2].role, "user");
+  const params = result.tools[0].function.parameters;
+  assert.match(params.description, /raw JSON, NOT a string/);
+  assert.match(params.properties.paths.description, /raw JSON, NOT a string/);
+});
+
+test("llama without tools passes messages through unmodified", () => {
+  const messages = [
+    { role: "system", content: "You are helpful." },
+    { role: "user", content: "hi" },
+    { role: "user", content: "second consecutive user message" }
+  ];
+
+  const result = runProcess(
+    { model: "llama-3.3-70b-instruct-fp4", messages, max_tokens: 64 },
+    llamaTargetConfig
+  );
+
+  assert.deepEqual(result.messages, messages);
+});

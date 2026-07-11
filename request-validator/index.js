@@ -8,7 +8,7 @@
 // 6. Normalizes multimodal content format for models with incompatible chat templates.
 // 7. Strips tool parameters from models that don't support tool calling (small, VL, math).
 // 8. Forces `tool_choice: required` for models that ignore tools with "auto" (Qwen3-Coder, Qwen2.5-Coder).
-// 9. Fixes role alternation for Gemma/Llama models requiring strict user/assistant turns.
+// 9. Injects tool-calling guidance for Llama models (raw JSON arguments, no over-eager calls).
 // 10. Disables hidden thinking by default for models whose reasoning parser otherwise consumes the visible answer budget.
 // 11. Translates OpenCode-style reasoning-effort controls into binary Qwen thinking flags on the Qwen 3.6 lanes.
 // 12. Proxies the final, validated request to the correct vLLM container.
@@ -325,130 +325,58 @@ function processBody(body, targetConfig, url) {
       }
     }
 
-    // Fix for Gemma/Llama models that require strict role alternation (user/assistant/user...).
-    // This logic handles merging consecutive roles and system prompt injection.
-    if (data.model && (data.model.includes("gemma") || data.model.includes("llama")) && Array.isArray(data.messages)) {
-      let systemContent = "";
-
-      // Extract and remove all system messages
-      data.messages = data.messages.filter(m => {
-        if (m.role === "system") {
-          systemContent += (systemContent ? "\n\n" : "") + (m.content || "");
-          return false;
-        }
-        return true;
-      });
-
-      // Inject Llama specific tool instruction to force raw JSON arguments and prevent over-eager calling
-      if (data.model.includes("llama")) {
-        const toolInstruction = `CRITICAL INSTRUCTIONS:
+    // Llama tool-calling guidance: nudge the model to emit raw JSON arguments
+    // and to not call tools for plain conversation. Message structure (system
+    // turns, role order, multimodal parts) is owned by the chat templates;
+    // Gemma structure handling lives in shared/tool_chat_template_gemma4.jinja.
+    if (data.model && data.model.includes("llama") && Array.isArray(data.messages) && Array.isArray(data.tools) && data.tools.length > 0) {
+      const toolInstruction = `CRITICAL INSTRUCTIONS:
 1. When calling tools, you must provide array and object arguments as raw JSON values (e.g. [1, 2] or {"key": "value"}), NOT as JSON strings. Do not quote these values.
 2. If the user greets you (e.g. "Hi", "Hello"), reply with text. Do NOT call tools unless specifically needed for a task.`;
-        systemContent += (systemContent ? "\n\n" : "") + toolInstruction;
-        log(`Injected strict tool instruction for Llama calling fix: ${data.model}`);
 
-        // Also rewrite tool definitions to explicitly warn against stringification
-        if (data.tools && Array.isArray(data.tools)) {
-          const warnText = " (Provide as raw JSON, NOT a string)";
+      // Insert after any leading system messages; the Llama template supports
+      // multiple system turns natively.
+      let insertAt = 0;
+      while (insertAt < data.messages.length && data.messages[insertAt].role === "system") insertAt++;
+      data.messages.splice(insertAt, 0, { role: "system", content: toolInstruction });
+      log(`Injected strict tool instruction for Llama calling fix: ${data.model}`);
 
-          // Helper to recursively update schema descriptions
-          const updateSchema = (schema) => {
-            if (!schema || typeof schema !== 'object') return;
+      // Also rewrite tool definitions to explicitly warn against stringification
+      const warnText = " (Provide as raw JSON, NOT a string)";
 
-            if (schema.type === 'array' || schema.type === 'object') {
-              if (schema.description && !schema.description.includes(warnText)) {
-                schema.description += warnText;
-              } else if (!schema.description) {
-                schema.description = "Provide as raw JSON, NOT a string";
-              }
-            }
+      // Helper to recursively update schema descriptions
+      const updateSchema = (schema) => {
+        if (!schema || typeof schema !== 'object') return;
 
-            if (schema.properties) {
-              for (const key in schema.properties) {
-                updateSchema(schema.properties[key]);
-              }
-            }
-            if (schema.items) {
-              updateSchema(schema.items);
-            }
-          };
-
-          for (const tool of data.tools) {
-            // Update parameter descriptions
-            if (tool.function && tool.function.parameters) {
-              updateSchema(tool.function.parameters);
-            }
-            // Specific fix for 'question' tool to prevent over-eager usage
-            if (tool.function && tool.function.name === 'question') {
-              tool.function.description += " Only use this tool if you need to gather specific information for a task. Do not use for general greetings.";
-            }
-          }
-          log(`Rewrote tool descriptions for Llama model: ${data.model}`);
-        }
-      }
-
-      // Merge consecutive messages with the same role
-      const mergedMessages = [];
-      for (const msg of data.messages) {
-        if (mergedMessages.length > 0 && mergedMessages[mergedMessages.length - 1].role === msg.role) {
-          // Merge content with the previous message of the same role
-          const prev = mergedMessages[mergedMessages.length - 1];
-          if (typeof prev.content === "string" && typeof msg.content === "string") {
-            prev.content += "\n\n" + msg.content;
-          } else {
-            // Handle cases where content might be an array or other format
-            prev.content = String(prev.content) + "\n\n" + String(msg.content);
-          }
-          log(`Merged consecutive ${msg.role} messages for Gemma`);
-        } else {
-          mergedMessages.push({ ...msg });
-        }
-      }
-      data.messages = mergedMessages;
-
-      // Prepend system content to the first user message
-      if (systemContent) {
-        log(`Found system prompt for ${data.model}, merging into user message.`);
-        const prefix = `[System Instruction]\n${systemContent}\n\n`;
-
-        if (data.messages.length > 0 && data.messages[0].role === "user") {
-          if (typeof data.messages[0].content === "string") {
-            data.messages[0].content = prefix + data.messages[0].content;
-          } else if (Array.isArray(data.messages[0].content)) {
-            data.messages[0].content.unshift({ type: "text", text: prefix });
-          }
-        } else {
-          // Insert a new user message at the beginning with system content
-          data.messages.unshift({ role: "user", content: prefix.trim() });
-        }
-      }
-
-      // Ensure conversation starts with a user message
-      if (data.messages.length === 0) {
-        log(`Empty messages array for ${data.model}, adding placeholder user message`);
-        data.messages.push({ role: "user", content: "Hi" });
-      } else if (data.messages[0].role !== "user") {
-        log(`First message is not user for ${data.model}, inserting placeholder`);
-        data.messages.unshift({ role: "user", content: " " });
-      }
-
-      // Fix alternation: if two consecutive messages have the same role, insert a placeholder
-      const fixedMessages = [];
-      for (let i = 0; i < data.messages.length; i++) {
-        const msg = data.messages[i];
-        if (fixedMessages.length > 0) {
-          const lastRole = fixedMessages[fixedMessages.length - 1].role;
-          if (lastRole === msg.role) {
-            // Insert a placeholder message to fix alternation
-            const placeholderRole = lastRole === "user" ? "assistant" : "user";
-            const placeholderContent = placeholderRole === "assistant" ? "Understood." : "Continue.";
-            log(`Inserting ${placeholderRole} placeholder to fix alternation for ${data.model}`);
-            fixedMessages.push({ role: placeholderRole, content: placeholderContent });
+        if (schema.type === 'array' || schema.type === 'object') {
+          if (schema.description && !schema.description.includes(warnText)) {
+            schema.description += warnText;
+          } else if (!schema.description) {
+            schema.description = "Provide as raw JSON, NOT a string";
           }
         }
-        fixedMessages.push(msg);
+
+        if (schema.properties) {
+          for (const key in schema.properties) {
+            updateSchema(schema.properties[key]);
+          }
+        }
+        if (schema.items) {
+          updateSchema(schema.items);
+        }
+      };
+
+      for (const tool of data.tools) {
+        // Update parameter descriptions
+        if (tool.function && tool.function.parameters) {
+          updateSchema(tool.function.parameters);
+        }
+        // Specific fix for 'question' tool to prevent over-eager usage
+        if (tool.function && tool.function.name === 'question') {
+          tool.function.description += " Only use this tool if you need to gather specific information for a task. Do not use for general greetings.";
+        }
       }
-      data.messages = fixedMessages;
+      log(`Rewrote tool descriptions for Llama model: ${data.model}`);
     }
 
     const maxModelLen = targetConfig?.maxModelLen || 131072; // Default fallback

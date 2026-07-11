@@ -79,7 +79,7 @@ The stack consists of four main components:
    - If the requested model is `lifecycle: "exclusive"` and the utility helper is running, stop the utility helper first
    - Is `qwen3.6-35b-a3b-fp8-mtp` already running? → Check health
    - Otherwise → Start container and wait for health
-5. If healthy: Waker returns 200, request validator fixes/validates the request (token capping, role alternation, tool stripping), then proxies to the vLLM container
+5. If healthy: Waker returns 200, request validator fixes/validates the request (token capping, tool stripping, Llama tool guidance), then proxies to the vLLM container; message structure (system turns, role order) is owned by the per-model chat templates
 6. If busy/starting: Request validator forwards the 429 response with model status and `Retry-After` header back to the client
 
 ### Lifecycle Management

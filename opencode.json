@@ -139,6 +139,90 @@
                         "output": 8192
                     }
                 },
+                "huihui-qwen3.6-27b-abliterated": {
+                    "name": "Huihui Qwen 3.6 27B Abliterated",
+                    "reasoning": true,
+                    "tool_call": true,
+                    "experimental": true,
+                    "limit": {
+                        "context": 200000,
+                        "output": 8192
+                    }
+                },
+                "huihui-qwen3.6-35b-a3b-claude-4.7-opus-abliterated": {
+                    "name": "Huihui Qwen 3.6 35B A3B Opus Abliterated",
+                    "reasoning": true,
+                    "tool_call": true,
+                    "experimental": true,
+                    "limit": {
+                        "context": 240000,
+                        "output": 8192
+                    }
+                },
+                "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled": {
+                    "name": "Jackrong Qwen 3.5 35B A3B Opus Distilled",
+                    "reasoning": true,
+                    "tool_call": true,
+                    "experimental": true,
+                    "limit": {
+                        "context": 240000,
+                        "output": 8192
+                    }
+                },
+                "qwen3.5-122b-a10b-int4-autoround": {
+                    "name": "Qwen 3.5 122B A10B AutoRound",
+                    "tool_call": true,
+                    "experimental": true,
+                    "limit": {
+                        "context": 200000,
+                        "output": 8192
+                    }
+                },
+                "nemotron-3-nano-30b-nvfp4": {
+                    "name": "Nemotron 3 Nano 30B",
+                    "tool_call": true,
+                    "experimental": true,
+                    "limit": {
+                        "context": 110000,
+                        "output": 8192
+                    }
+                },
+                "dolphin-mistral-24b-venice-fp8": {
+                    "name": "Dolphin Mistral 24B Venice",
+                    "tool_call": true,
+                    "experimental": true,
+                    "limit": {
+                        "context": 100000,
+                        "output": 8192
+                    }
+                },
+                "glm-4-9b-chat": {
+                    "name": "GLM-4 9B Chat",
+                    "tool_call": true,
+                    "experimental": true,
+                    "limit": {
+                        "context": 28000,
+                        "output": 4096
+                    }
+                },
+                "qwen2.5-coder-7b-instruct": {
+                    "name": "Qwen 2.5 Coder 7B",
+                    "tool_call": true,
+                    "experimental": true,
+                    "limit": {
+                        "context": 28000,
+                        "output": 4096
+                    }
+                },
+                "qwen2.5-vl-7b": {
+                    "name": "Qwen 2.5 VL 7B",
+                    "tool_call": false,
+                    "experimental": true,
+                    "limit": {
+                        "context": 28000,
+                        "output": 4096
+                    }
+                },
                 "qwen3.5-0.8b": {
                     "name": "Qwen 3.5 0.8B Utility",
                     "limit": {

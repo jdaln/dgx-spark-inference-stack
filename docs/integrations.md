@@ -42,7 +42,7 @@ To use this stack with [OpenCode](https://github.com/opencode-ai/opencode), foll
 ### Quick Start
 
 1. **Use the included configuration** (`opencode.json` in project root):
-  The repository includes a curated `opencode.json` using the `dgx` provider — intentionally **not** a mirror of every model in the repo: the conservative defaults `gpt-oss-20b`, `gpt-oss-120b`, and `glm-4.7-flash-awq`, the small `qwen3.5-0.8b` utility helper, and a set of explicitly experimental opt-in entries. The checked-in `model` is `dgx/gemma4-26b-a4b` — explicitly experimental, but the recommended multimodal choice here given its multimodal and tool-calling evidence in OpenCode on this stack. See [the model guide](./models.md) for the rest.
+  The repository includes a curated `opencode.json` using the `dgx` provider. It lists every lane that is known to run on this stack (validated defaults, live-validated experimental lanes, and the smoke-tested small models) with conservative per-model context ceilings; lanes with no validation evidence are deliberately absent. The checked-in `model` is `dgx/gemma4-26b-a4b` — explicitly experimental, but the recommended multimodal choice here given its multimodal and tool-calling evidence in OpenCode on this stack. See [the model guide](./models.md) for the rest.
 
 2. **If your endpoint or API key is different, edit the provider block**:
   Update `provider.dgx.options.baseURL` and `provider.dgx.options.apiKey` in `opencode.json` before launching OpenCode.
@@ -97,7 +97,7 @@ To switch the active models, edit the `model` and `small_model` fields in `openc
 | `model` | `dgx/qwen3.6-27b-fp8` | `240000` | Smaller Qwen 3.6 baseline with the same official recipe family |
 | `small_model` | `dgx/qwen3.5-0.8b` | `8192` | Validated utility helper for session titles |
 
-The shipped file also contains a small set of explicitly experimental opt-in entries, including the Gemma variants, Qwen 3.6 lanes, Huihui Qwen lane, and Qwen coder-next lane. Use the limits already encoded in `opencode.json`, then cross-check [the model guide](./models.md) before promoting one of them to your daily default.
+The shipped file also contains the explicitly experimental opt-in entries (Gemma variants, Qwen 3.6 lanes, Huihui/Jackrong Qwen lanes, coder-next, Nemotron, Dolphin, and the smoke-tested small models). Use the limits already encoded in `opencode.json`, then cross-check [the model guide](./models.md) before promoting one of them to your daily default.
 
 > [!IMPORTANT]
 > The `opencode.json` limits are **OpenCode-safe guidance**, not raw server maxima. For the currently validated `131072`-class models in the shipped config, the repo now uses `108000` as the conservative client-facing ceiling. That leaves room for prompt wrapper overhead, validator safety margin, and a real completion instead of a one-token answer near the hard cap.
@@ -113,3 +113,20 @@ The shipped file also contains a small set of explicitly experimental opt-in ent
 
 > [!TIP]
 > For remote access, ensure you've set up SSH port forwarding for port `8009` as described in the [Remote Access section](./security.md#remote-access--ssh-hardening).
+
+## Pi Integration Guide
+
+To use this stack with the [pi coding agent](https://pi.dev), copy the shipped provider config into pi's model registry:
+
+```bash
+mkdir -p ~/.pi/agent
+cp integrations/pi/models.json ~/.pi/agent/models.json
+```
+
+Then pick a `dgx/` model inside pi. The file mirrors the OpenCode roster: every lane known to run on this stack, with the same conservative context ceilings (`contextWindow`) and completion budgets (`maxTokens`), plus `input: ["text", "image"]` on the multimodal lanes.
+
+Notes:
+- If you already have entries in `~/.pi/agent/models.json`, merge the `dgx` provider block instead of overwriting the file.
+- The shipped `apiKey` is the repo's default token. If you changed `VLLM_API_KEY`, either edit the value or replace it with `"$VLLM_API_KEY"` — pi resolves `$VAR` from the environment.
+- `reasoning: true` marks the lanes where the request validator maps reasoning-effort controls onto Qwen/Gemma thinking flags; the stack still defaults them to non-thinking for reliable visible output.
+- For remote use, the same SSH port-forward of `8009` applies.

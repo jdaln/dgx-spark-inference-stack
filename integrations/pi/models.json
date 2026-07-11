@@ -1,0 +1,209 @@
+{
+  "providers": {
+    "dgx": {
+      "baseUrl": "http://localhost:8009/v1",
+      "api": "openai-completions",
+      "apiKey": "63TestTOKEN0REPLACEME",
+      "models": [
+        {
+          "id": "gpt-oss-20b",
+          "name": "GPT-OSS 20B",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 108000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "gpt-oss-120b",
+          "name": "GPT-OSS 120B",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 108000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "glm-4.7-flash-awq",
+          "name": "GLM-4.7 Flash AWQ",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 108000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "gemma4-26b-a4b",
+          "name": "Gemma 4 26B A4B",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 240000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "huihui-gemma4-e2b-abliterated",
+          "name": "Huihui Gemma 4 E2B Abliterated",
+          "reasoning": true,
+          "input": ["text", "image"],
+          "contextWindow": 120000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "qwen3.6-27b-fp8",
+          "name": "Qwen 3.6 27B FP8",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 240000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "qwen3.6-27b-fp8-mtp",
+          "name": "Qwen 3.6 27B FP8 MTP",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 240000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "qwen3.6-35b-a3b-fp8",
+          "name": "Qwen 3.6 35B A3B FP8",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 240000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "qwen3.6-35b-a3b-fp8-mtp",
+          "name": "Qwen 3.6 35B A3B FP8 MTP",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 240000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "qwen3.6-35b-a3b-opus-distilled",
+          "name": "Qwen 3.6 35B A3B Opus Distilled",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 240000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "huihui-qwen3.6-27b-abliterated",
+          "name": "Huihui Qwen 3.6 27B Abliterated",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 200000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "huihui-qwen3.6-35b-a3b-claude-4.7-opus-abliterated",
+          "name": "Huihui Qwen 3.6 35B A3B Opus Abliterated",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 240000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "huihui-qwen3.5-35b-a3b-abliterated",
+          "name": "Huihui Qwen 3.5 35B A3B Abliterated",
+          "reasoning": false,
+          "input": ["text", "image"],
+          "contextWindow": 200000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled",
+          "name": "Jackrong Qwen 3.5 35B A3B Opus Distilled",
+          "reasoning": true,
+          "input": ["text"],
+          "contextWindow": 240000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "qwen3.5-122b-a10b-int4-autoround",
+          "name": "Qwen 3.5 122B A10B AutoRound",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 200000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "qwen3-coder-next-int4-autoround",
+          "name": "Qwen3 Coder-Next AutoRound",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 524000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "nemotron-3-nano-30b-nvfp4",
+          "name": "Nemotron 3 Nano 30B",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 110000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "dolphin-mistral-24b-venice-fp8",
+          "name": "Dolphin Mistral 24B Venice",
+          "reasoning": false,
+          "input": ["text", "image"],
+          "contextWindow": 100000,
+          "maxTokens": 8192,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "glm-4-9b-chat",
+          "name": "GLM-4 9B Chat",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 28000,
+          "maxTokens": 4096,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "qwen2.5-coder-7b-instruct",
+          "name": "Qwen 2.5 Coder 7B",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 28000,
+          "maxTokens": 4096,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "qwen2.5-vl-7b",
+          "name": "Qwen 2.5 VL 7B",
+          "reasoning": false,
+          "input": ["text", "image"],
+          "contextWindow": 28000,
+          "maxTokens": 4096,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "qwen3.5-0.8b",
+          "name": "Qwen 3.5 0.8B Utility",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 8192,
+          "maxTokens": 2048,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}

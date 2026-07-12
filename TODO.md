@@ -1,5 +1,38 @@
 # TODOs
 
+## gemma4 lanes: empty (`<pad>`) answers for complex tasks at ~240k context in non-thinking mode
+
+**Symptom (found 2026-07-12):** `node tools/soak-context.mjs --model gemma4-26b-a4b --target-prompt-tokens 240000 --concurrency 5` returns HTTP 200 for all requests, but every response is 1024 `<pad>` tokens (`finish_reason: "length"`, `contentLength: 0`). Also reproduces solo (`--concurrency 1`). Regression vs the April validation recorded in `models.json`.
+
+**Investigation results (2026-07-12):**
+- There were **two stacked problems**. The first is fixed:
+  1. **Prefix-cache poisoning (FIXED):** with `--enable-prefix-caching` + fp8 KV cache, a failing long-context soak corrupted reused KV blocks — afterwards even 32k requests padded out until container restart (exact-prefix cache hits padded; one-token-perturbed cache misses were clean). Removed `--enable-prefix-caching` from all three gemma lanes in `compose/models-gemma.yml` (26b validated live; e2b/31b changed without testing). With the flag gone, a failing soak no longer poisons subsequent requests.
+  2. **Long-context capability collapse (OPEN):** even without prefix caching, the 240k soak still pads out. Isolation matrix (all at ~243k prompt tokens, temperature 0):
+     - unique random text + trivial task ("reply FULL OK"), non-thinking scaffold → **clean**
+     - soak prompt (repetitive stack-docs bundle) + complex analytical task, non-thinking scaffold → **pads**
+     - identical soak prompt with `chat_template_kwargs: {"enable_thinking": true}` → **clean, coherent analysis**
+     - identical soak prompt at 32k → clean.
+- **Non-thinking knee (measured 2026-07-12):** same complex soak prompt, non-thinking: 64k clean, 128k clean, **192k pads**. So the collapse sets in between ~130k and ~195k prompt tokens.
+- The pre-closed empty thought scaffold (`<|channel>thought\n<channel|>`) is identical in the stock and custom templates, so this is not a template regression; the custom template (added in bbe1968, June 3) renders byte-identical generation prompts here.
+- Suspect: numerical degradation at extreme context with fp8 attention — vLLM warns at startup: "Using uncalibrated q_scale 1.0 and/or prob_scale 1.0 with fp8 attention. This may cause accuracy issues." Forcing a direct answer (no thinking) on a hard task at 240k collapses to `<pad>`; letting the model think first re-anchors it.
+
+**Options for the open problem:**
+1. Treat long-context complex tasks as thinking-required on this lane: clients pass `chat_template_kwargs: {"enable_thinking": true}` (with a bigger `max_tokens` budget); document the non-thinking ceiling of ~128k (measured; bisect 128k–192k for the exact knee if needed). Update `models.json` notes accordingly. `tools/soak-context.mjs` now supports `--enable-thinking` to validate this mode.
+2. Test `--kv-cache-dtype auto` (and/or non-fp8 attention) to see whether precision restores non-thinking answers at 240k. Costs KV capacity — likely halves the concurrent long-context envelope.
+3. Try providing calibrated k/v/q scales (requantized checkpoint) or a newer vLLM in the `vllm-node-tf5-gemma4` overlay — larger effort, upstream may have fixed fp8-attention scaling.
+
+**Remaining follow-ups:**
+- Re-run `node tools/soak-context.mjs --model gemma4-26b-a4b --target-prompt-tokens 240000 --concurrency 5 --enable-thinking` (with `--max-tokens` raised, e.g. 2048, since thinking consumes budget) to confirm the thinking path passes the original soak.
+- Soak-tool improvement ideas: fail fast with an explicit "all-pad/empty content" verdict instead of just `meetsContentFloor: false`; optionally run a post-soak small-context probe to detect lane poisoning; support a per-request unique filler salt to separate cache-hit vs cache-miss behavior.
+- Update `models.json` gemma4-26b-a4b notes (currently claim 243k×5 pass; reality: non-thinking ceiling ~128k, thinking mode OK at 243k solo — concurrency 5 with thinking not yet validated).
+
+---
+
+## Gateway auth layering: invalid bearer tokens can enumerate model IDs
+
+The gateway only checks that an `Authorization` header is present; the actual API key is verified by the vLLM container. A request with a wrong token (`Authorization: Bearer wrong`) still reaches the request-validator and receives `model_not_found` vs routing, letting an unauthenticated caller probe which model IDs are configured. Consider validating the token at the gateway or validator before any model lookup.
+
+---
 
 ### Test Ollama Integration (OpenAI API Compatibility)
 

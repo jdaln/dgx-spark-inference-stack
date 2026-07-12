@@ -40,12 +40,13 @@ const DEFAULTS = {
   temperature: 0,
   stream: false,
   disableThinking: false,
+  enableThinking: false,
   semanticProfile: null,
 };
 
 function usage() {
   console.error(
-    "usage: soak-context.mjs --target-prompt-tokens N [--model ID] [--concurrency N] [--requests N] [--max-tokens N] [--min-completion-tokens N] [--min-content-chars N] [--disable-thinking] [--semantic-profile NAME] [--calibration-max-tokens N] [--request-timeout-seconds N] [--filler TEXT|--filler-file PATH] [--prompt-prefix TEXT|--prompt-prefix-file PATH] [--prompt-suffix TEXT|--prompt-suffix-file PATH] [--url URL] [--api-key KEY]"
+    "usage: soak-context.mjs --target-prompt-tokens N [--model ID] [--concurrency N] [--requests N] [--max-tokens N] [--min-completion-tokens N] [--min-content-chars N] [--disable-thinking] [--enable-thinking] [--semantic-profile NAME] [--calibration-max-tokens N] [--request-timeout-seconds N] [--filler TEXT|--filler-file PATH] [--prompt-prefix TEXT|--prompt-prefix-file PATH] [--prompt-suffix TEXT|--prompt-suffix-file PATH] [--url URL] [--api-key KEY]"
   );
   console.error(`default repeatable filler file: ${DEFAULT_BUNDLED_FILLER_RELATIVE_PATH}`);
   console.error(`default semantic profile for built-in prompt: ${DEFAULT_SEMANTIC_PROFILE}`);
@@ -86,6 +87,9 @@ function parseArgs(argv) {
         break;
       case "--disable-thinking":
         config.disableThinking = true;
+        break;
+      case "--enable-thinking":
+        config.enableThinking = true;
         break;
       case "--semantic-profile":
         config.semanticProfile = argv[++index];
@@ -274,6 +278,13 @@ async function sendRequest(config, promptText, maxTokens = config.maxTokens) {
     payload.chat_template_kwargs = {
       enable_thinking: false,
       thinking: false,
+    };
+  } else if (config.enableThinking) {
+    // Some lanes (e.g. gemma4 fp8 at very long context) only answer complex
+    // tasks reliably when the thinking channel is open; see TODO.md.
+    payload.chat_template_kwargs = {
+      enable_thinking: true,
+      thinking: true,
     };
   }
 
@@ -475,6 +486,7 @@ async function main() {
       minCompletionTokens: config.minCompletionTokens,
       minContentChars: config.minContentChars,
       disableThinking: config.disableThinking,
+      enableThinking: config.enableThinking,
       semanticProfile: config.semanticProfile,
       requestTimeoutSeconds: config.requestTimeoutSeconds,
       url: config.url,

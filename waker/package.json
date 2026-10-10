@@ -6,7 +6,7 @@
     "test": "node --test test/*.test.js"
   },
   "dependencies": {
-    "express": "^4.22.1",
+    "express": "^5.0.0",
     "http-proxy-middleware": "^2.0.9",
     "undici": "^6.25.0"
   }

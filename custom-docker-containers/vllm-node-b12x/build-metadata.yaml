@@ -1,0 +1,32 @@
+# Provenance for vllm-node-b12x
+image_tag: vllm-node-b12x
+built_on: 2026-10-09
+gpu_arch: 12.1a   # GB10 / sm_121
+
+# Built by the upstream helper from the B12X forks of vLLM and FlashInfer. The pinned commits
+# and the patch below make the build reproducible.
+upstream_repo: https://github.com/eugr/spark-vllm-docker
+upstream_commit: a4c172976a5f9f8669b356a0891bf972cae14fd4
+build_command: bash build-and-copy.sh -t vllm-node-b12x --exp-b12x --rebuild-vllm --rebuild-flashinfer --flashinfer-ref 2f5210dd1566a8dfef754f68691b898b8d870244
+
+vllm_repo: https://github.com/local-inference-lab/vllm
+vllm_commit: 740e3776b4d645733fe4f8b90809fddea2f82b96   # was branch dev/karmic-kraken
+vllm_version: 0.1.dev21810+g740e3776b
+flashinfer_repo: https://github.com/local-inference-lab/flashinfer
+flashinfer_commit: 2f5210dd1566a8dfef754f68691b898b8d870244
+flashinfer_version: 0.7.1
+# The b12x kernels ship in FlashInfer (flashinfer/experimental/b12x). On 2026-10-09 this
+# commit was ahead of flashinfer-ai/flashinfer main, and no release included them.
+b12x_source: flashinfer/experimental/b12x
+
+# The local nvcr.io copy of NVIDIA's CUDA image, tagged with the name the Dockerfile uses.
+base_image: nvidia/cuda:13.0.2-devel-ubuntu24.04   # = nvcr.io/nvidia/cuda:13.0.2-devel-ubuntu24.04
+
+local_delta:
+  - b12x-build.patch   # pins the vLLM fork commit; tiktoken COPY instead of a mid-build wget;
+                       # no Rust toolchain (the fork's Rust frontend is optional and off by default)
+
+runtime:
+  checkpoint: local-inference-lab/Qwen3.8-Flash-Next-NVFP4
+  checkpoint_revision: 6c01ac378d22f6652c9f392c87700496eca8e5dc
+  seccomp: seccomp-io-uring.json   # Docker default profile (moby/profiles 6fe7deb1b) + io_uring

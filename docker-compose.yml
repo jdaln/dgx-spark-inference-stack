@@ -1,14 +1,9 @@
+# Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
 include:
   - compose/models-gpt.yml
   - compose/models-qwen.yml
-  - compose/models-mistral.yml
-  - compose/models-glm.yml
   - compose/models-gemma.yml
-  - compose/models-nemotron.yml
-  - compose/models-llama.yml
-  # - compose/models-phi.yml
-  # - compose/models-deepseek.yml
-  # - compose/models-experimental.yml
+  - compose/models-liquid.yml
 
 services:
   waker:
@@ -16,17 +11,18 @@ services:
       context: .
       dockerfile: ./waker/Dockerfile
     container_name: vllm-waker
+    # Node as PID 1 ignores SIGTERM; tini forwards it so stops take seconds, not the 10 s timeout.
+    init: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     read_only: true
     tmpfs:
       - /tmp:noexec,nosuid,size=10m
-#    ports: ["18080:18080"] #debug
     environment:
       PORT: "18080"
       MANAGE_PREFIX: "vllm-"
       IGNORE_NAMES: "vllm-gateway,vllm-waker,vllm-request-validator"
-      IDLE_STOP_SECONDS: "1200" # 20mn for slow models
+      IDLE_STOP_SECONDS: "1200"
       NO_STOP_BEFORE_SECONDS: "30"
       HEALTH_TIMEOUT_MS: "900000"
       DOCKER_STOP_TIMEOUT_SECONDS: "5"
@@ -43,6 +39,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./stats:/stats
       - ./models.json:/config/models.json:ro
+      # Read-only, to refuse a lane whose weights are missing before starting it.
+      - ./models:/models:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:18080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -51,13 +49,13 @@ services:
       retries: 5
     networks:
       - vllm_internal
-#      - default #debug
 
   request-validator:
     build:
       context: .
       dockerfile: ./request-validator/Dockerfile
     container_name: vllm-request-validator
+    init: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     read_only: true
@@ -66,6 +64,7 @@ services:
     environment:
       PORT: "18081"
       VERBOSE: ${WAKER_VERBOSE:-0}
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
     logging:
       driver: ${DOCKER_LOG_DRIVER:-json-file}
       options:

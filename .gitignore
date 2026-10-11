@@ -6,7 +6,7 @@ media/
 stats/
 !stats/.gitkeep
 
-# IDES
+# IDEs
 .vscode/
 .idea/
 *.swp
@@ -29,7 +29,8 @@ docker-compose.override.yml
 *.old
 *.bak
 
-# Caches not covered by vllm_*/
+# Runtime caches
+cache/
 flashinfer_cache/
 torch_extensions/
 torchinductor/

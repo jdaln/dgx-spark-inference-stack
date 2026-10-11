@@ -2,7 +2,7 @@
   "name": "request-validator",
   "version": "1.0.0",
   "type": "module",
-  "description": "Request validator middleware to fix negative max_tokens",
+  "description": "Gateway request validator and model router",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -10,6 +10,6 @@
   },
   "keywords": [],
   "author": "",
-  "license": "MIT"
+  "license": "AGPL-3.0-or-later"
 }
 

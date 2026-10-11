@@ -1,295 +1,74 @@
-# Model Selection Guide
+# Models
 
-Choose the right model for your task to balance performance and speed.
+The models the stack serves and the limits that matter in use. The inventory is
+[models.json](../models.json); if this page and `models.json` disagree, `models.json` is right.
 
-> [!WARNING]
-> This document is **100% AI generated** and might need improvements.
+Model containers run offline. Download a model's weights before its first request:
+`bash tools/download-weights.sh <model-id>`.
 
-> [!IMPORTANT]
-> Current status vocabulary in this repo:
-> - **Validated main models**: `gpt-oss-20b`, `gpt-oss-120b`, and `glm-4.7-flash-awq`
-> - **Validated utility helper**: `qwen3.5-0.8b` for titles/session metadata
-> - **Experimental**: everything else until the current harness re-validates it
-> - **Manual-only on this host**: `gemma4-31b`, which is currently too slow for interactive use and is intentionally omitted from the shipped OpenCode config
->
-> That means availability in compose or `models.json` does **not** automatically mean “recommended default”.
+| Model | Image | Context | Images | Lifecycle | Notes |
+|---|---|---:|---|---|---|
+| `qwen3.8-27b-nvfp4-dflash2` | DFlash2 | 262144 | yes | | Default. Thinking on. ~30 tok/s. |
+| `qwen3.8-flash-next-nvfp4` | B12X | 262144 | yes | exclusive | Hardest questions. ~49 tok/s. |
+| `gemma4-26b-a4b` | B12X | 262144 | yes | | Multilingual. ~76 tok/s. |
+| `gemma4-31b` | B12X | 180224 | yes | exclusive | Dense 31B. ~24 tok/s. |
+| `gpt-oss-20b` | MXFP4 | 131072 | | | Fast, smaller. |
+| `gpt-oss-120b` | MXFP4 | 131072 | | | General chat. |
+| `huihui-gpt-oss-120b-mxfp4-abliterated` | MXFP4 | 131072 | | | Abliterated GPT-OSS 120B. |
+| `huihui-qwen3.8-27b-abliterated-nvfp4` | DFlash2 | 262144 | yes | | Abliterated Qwen3.8 27B. ~27 tok/s. |
+| `huihui-qwen3.8-27b-abliterated` | DFlash2 | 262144 | yes | | BF16 reference for the lane above. Not for serving. |
+| `lfm2.5-1.2b` | DFlash2 | 32768 | | utility | Titles, tagging. Stays loaded. |
 
-If you only want the current recommended defaults, stop at the next section. Everything after that is the broader catalog for deliberate opt-in.
+All models support tool calling except `lfm2.5-1.2b`.
 
-## Quick chooser (what to use for what)
+- **Context**: served `max_model_len`. A soaked client ceiling, when lower, is in the
+  model's `notes`.
+- **exclusive**: takes the GPU alone; the utility helper is stopped while it runs.
+- **utility**: stays loaded next to one main model.
 
-### ✅ Start here unless you have a specific reason not to
-- **`gpt-oss-20b`** → best default chat / general assistant
-- **`gpt-oss-120b`** → best overall quality when latency is acceptable
-- **`glm-4.7-flash-awq`** → validated long-context coding/chat path on the current harness
-- **`qwen3.5-0.8b`** → validated small utility helper for titles, tagging, and session metadata
+## Constraints
 
-### 🏁 Current OSS SOTA opt-in families
-- **`qwen3.6-35b-a3b-fp8-mtp`** → leading OSS SOTA long-context text/tool lane on this host when you want the best measured Qwen 3.6 latency
-- **`qwen3.6-35b-a3b-fp8`** → same Qwen 3.6 family without MTP if you want the simpler baseline
-- **`qwen3.6-27b-fp8`** and **`qwen3.6-27b-fp8-mtp`** → smaller official Qwen 3.6 baselines with the same Spark Arena-style recipe shape
-- **`gemma4-26b-a4b`** → OSS SOTA multimodal/tool-capable lane for its size class on this host
+### Qwen3.8 models
 
-### ⚗️ Other deliberate opt-in experiments
-- **Reasoning:** `qwen3-next-80b-a3b-thinking-fp4`, `deepseek-r1-distill-qwen-32b`, `phi-4-reasoning-plus-fp4`, `nemotron-3-nano-30b-nvfp4`
-- **Coding:** `qwen3-coder-30b-a3b-instruct`, `qwen2.5-coder-7b-instruct`, `qwen3-coder-next-int4-autoround`
-- **Vision / multimodal:** `huihui-gemma4-e2b-abliterated`, `qwen3-vl-32b-instruct-fp4`, `qwen3-vl-30b-thinking-instruct`, `glm-4.6v-flash-fp4`, `phi-4-multimodal-instruct-fp4`, `qwen2.5-vl-7b`
-- **Other long-context / recipe experiments:** `huihui-qwen3.5-35b-a3b-abliterated`
-- **Other specialist lanes:** `deepseek-ocr`, `eurollm-22b-instruct-fp4`, `step-audio-r1-fp4` (disabled), `gemma4-31b` (manual-only on this host)
+- Thinking is on by default. `reasoning_effort` takes `low`, `medium` and `xhigh`. The
+  validator maps `high` to `xhigh` and `none` to thinking off, and applies `medium` when the
+  request sets no effort. Send `high` or `xhigh` for complex tasks.
+- The thinking text is in `message.reasoning`, not `message.reasoning_content`.
+- Long context with thinking is slow: about 850 s per request at 246k prompt tokens, 2 at a
+  time. The gateway timeout is 1200 s, and the margin shrinks with more concurrent requests.
+- `min_p` and `logit_bias` are rejected: speculative decoding ignores them.
 
-The full catalog below still documents the broader model set. Treat those entries as availability notes, not as implicit promotion to default status.
+### `qwen3.8-flash-next-nvfp4`
 
----
+Reads part of its weights from disk with io_uring. The host must allow io_uring
+(`/proc/sys/kernel/io_uring_disabled` = 0), and the container runs a custom seccomp profile.
+Create the container from the repo root (`tools/run-model.sh` does). See
+[security.md](security.md#seccomp).
 
-## Model Details
+### Gemma 4 models
 
-### OpenAI GPT-OSS (general-purpose text)
+- Thinking is off by default. `reasoning_effort: "none"` keeps it off, any other value turns
+  it on. `chat_template_kwargs.enable_thinking` overrides both.
+- Startup compilation may need host swap: see
+  [troubleshooting.md](troubleshooting.md#host-ram-pressure-during-startup).
 
-- `vllm-oss20b` → served as **`gpt-oss-20b`**
-  - **Type:** general-purpose text
-  - **Best for:** everyday assistant, summarization, RAG answers, email drafting, planning
-  - **Strengths:** strong quality/latency balance, reliable instruction-following
-  - **Tradeoffs:** not the absolute best at deep multi-step reasoning
-  - **Endpoints:**
-    - ✅ `/v1/responses` *(tool use: browsing, python, MCP)*
-    - ✅ `/v1/chat/completions` *(reasoning + text output)*
-    - ✅ `/v1/completions` *(simple I/O)*
+### Abliterated models
 
-    **Example: Tool Use Request**
-    ```bash
-    curl -sS -X POST http://localhost:8009/v1/gpt-oss-20b/responses \
-      -H "Content-Type: application/json" \
-      -H "Authorization: Bearer ${VLLM_API_KEY}" \
-      -d '{
-        "model": "gpt-oss-20b",
-        "input": [
-          {
-            "role": "user",
-            "content": [
-              { "type": "text", "text": "Search for latest AI news" }
-            ]
-          }
-        ]
-      }'
-    ```
+`huihui-qwen3.8-27b-abliterated-nvfp4` is a third-party requant, checked against the BF16
+original by behaviour. It sometimes follows instructions injected into tool output and
+invents missing tool arguments. Start the BF16 lane by hand only to re-check the requant.
 
-- `vllm-oss120b` → served as **`gpt-oss-120b`**
-  - **Type:** large general-purpose text
-  - **Best for:** best answer quality, harder writing + synthesis, complex instruction-following
-  - **Strengths:** higher ceiling than 20B for tricky prompts
-  - **Tradeoffs:** slower + more expensive
-  - **Endpoints:** same as `gpt-oss-20b`
+`huihui-gpt-oss-120b-mxfp4-abliterated` returns an empty tool call about 1 time in 5: it
+sends its call token without a call. Clients that need a tool call should retry.
 
-### Llama 3.3 (Meta)
+## Measuring a limit
 
-- `vllm-llama-3.3-70b-instruct-fp4` → served as **`llama-3.3-70b-instruct-fp4`**
-  - **Type:** open-weights general model (70B), NVFP4
-  - **Best for:** general chat, creative writing, complex instructions
-  - **Tradeoffs:** **⚠️ Not recommended for OpenCode** (client-side incompatibility causes aggressive tool calling errors).
-  - **Note:** Works well via standard API/Curl, but open-source agents may struggle with its tool format.
+The checkpoint card and `max_position_embeddings` do not tell you what this host can
+serve. Soak through the gateway:
 
-### Qwen3-Next 80B-A3B (MoE efficiency)
+```bash
+node tools/soak-context.mjs --model <model-id> --target-prompt-tokens 240000
+```
 
-- `vllm-qwen3-next-80b-fp4` → served as **`qwen3-next-80b-a3b-instruct-fp4`**
-  - **Type:** MoE (≈80B total, ~3B active), NVFP4
-  - **Best for:** fast general chat at scale, long prompts, multi-turn workflows
-  - **Strengths:** excellent throughput for its “effective size”
-  - **Tradeoffs:** can be less careful than “thinking” variants on hard reasoning
-
-- `vllm-qwen3-next-80b-thinking-fp4` → served as **`qwen3-next-80b-a3b-thinking-fp4`**
-  - **Type:** MoE “thinking”/reasoning variant, NVFP4
-  - **Best for:** math, logic, planning, tool-driven pipelines
-  - **Strengths:** better step-by-step reliability than the instruct version
-  - **Tradeoffs:** typically uses more tokens / slower per answer
-
-### Qwen 3.6 official baselines (current OSS SOTA text/tool family)
-
-If you want one of the strongest open-weights text/tool lanes in this repo today and are comfortable with experimental status, start with the 35B A3B variants here.
-
-- `vllm-qwen3.6-27b-fp8` → served as **`qwen3.6-27b-fp8`**
-  - **Type:** official Qwen 3.6 dense FP8 baseline
-  - **Best for:** upstream-tested general chat, coding, and tool-use experiments
-  - **Strengths:** mirrors Spark Arena's tested DGX Spark recipe shape closely, including the 262K context target, FP8 KV cache, FlashInfer attention, and Qwen tool/reasoning parsers; local gateway checks now confirm healthy startup, visible plain-text answers, structured `tool_calls`, and explicit thinking
-  - **Tradeoffs:** still experimental on this repo; the local mirror swaps the upstream nightly image for the repo's TF5 baseline, keeps non-thinking as the default gateway/OpenCode mode for reliable visible output, and needs a larger completion budget when deliberate thinking is enabled
-
-- `vllm-qwen3.6-27b-fp8-mtp` → served as **`qwen3.6-27b-fp8-mtp`**
-  - **Type:** official Qwen 3.6 dense FP8 baseline with MTP speculative decoding
-  - **Best for:** latency experiments against the 27B baseline without changing the base checkpoint
-  - **Strengths:** keeps the upstream-tested `mtp` speculative path with `2` speculative tokens, and the local gateway path now confirms visible plain-text answers, default tool calling, and explicit thinking
-  - **Tradeoffs:** still experimental and not yet benchmarked locally for latency wins; explicit thinking plus tool use needs a much larger completion budget because the model can spend hundreds of tokens on its reasoning trace before emitting the final tool call
-
-- `vllm-qwen3.6-35b-a3b-fp8` → served as **`qwen3.6-35b-a3b-fp8`**
-  - **Type:** official Qwen 3.6 A3B FP8 MoE baseline
-  - **Best for:** larger Qwen 3.6 chat / coding experiments using the tested Spark Arena recipe defaults
-  - **Strengths:** mirrors the tested 262K single-GPU recipe with the same Qwen parser stack and local runtime/template wrappers; local gateway checks now confirm healthy startup, visible plain-text answers, structured `tool_calls`, explicit high reasoning, an isolated 5-way soak at about `238644` prompt tokens, and successful coexistence with the `qwen3.5-0.8b` utility helper after the local memory envelope was tuned to `0.84`
-  - **Tradeoffs:** still experimental on this repo because the local memory envelope now intentionally diverges from the upstream `0.80` recipe and restart stability still needs more cycling; like the 27B baseline model, deliberate thinking needs a larger completion budget than plain non-thinking responses
-
-- `vllm-qwen3.6-35b-a3b-fp8-mtp` → served as **`qwen3.6-35b-a3b-fp8-mtp`**
-  - **Type:** official Qwen 3.6 A3B FP8 MoE baseline with MTP speculative decoding
-  - **Best for:** trying the upstream speculative-decoding recipe as an alternate larger Qwen 3.6 A3B model variant
-  - **Strengths:** preserves the upstream `mtp` decoding config while keeping the same local image and wrapper mapping as the non-MTP variant; local gateway checks now confirm healthy startup, visible plain-text answers, structured `tool_calls`, explicit high reasoning, an isolated 5-way soak at about `238644` prompt tokens, and coexistence with the `qwen3.5-0.8b` utility helper at the tuned `0.84` envelope; on the 5-way soak it cut average request time from about `87.6s` to `37.2s` and raised observed completion throughput from about `9.0` to `16.9` tokens/s, and on a simpler 1-way repeated benchmark it still beat the tuned baseline at about `20.7s` vs. `25.1s` and `33.0` vs. `28.9` completion tokens/s
-  - **Tradeoffs:** still experimental because the local memory envelope now intentionally diverges from the upstream `0.80` recipe and the observed win should still be rechecked after more restart cycling; deliberate thinking/tool use may still need a larger completion budget than the plain-text path
-
-### Vision-Language (VL)
-
-- `vllm-qwen3-vl-32b-fp4` → served as **`qwen3-vl-32b-instruct-fp4`**
-  - **Type:** vision-language, 32B, NVFP4
-  - **Best for:** screenshots, PDFs-as-images, UI understanding, diagrams
-  - **Strengths:** strong doc + screenshot reasoning
-  - **Tradeoffs:** heavier than 7B VL models
-
-- `vllm-qwen3-vl-30b-thinking` → served as **`qwen3-vl-30b-thinking-instruct`**
-  - **Type:** vision-language "thinking" model, 30B
-  - **Best for:** complex visual reasoning, step-by-step analysis of images
-  - **Strengths:** enhanced reasoning capabilities over standard instruction model
-  - **Tradeoffs:** slower inference due to thinking process
-
-- `vllm-qwen25-vl-7b` → served as **`qwen2.5-vl-7b`**
-  - **Type:** vision-language, 7B (4-bit AWQ)
-  - **Best for:** low-cost image QA, simple screenshot reading
-  - **Strengths:** cheap + fast VL
-  - **Tradeoffs:** weaker at dense docs / complex visuals than 32B VL
-
-### GLM family (text + vision)
-
-- `vllm-glm-4.5-air-fp4` → served as **`glm-4.5-air-fp4`**
-  - **Type:** general-purpose text, NVFP4
-  - **Best for:** assistant workflows, long conversations, “agent-y” behavior
-  - **Strengths:** pragmatic instruction-following
-  - **Tradeoffs:** may vary in style vs GPT/Qwen
-
-- `vllm-glm-4.6v-flash-fp4` → served as **`glm-4.6v-flash-fp4`**
-  - **Type:** vision-language “flash” (low latency), NVFP4
-  - **Best for:** real-time UI agents, fast screenshot interpretation
-  - **Strengths:** very fast VL
-  - **Tradeoffs:** not the top choice for deep reasoning
-
-- `vllm-glm-4.5-air-derestricted-fp4` → served as **`glm-4.5-air-derestricted-fp4`**
-  - **Type:** derestricted text model, NVFP4
-  - **Best for:** internal testing, fewer refusals, creative/roleplay
-  - **⚠️ Avoid for:** public/prod deployments without additional safety controls
-
-- `vllm-glm4-9b` → served as **`glm-4-9b-chat`**
-  - **Type:** small chat model (~9B)
-  - **Best for:** cheap chat, lightweight assistants, simple Q&A
-  - **Tradeoffs:** weaker reasoning + coding than 30B+ models
-
-### Gemma 4
-
-Gemma 4 is the other main OSS SOTA opt-in family in this repo, especially if you care about multimodal quality and tool use in this size range.
-
-- `vllm-gemma4-26b-a4b` → served as **`gemma4-26b-a4b`**
-  - **Type:** multimodal Gemma 4 MoE model (text + image) with native tool calling
-  - **Best for:** experimental Gemma-family coding/chat, image Q&A, and agent-style tool use
-  - **Strengths:** verified gateway-path image input and function calling on the current stack; large raw 256K context window
-  - **Tradeoffs:** still experimental; current interactive guidance is `240000` prompt tokens, and explicit thinking mode can burn completion budget quickly
-
-- `vllm-gemma4-31b` → served as **`gemma4-31b`**
-  - **Type:** dense Gemma 4 multimodal model (text + image)
-  - **Best for:** manual-only quality experiments with the larger Gemma family
-  - **Tradeoffs:** currently too slow for interactive use on this host, so it is intentionally omitted from the shipped OpenCode config
-
-- `vllm-huihui-gemma4-e2b-abliterated` → served as **`huihui-gemma4-e2b-abliterated`**
-  - **Type:** experimental Huihui Gemma 4 E2B multimodal abliterated variant on a dedicated Gemma-capable TF5 overlay image
-  - **Best for:** opt-in uncensored Gemma-family chat, vision, and tool experiments when you want the standard Gemma runtime shape with the Huihui abliterated weights
-  - **Strengths:** healthy startup is now verified on this host; gateway-path plain text, structured `tool_calls`, and image input all work, and explicit reasoning requests behave like the shipped Gemma lane by returning the final answer in visible content. It also reuses the repo's existing Gemma 4 parser/runtime shape while pinning a Gemma-capable Transformers overlay instead of introducing a model-specific vLLM fork.
-  - **Tradeoffs:** still experimental; this checkpoint is a BF16 `Gemma4ForConditionalGeneration` model with a native `131072` context window, so it cannot inherit the larger `240000`-class client ceiling used by the validated Gemma 4 26B lane. Treat `120000` as the current conservative client limit until long-context soak coverage exists.
-
-### Experimental Qwen variants
-
-- `vllm-huihui-qwen36-27b-abliterated` → served as **`huihui-qwen3.6-27b-abliterated`**
-  - **Type:** experimental Huihui Qwen 3.6 BF16 abliterated variant on a dedicated TF5-based `qwen3_5` runtime with pinned Transformers/Hugging Face Hub overlays
-  - **Best for:** opt-in uncensored Qwen 3.6 chat and tool experiments when you want the Qwen parser stack and a live-validated gateway path
-  - **Strengths:** healthy local startup is now verified on this host; gateway plain-text chat returns visible answers by default, structured `tool_calls` work, and explicit `reasoning_effort=high` also works once you give it enough completion budget. The dedicated image keeps the repo's known-good TF5 vLLM runtime while pinning the upstream Transformers/HF Hub layer so `qwen3_5` support is reproducible from a clean clone.
-  - **Tradeoffs:** still experimental; it currently runs the conservative single-GPU BF16/eager profile (`gpu_memory_utilization=0.70`, `max_num_batched_tokens=16384`, `kv_cache_dtype=auto`, `--enforce-eager`) instead of an official FP8 recipe, and practical long-context headroom still needs broader soak coverage
-
-- `vllm-huihui-qwen35-35b-a3b-abliterated` → served as **`huihui-qwen3.5-35b-a3b-abliterated`**
-  - **Type:** experimental Qwen 3.5 MoE multimodal/tool-capable variant on the TF5 lane
-  - **Best for:** opt-in long-context general chat and tool workflows when you want more headroom than the validated 131K-class defaults
-  - **Strengths:** gateway-path text, structured tool calling, and image input are all verified; richer five-user prompts stayed coherent through roughly `253603` prompt tokens
-  - **Tradeoffs:** still experimental; the shipped OpenCode guidance is a conservative `200000`, and manual reads still flatten some repo-specific details into a too-simple single-tenant story
-
-### Coding specialists
-
-- `vllm-qwen3-coder-30b` → served as **`qwen3-coder-30b-a3b-instruct`**
-  - **Type:** coding MoE, NVFP4
-  - **Best for:** long-context coding, refactors, codebase understanding
-  - **Strengths:** excellent with large context + tool loops
-  - **Tradeoffs:** sometimes less “polished” natural language than a general chat model
-
-- `vllm-qwen25-coder-7b` → served as **`qwen2.5-coder-7b-instruct`**
-  - **Type:** small coding model
-  - **Best for:** quick scripts, autocomplete, low-cost coding help
-  - **Tradeoffs:** struggles with complex multi-file refactors
-
-### Reasoning specialists
-
-- `vllm-deepseek-r1-14b` → served as **`deepseek-r1-distill-qwen-14b`**
-  - **Type:** reasoning model (distilled)
-  - **Best for:** reasoning on a budget, single-GPU workloads
-  - **Tip:** often performs best at **temp ~0.6** for reasoning consistency
-
-- `vllm-deepseek-r1-32b` → served as **`deepseek-r1-distill-qwen-32b`**
-  - **Type:** larger reasoning model (distilled)
-  - **Best for:** difficult reasoning + planning, better reliability than 14B
-  - **Tradeoffs:** slower/heavier than 14B
-
-- `vllm-phi-4-reasoning-plus-fp4` → served as **`phi-4-reasoning-plus-fp4`**
-  - **Type:** reasoning-focused text model, NVFP4
-  - **Best for:** careful multi-step analysis, complex logic, robust answers
-  - **Tradeoffs:** may be slower / more verbose
-
-- `vllm-nemotron-3-nano-30b-nvfp4` → served as **`nemotron-3-nano-30b-nvfp4`**
-  - **Type:** efficient MoE reasoning model, NVFP4
-  - **Best for:** production agent workloads, long prompts, fast reasoning at scale
-  - **Strengths:** strong efficiency and throughput
-  - **Tradeoffs:** still experimental on the current harness; visible answers depend on the non-thinking request shape now enforced by the validator
-
-### Multilingual / EU
-
-- `vllm-eurollm-22b-fp4` → served as **`eurollm-22b-instruct-fp4`**
-  - **Type:** multilingual text model, NVFP4
-  - **Best for:** EU languages, translation, multilingual RAG / customer support
-  - **Strengths:** strong coverage across European languages
-  - **Tradeoffs:** **Text Only** (No tool calling). **Not for OpenCode** (System prompt leakage).
-
-### OCR
-
-- `vllm-deepseek-ocr` → served as **`deepseek-ocr`**
-  - **Type:** OCR (image → text)
-  - **Best for:** extracting raw text from scans/screenshots
-  - **Tradeoffs:** **Utility only**. Not designed for direct chat or OpenCode (use via API).
-  - **Recommended pipeline:** OCR → send extracted text into a reasoning/chat model
-
-### Audio (Disabled)
-
-- `vllm-step-audio-r1-fp4` → served as **`step-audio-r1-fp4`** (Disabled)
-  - **Type:** audio reasoning model, NVFP4 (custom vLLM container)
-  - **Best for:** speech/audio understanding + reasoning tasks
-  - **Tradeoffs:** not a general “best text model” (use alongside a text model)
-
-### Small / utility
-
-- `vllm-qwen3.5-0.8b` → served as **`qwen3.5-0.8b`**
-  - **Type:** small Qwen 3.5 multimodal helper on the SGLang runtime
-  - **Best for:** session titles, lightweight routing, tagging, and short classification tasks
-  - **Strengths:** better headroom than the legacy tiny helper, utility-friendly always-on path, upstream checkpoint also supports image input and thinking mode
-  - **Tradeoffs:** still utility-only in this repo; not promoted as a general OpenCode chat model, and the local path intentionally keeps a conservative memory/context envelope for coexistence
-
-- `vllm-qwen2.5-1.5b` → served as **`qwen2.5-1.5b-instruct`**
-  - **Type:** small instruction model, Qwen 2.5 (1.5B params)
-  - **Best for:** fallback small-text tasks when you want the legacy vLLM helper path
-  - **Tradeoffs:** still efficient, but it is no longer the shipped utility default and remains less capable than the newer Qwen 3.5 helper.
-
-### Multimodal “one model for everything”
-
-- `vllm-phi-4-multimodal-fp4` → served as **`phi-4-multimodal-instruct-fp4`**
-  - **Type:** multimodal (text + image [+audio]), NVFP4
-  - **Best for:** apps that need one endpoint for mixed inputs
-  - **Strengths:** strong “general multimodal assistant”
-  - **Tradeoffs:** may not beat best-in-class specialist models (VL-only or reasoning-only)
-
-- `vllm-nemotron` → served as **`nemotron-nano-12b-v2-vl`**
-  - **Type:** smaller vision-language model
-  - **Best for:** lightweight vision assistants and image Q&A
-  - **Tradeoffs:** weaker than Qwen3-VL-32B on dense documents
+Record the highest clean tier, the first failing tier and any required request shape in
+the lane's `notes`. See [advanced.md](advanced.md#5-soak-it).

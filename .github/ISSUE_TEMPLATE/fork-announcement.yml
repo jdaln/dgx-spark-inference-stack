@@ -1,0 +1,49 @@
+name: Fork or modification announcement
+description: Announce a fork or a modified version of this project.
+title: "Fork: "
+labels: ["fork"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project asks everyone who forks or modifies it to announce it here, commercial
+        use included. The code is licensed under AGPL-3.0-or-later.
+  - type: input
+    id: source
+    attributes:
+      label: Where is the modified source published?
+      description: URL of the GitHub repository or branch.
+      placeholder: https://github.com/<owner>/<repo>
+    validations:
+      required: true
+  - type: textarea
+    id: changes
+    attributes:
+      label: What did you change?
+    validations:
+      required: true
+  - type: dropdown
+    id: use
+    attributes:
+      label: How is it used?
+      options:
+        - Personal
+        - Inside an organization
+        - Public service
+        - Commercial product or service
+    validations:
+      required: true
+  - type: input
+    id: contact
+    attributes:
+      label: Contact
+      description: Optional.
+  - type: checkboxes
+    id: license
+    attributes:
+      label: License
+      options:
+        - label: The modified source is published under AGPL-3.0-or-later at the URL above.
+          required: true
+        - label: It keeps the attribution notice from NOTICE.
+          required: true

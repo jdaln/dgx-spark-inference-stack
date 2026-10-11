@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
+# Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
 
 COMMON_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 TOOLS_DIR="$(cd -- "$COMMON_DIR/.." && pwd)"
 REPO_DIR="$(cd -- "$TOOLS_DIR/.." && pwd)"
 MODELS_FILE="${MODELS_FILE:-$REPO_DIR/models.json}"
+# Host side of the /models mount every lane uses.
+MODELS_DIR="${MODELS_DIR:-$REPO_DIR/models}"
 ROOT_COMPOSE_FILE="${ROOT_COMPOSE_FILE:-$REPO_DIR/docker-compose.yml}"
 DEFAULT_API_KEY="${DEFAULT_API_KEY:-63TestTOKEN0REPLACEME}"
 WORKSPACE_TMP_DIR="${WORKSPACE_TMP_DIR:-$REPO_DIR/tmp}"
@@ -33,10 +36,25 @@ require_cmd() {
   return "$missing"
 }
 
+compose_cmd() {
+  if docker compose version >/dev/null 2>&1; then
+    docker compose "$@"
+    return
+  fi
+
+  if command -v docker-compose >/dev/null 2>&1; then
+    docker-compose "$@"
+    return
+  fi
+
+  echo "Missing Docker Compose: install the docker compose plugin or docker-compose." >&2
+  return 1
+}
+
 render_active_compose_json() {
   local output_path="$1"
 
-  docker compose --profile models -f "$ROOT_COMPOSE_FILE" config --format json > "$output_path"
+  compose_cmd --profile models -f "$ROOT_COMPOSE_FILE" config --format json > "$output_path"
 }
 
 render_fragment_compose_json() {
@@ -64,7 +82,7 @@ networks:
     internal: true
 EOF
 
-  docker compose --profile models -f "$stub_path" -f "$fragment_path" config --format json > "$output_path"
+  compose_cmd --profile models -f "$stub_path" -f "$fragment_path" config --format json > "$output_path"
   rm -f "$stub_path"
 }
 
@@ -274,4 +292,93 @@ command_flag_value() {
       else .command[$index + 1]
       end
   ' <<<"$service_json"
+}
+
+# The model reference a service actually serves: the positional argument after `serve`, or
+# the value of --model / --model-path (SGLang). Returns "" when none is present.
+service_model_ref() {
+  local service_json="$1"
+
+  jq -r '
+    (.command | index("serve")) as $s
+    | ((.command | index("--model")) // (.command | index("--model-path"))) as $m
+    | if $s != null and ($s + 1) < (.command | length) and (.command[$s + 1] | startswith("-") | not)
+      then .command[$s + 1]
+      elif $m != null and ($m + 1) < (.command | length)
+      then .command[$m + 1]
+      else ""
+      end
+  ' <<<"$service_json"
+}
+
+# The pinned --revision of a service's model, or "" when it follows the default branch.
+service_model_revision() {
+  jq -r '(.command | index("--revision")) as $r | if $r != null then .command[$r + 1] else "" end' <<<"$1"
+}
+
+# The Hugging Face repo@revision pairs a lane needs in ./models: the served model, then any
+# draft model named in --speculative-config. The revision is empty when the lane follows the
+# default branch. Fails for a local path that is not a Hugging Face snapshot.
+service_weight_targets() {
+  local service_json="$1" ref rev rest draft
+
+  ref="$(service_model_ref "$service_json")"
+  rev="$(service_model_revision "$service_json")"
+  [[ -n "$ref" && "$ref" != "null" ]] || return 1
+  if [[ "$ref" == /models/models--*/snapshots/* ]]; then
+    # A pinned snapshot served by path: models--ORG--NAME/snapshots/REV.
+    rest="${ref#/models/models--}"
+    rev="${rest#*/snapshots/}"
+    rev="${rev%%/*}"
+    ref="${rest%%/snapshots/*}"
+    ref="${ref/--//}"
+  elif [[ "$ref" == /* ]]; then
+    return 1
+  fi
+  echo "$ref@$rev"
+  draft="$(jq -r '(.command | index("--speculative-config")) as $i | if $i == null then "" else (.command[$i + 1] | fromjson | if .model then "\(.model)@\(.revision // "")" else "" end) end' <<<"$service_json")"
+  if [[ -n "$draft" ]]; then echo "$draft"; fi
+}
+
+# A service can serve only when ./models holds config.json and weight files for its snapshot
+# (the pinned revision, or the served path) and for any draft model.
+model_weights_present() {
+  local service_json="$1"
+  local ref rev dir
+
+  ref="$(service_model_ref "$service_json")"
+  [[ -z "$ref" || "$ref" == "null" ]] && return 1
+
+  if [[ "$ref" == /models/* ]]; then
+    dir="$MODELS_DIR/${ref#/models/}"
+    [[ -d "$dir" ]] && snapshot_complete "$dir" || return 1
+  else
+    rev="$(service_model_revision "$service_json")"
+    repo_snapshot_present "$ref" "$rev" || return 1
+  fi
+  draft_weights_present "$service_json"
+}
+
+repo_snapshot_present() {
+  local ref="$1" rev="$2" dir
+  for dir in "$MODELS_DIR/models--${ref//\//--}/snapshots/"${rev:-*}; do
+    [[ -d "$dir" ]] && snapshot_complete "$dir" && return 0
+  done
+  return 1
+}
+
+# A draft model named in --speculative-config must be on disk too.
+draft_weights_present() {
+  local draft
+  draft="$( (service_weight_targets "$1" || true) | sed -n 2p)"
+  [[ -z "$draft" ]] && return 0
+  repo_snapshot_present "${draft%@*}" "${draft##*@}"
+}
+
+snapshot_complete() {
+  local dir="$1" hit
+  [[ -e "$dir/config.json" ]] || return 1
+  # `-print -quit`, not `| head -1`: under pipefail, find's SIGPIPE would read as "no weights".
+  hit="$(find -L "$dir" -maxdepth 1 \( -name '*.safetensors' -o -name '*.gguf' -o -name '*.bin' \) -print -quit 2>/dev/null || true)"
+  [[ -n "$hit" ]]
 }

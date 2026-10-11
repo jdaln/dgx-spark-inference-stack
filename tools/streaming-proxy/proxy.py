@@ -1,5 +1,6 @@
-# proxy.py - Streaming-to-non-streaming proxy for vLLM tool calls
-# Fixes vLLM streaming tool-call parsing bugs that break strict SSE clients.
+# Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
+# Requests a non-streaming response and re-emits it as SSE, for clients that reject vLLM's
+# streamed tool-call deltas.
 import json
 import os
 import time
@@ -12,6 +13,20 @@ from fastapi.responses import JSONResponse, StreamingResponse
 UPSTREAM_BASE = os.environ.get("UPSTREAM_BASE", "http://localhost:8000/v1").rstrip("/")
 
 app = FastAPI(title="vLLM Streaming Fix Proxy")
+
+
+def _openai_error(message: str, *, type_: str = "api_error", param: Any = None, code: Any = None) -> Dict[str, Any]:
+    return {"error": {"message": message, "type": type_, "param": param, "code": code}}
+
+
+def _upstream_json_or_error(response: httpx.Response) -> Dict[str, Any]:
+    try:
+        return response.json()
+    except ValueError:
+        return _openai_error(
+            f"Upstream returned a non-JSON response (status {response.status_code}).",
+            code="upstream_invalid_response",
+        )
 
 
 def _ensure_tool_call_shape(message: Dict[str, Any]) -> None:
@@ -48,38 +63,48 @@ async def list_models(request: Request):
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(
+            status_code=400,
+            content=_openai_error(
+                "Request body is not valid JSON.",
+                type_="invalid_request_error",
+                code="invalid_json",
+            ),
+        )
     wants_stream = bool(body.get("stream", False))
     has_tools = bool(body.get("tools"))
+    upstream_headers = {
+        "Authorization": request.headers.get("authorization", "Bearer EMPTY"),
+        "Content-Type": "application/json",
+    }
 
     if not has_tools or not wants_stream:
-        async with httpx.AsyncClient(timeout=None) as client:
-            if wants_stream:
-
-                async def stream_response():
+        if wants_stream:
+            # The client must live inside the generator: StreamingResponse
+            # iterates it only after this handler has returned.
+            async def stream_response():
+                async with httpx.AsyncClient(timeout=None) as client:
                     async with client.stream(
                         "POST",
                         f"{UPSTREAM_BASE}/chat/completions",
                         json=body,
-                        headers={
-                            "Authorization": request.headers.get("authorization", "Bearer EMPTY"),
-                            "Content-Type": "application/json",
-                        },
+                        headers=upstream_headers,
                     ) as response:
                         async for chunk in response.aiter_bytes():
                             yield chunk
 
-                return StreamingResponse(stream_response(), media_type="text/event-stream")
+            return StreamingResponse(stream_response(), media_type="text/event-stream")
 
+        async with httpx.AsyncClient(timeout=None) as client:
             response = await client.post(
                 f"{UPSTREAM_BASE}/chat/completions",
                 json=body,
-                headers={
-                    "Authorization": request.headers.get("authorization", "Bearer EMPTY"),
-                    "Content-Type": "application/json",
-                },
+                headers=upstream_headers,
             )
-            return JSONResponse(content=response.json(), status_code=response.status_code)
+            return JSONResponse(content=_upstream_json_or_error(response), status_code=response.status_code)
 
     upstream_body = dict(body)
     upstream_body["stream"] = False
@@ -88,12 +113,19 @@ async def chat_completions(request: Request):
         response = await client.post(
             f"{UPSTREAM_BASE}/chat/completions",
             json=upstream_body,
-            headers={
-                "Authorization": request.headers.get("authorization", "Bearer EMPTY"),
-                "Content-Type": "application/json",
-            },
+            headers=upstream_headers,
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            # Forward upstream errors (busy 429, validation 400, ...) verbatim
+            # instead of collapsing them into a bare 500.
+            error_headers = {}
+            if "retry-after" in response.headers:
+                error_headers["Retry-After"] = response.headers["retry-after"]
+            return JSONResponse(
+                content=_upstream_json_or_error(response),
+                status_code=response.status_code,
+                headers=error_headers,
+            )
         completion = response.json()
 
     completion_id = completion.get("id", "chatcmpl-proxy")

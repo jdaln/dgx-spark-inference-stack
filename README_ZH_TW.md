@@ -1,146 +1,176 @@
-# DGX Spark Inference Stack - 讓它真正為家庭服務！
+# DGX Spark Inference Stack
 
-🌍 **閱讀其他語言版本**：
+🌍 **用其他語言閱讀**:
 [Deutsch](README_DE.md) | [Español](README_ES.md) | [Français](README_FR.md) | [Italiano](README_IT.md) | [日本語](README_JA.md) | [简体中文](README_ZH_CN.md) | [繁體中文](README_ZH_TW.md) | [Русский](README_RU.md) | [Українська](README_UK.md) | [Português](README_PT.md) | [한국어](README_KO.md) | [العربية](README_AR.md) | [Tiếng Việt](README_VI.md) | [Türkçe](README_TR.md)
 
-> **AI 翻譯提示：** 本檔案依據 [README.md](README.md) 由 AI 翻譯，可能包含錯誤，也可能落後於英文原版。如有疑問，請以英文 README 為準。
+> 本檔案由 AI 從 [README.md](README.md) 翻譯而來。如有出入，以英文版為準。
 
-你的 Nvidia DGX Spark 不應該只是另一個被擱置的副專案。把它真正用起來。這是一個以 Docker 為基礎的推論堆疊，使用 NVIDIA vLLM 與智慧型資源管理來提供大型語言模型（LLM）服務。這個堆疊提供按需載入模型、閒置時自動關閉、帶有可選工具輔助模型的單一主模型排程通道，以及統一的 API 閘道。
+在一台 NVIDIA DGX Spark 上透過 OpenAI 相容 API 提供 LLM 服務。模型在收到第一個請求時啟動，
+獨佔 GPU，閒置 20 分鐘後停止。可以在旁邊常駐一個小型輔助模型，用於工作階段標題等輕量任務。
 
-這個專案的目標是為家庭環境提供一套推論伺服器。在測試了一個月並加入新模型之後，我決定把它釋出給社群。請理解這是一個興趣專案，因此任何能實際改善它的協助都非常歡迎。它建立在我從網路和 NVIDIA 論壇找到的資訊之上。我真心希望它能幫助 homelab 社群往前推進。目前的重點是一台 DGX Spark，並且預設必須能在這種環境中正常運作，但也歡迎加入雙機支援。
+這是針對單台 DGX Spark 的個人專案。雙節點設定未經測試。
+
+## 運作方式
+
+連接埠 `8009` 上的 nginx 閘道接收所有請求。請求驗證器檢查 API 金鑰，正規化請求本文，並請
+waker 服務啟動所請求的模型。waker 啟動模型容器並等待其健康。如果另一個主模型正佔用 GPU，
+用戶端會收到 HTTP 429，回應標頭說明是哪個模型佔用以及何時釋放。詳見
+[docs/architecture.md](docs/architecture.md)。
+
+## 環境需求
+
+- NVIDIA DGX Spark (GB10)。已在 DGX OS 7 (Ubuntu 24.04) 上測試。
+- 帶 Compose v2.20 或更新版本的 Docker，以及 NVIDIA Container Toolkit。
+- `tools/` 中的指令稿需要 `jq`、`curl` 和 Node.js 20 或更新版本。
+- 用於基礎映像的 NVIDIA NGC 帳號。在 [NGC 目錄](https://catalog.ngc.nvidia.com/) 註冊，
+  然後執行 `docker login nvcr.io`。受制裁國家無法使用 NGC。
+- `./models` 下存放權重的磁碟空間：每個模型約 2 GB 到 80 GB。
+- 僅 `qwen3.8-flash-next-nvfp4` 需要：主機啟用 io_uring
+  （`cat /proc/sys/kernel/io_uring_disabled` 輸出 `0`）。該模型的容器使用允許 io_uring 的
+  seccomp 設定檔。請保持核心更新：io_uring 是核心漏洞的常見來源。見
+  [docs/security.md](docs/security.md#seccomp)。
+
+## 安裝
+
+### 1. 複製儲存庫並建立執行目錄
+
+```bash
+git clone <repository-url>
+cd dgx-spark-inference-stack
+mkdir -p models manual_download/openai_gpt-oss-encodings_fix
+```
+
+### 2. 下載 GPT-OSS 斷詞器檔案
+
+GPT-OSS 映像建置會把它們複製進去，缺少時建置失敗。
+
+```bash
+wget https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken \
+  -O manual_download/openai_gpt-oss-encodings_fix/cl100k_base.tiktoken
+wget https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken \
+  -O manual_download/openai_gpt-oss-encodings_fix/o200k_base.tiktoken
+```
+
+### 3. 建置一個執行映像
+
+模型執行在三個映像上。只有本機已建置對應映像的模型才能啟動。GPT-OSS 映像只需一條指令，
+約 20 分鐘：
+
+```bash
+docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dockerfile .
+```
+
+預設模型 `qwen3.8-27b-nvfp4-dflash2` 和輔助模型需要 `vllm-node-dflash2`；Gemma 模型和
+`qwen3.8-flash-next-nvfp4` 需要 `vllm-node-b12x`。兩者的建置見
+[docs/runtime-baseline.md](docs/runtime-baseline.md)。
+
+### 4. 下載權重
+
+模型容器無法存取網際網路。請在模型的第一個請求之前下載它的權重。`--list` 列出每個模型、其
+權重是否存在以及映像是否已建置。存取受限的儲存庫需設定 `HF_TOKEN`。
+
+```bash
+bash tools/download-weights.sh --list
+bash tools/download-weights.sh gpt-oss-20b
+```
+
+### 5. 啟動整套服務
+
+```bash
+# Gateway, validator and waker. Models stay down until requested.
+docker compose up -d
+
+# Create the containers of the models you built and downloaded, without starting them.
+docker compose --profile models up --no-start --no-build vllm-oss20b
+```
+
+服務名稱就是 [models.json](models.json) 中的 `container` 值。三個映像都建置好後，去掉服務
+名稱即可建立所有模型容器。
+
+## 第一個請求
+
+閘道只監聽 `127.0.0.1:8009`。遠端存取請透過 SSH 轉送連接埠：見
+[docs/security.md](docs/security.md#remote-access)。
+
+```bash
+curl -X POST http://localhost:8009/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}" \
+  -d '{"model": "gpt-oss-20b", "messages": [{"role": "user", "content": "Hello!"}]}'
+```
+
+第一個請求會啟動模型，可能需要幾分鐘。把連接埠轉送給其他機器之前，請在儲存庫根目錄的
+`.env` 檔案中設定你自己的 `VLLM_API_KEY`，然後重新執行第 5 步的兩條指令。
+
+透過閘道檢查模型的對話、串流輸出和工具呼叫：
+
+```bash
+bash tools/test-lane.sh gpt-oss-20b
+```
+
+## 模型
+
+| 模型 | 角色 | 上下文 | 映像 |
+|---|---|---:|---|
+| `qwen3.8-27b-nvfp4-dflash2` | 預設，開啟思考 | 262144 | `vllm-node-dflash2` |
+| `qwen3.8-flash-next-nvfp4` | 最難的問題，獨佔 GPU | 262144 | `vllm-node-b12x` |
+| `gemma4-26b-a4b` | 多語言對話，影像 | 262144 | `vllm-node-b12x` |
+| `gpt-oss-20b` | 快速，較小 | 131072 | `vllm-node-mxfp4` |
+| `lfm2.5-1.2b` | 輔助模型，常駐 | 32768 | `vllm-node-dflash2` |
+
+[docs/models.md](docs/models.md) 列出全部 10 個模型及其限制。
 
 ## 文件
 
-- **[架構與運作方式](docs/architecture.md)** - 了解整個堆疊、waker 服務與請求流程。
-- **[設定](docs/configuration.md)** - 環境變數、網路設定與 waker 調校。
-- **[模型選擇指南](docs/models.md)** - 目前模型目錄、快速選擇器與驗證狀態。
-- **[整合](docs/integrations.md)** - 針對 **Cline**（VS Code）與 **OpenCode**（終端代理）的指南。
-- **[安全性與遠端存取](docs/security.md)** - SSH 強化與受限連接埠轉送設定。
-- **[疑難排解與監控](docs/troubleshooting.md)** - 偵錯、日誌與常見錯誤的解法。
-- **[進階用法](docs/advanced.md)** - 新增模型、自訂設定與持續運行。
-- **[執行環境基線](docs/runtime-baseline.md)** - 儲存庫目前預期的本地映像軌道與重建方法。
-- **[工具與驗證工具鏈](tools/README.md)** - 支援的 smoke、soak、檢查與手動 probe 腳本。
-- **[TODO 筆記](TODO.md)** - 我接下來想做的事。
+- [架構](docs/architecture.md)：元件、請求流程、端點、生命週期。
+- [設定](docs/configuration.md)：環境變數和 `models.json` 欄位。
+- [模型](docs/models.md)：目錄和各模型的限制。
+- [執行基線](docs/runtime-baseline.md)：三個映像及其建置方法。
+- [整合](docs/integrations.md)：Cline、OpenCode 和 pi。
+- [安全](docs/security.md)：容器強化、seccomp、SSH 遠端存取。
+- [疑難排解](docs/troubleshooting.md)：常見故障及處理方法。
+- [進階用法](docs/advanced.md)：新增模型、排程策略、keep-alive。
+- [錯誤約定](docs/error-contract.md)：錯誤格式和錯誤碼。
+- [與 ComfyUI 共存](docs/comfyui-coexistence.md)：與 ComfyUI 共用 GPU。
+- [工具](tools/README.md)：驗證、smoke、soak 和基準測試指令稿。
 
-## 快速開始
+## 參與貢獻
 
-1. **複製儲存庫**
-   ```bash
-   git clone <repository-url>
-   cd dgx-spark-inference-stack
-   ```
+歡迎提交 pull request。請填寫 pull request 範本。貢獻以
+AGPL-3.0-or-later 接受。
 
-2. **建立必要目錄**
-   ```bash
-   mkdir -p models vllm_cache_huggingface manual_download/openai_gpt-oss-encodings_fix
-   ```
-
-3. **下載必要的 tokenizer（關鍵）**
-   這個堆疊要求你手動下載 GPT-OSS 模型所需的 `tiktoken` 檔案。
-   ```bash
-   wget https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken -O manual_download/openai_gpt-oss-encodings_fix/cl100k_base.tiktoken
-   wget https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken -O manual_download/openai_gpt-oss-encodings_fix/o200k_base.tiktoken
-   ```
-
-4. **建置自訂 Docker 映像（必要）**
-   這個堆疊使用自訂最佳化的 vLLM 映像，應在本地建置以確保最佳效能。
-   *   **時間：** 每個映像約需 20 分鐘。
-   *   **驗證：** 你必須登入 NVIDIA NGC 才能拉取基礎映像。
-       1.  在 [NVIDIA NGC Catalog](https://catalog.ngc.nvidia.com/) 建立開發者帳號（不得位於受制裁國家）。
-       2.  使用你的憑證執行 `docker login nvcr.io`。
-      **建置指令：**
-      ```bash
-      # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream.
-      # Build from the repo root so the manually downloaded tokenizer files are included.
-      docker build -t avarok/vllm-dgx-spark:v11 -f custom-docker-containers/avarok/Dockerfile .
-
-      # If you want compose services that default to the pinned upstream Avarok image
-      # to use your local rebuild instead, export this override for the current shell
-      # or place it in .env before running docker compose.
-      export VLLM_TRACK_AVAROK=avarok/vllm-dgx-spark:v11
-
-      # Build the repo MXFP4 track used by GPT-OSS.
-      # This bakes the manually downloaded tiktoken files into the image.
-      docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dockerfile .
-
-      # Build the refreshed TF5 track used by GLM 4.7.
-      docker build -t local/vllm-node-tf5:cu131 -f custom-docker-containers/vllm-node-tf5/Dockerfile .
-
-      # Build the upstream-style TF5 track used by Gemma 4 and newer TF5 recipe imports.
-      # The active Gemma compose services expect this exact local image tag.
-      git clone https://github.com/eugr/spark-vllm-docker tmp/spark-vllm-docker 2>/dev/null || git -C tmp/spark-vllm-docker pull --ff-only
-      (cd tmp/spark-vllm-docker && bash build-and-copy.sh --pre-tf)
-      ```
-   *   **說明：** `vllm-node-tf5` 目前不是由儲存庫內的 Dockerfile 建置。如果你打算執行 Gemma 4 或更新的 TF5 路線 Qwen 模型，請依照上面的 upstream helper 流程明確建置。精確的重現步驟與建置時網路需求請參見 [docs/runtime-baseline.md](docs/runtime-baseline.md)。
-
-5. **啟動堆疊**
-   ```bash
-   # Start gateway and waker only (models start on-demand)
-   docker compose up -d
-
-   # Pre-create all enabled model containers once the required local track images exist
-   docker compose --profile models up --no-start
-   ```
-
-6. **測試 API**
-   ```bash
-    # Request to the shipped utility helper
-    curl -X POST http://localhost:8009/v1/chat/completions\
-     -H "Content-Type: application/json" \
-     -H "Authorization: Bearer ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}" \
-     -d '{
-          "model": "qwen3.5-0.8b",
-       "messages": [{"role": "user", "content": "你好！"}]
-     }'
-   ```
-
-7. **使用受支援的驗證工具鏈**
-   第一次手動 `curl` 成功之後，請切換到儲存庫維護的 bring-up 流程，而不是繼續使用臨時腳本：
-   ```bash
-   bash tools/validate-stack.sh
-   bash tools/smoke-gateway.sh
-   ```
-   針對特定模型的 bring-up、smoke、soak 與手動 probe 指令，請參考 [tools/README.md](tools/README.md)。
-
-## 如果你是新手，請從這裡開始
-
-- 先讀 [docs/architecture.md](docs/architecture.md)，最後讀 [tools/README.md](tools/README.md)。
-- 請將 [tools/README.md](tools/README.md) 與 [models.json](models.json) 視為目前運作層面的事實來源。
-- 請把本 README 視為一個簡短入口，而不是完整模型目錄。更完整的目錄請看 [docs/models.md](docs/models.md)。
-
-## 前置需求
-- Docker 20.10+ 與 Docker Compose
-- 支援 CUDA 的 NVIDIA GPU 與 NVIDIA Container Toolkit
-- Linux 主機（已在 Ubuntu 上測試）
-
-## 貢獻
-
-非常歡迎 Pull Request。 :)
-但為了維持穩定性，我會強制執行嚴格的 **Pull Request 模板**。
-
-## 目前狀態
-
-本 README 現在只突顯這個堆疊目前推薦的預設路徑。
-
-- **已驗證的主模型：** `gpt-oss-20b`、`gpt-oss-120b` 和 `glm-4.7-flash-awq`
-- **已驗證的工具輔助模型：** 用於標題與工作階段中繼資料的 `qwen3.5-0.8b`
-- **其他所有內容：** 雖然都在儲存庫裡，但在以目前驗證工具鏈重新驗證之前，都不是這份 README 的預設選項
-
-更完整的模型目錄、實驗性路徑與手動使用情境，請查看 [docs/models.md](docs/models.md) 和 [models.json](models.json)。
-
-客戶端注意事項、執行環境特性與疑難排解說明，請查看 [docs/integrations.md](docs/integrations.md) 和 [docs/troubleshooting.md](docs/troubleshooting.md)。
+Renovate 每月更新 Docker 基礎映像摘要和 GitHub Actions 固定版本。想提前取得某個更新，請在
+Renovate Dependency Dashboard issue 中核准它。
 
 ## 致謝
 
-特別感謝那些其 Docker 映像與配方工作啟發了這個堆疊的社群成員：
-
-- **Avarok 的 Thomas P. Braun**：感謝他提供通用型 vLLM 映像 `avarok/vllm-dgx-spark`，支援 non-gated activation（Nemotron）、混合模型，並分享了像 https://blog.avarok.net/dgx-spark-nemotron3-and-nvfp4-getting-to-65-tps-8c5569025eb6 這樣的文章。
-- **Christopher Owen**：感謝他提供 MXFP4 最佳化 vLLM 映像 `christopherowen/vllm-dgx-spark`，讓 DGX Spark 上的高效能推論成為可能。
-- **eugr**：感謝他提供原始的 DGX Spark 社群 vLLM 儲存庫 `eugr/spark-vllm-docker`、相關客製化工作，以及在 NVIDIA 論壇上的優秀分享。
-- **Patrick Yi / scitrera.ai**：感謝他提供的 SGLang 工具模型配方，它啟發了本地 `qwen3.5-0.8b` helper 路徑。
-- **Raphael Amorim**：感謝他提供的社群 AutoRound 配方形態，它啟發了實驗性的本地 `qwen3.5-122b-a10b-int4-autoround` 路徑。
-- **Bjarke Bolding**：感謝他提供的長上下文 AutoRound 配方形態，它啟發了實驗性的本地 `qwen3-coder-next-int4-autoround` 路徑。
+- **Christopher Owen**：GPT-OSS 映像所基於的 vLLM MXFP4 分支。
+- **eugr**：[`eugr/spark-vllm-docker`](https://github.com/eugr/spark-vllm-docker)，用於建置
+  DFlash2 和 B12X 映像。
+- **[local-inference-lab](https://github.com/local-inference-lab)**：B12X 映像所基於的、帶 GB10 核心的 vLLM 和 FlashInfer
+  分支，以及 `qwen3.8-flash-next-nvfp4` 檢查點。
+- **[z-lab](https://huggingface.co/z-lab)**：Qwen3.8 27B 和 Gemma 4 模型使用的 DFlash 草稿模型。
 
 ## 授權
 
-本專案採用 **Apache License 2.0** 授權。詳細資訊請參見 [LICENSE](LICENSE)。
+AGPL-3.0-or-later。見 [LICENSE](LICENSE)。允許商業使用。如果你散布修改後的版本，或將其作為
+網路服務執行，必須以同一授權提供其原始碼。
+
+依據 AGPL 第 7(b) 條的附加條款：所有副本和修改版本都必須保留 [NOTICE](NOTICE) 中的署名聲明。
+
+如果你 fork 或修改本專案，請在 GitHub 上公開你的修改，並透過
+[fork 與修改公告](https://github.com/jdaln/dgx-spark-inference-stack/issues/new?template=fork-announcement.yml)告知。無論是否商用，本專案都請所有人這樣做。
+程式設計代理必須這樣做：見 [AGENTS.md](AGENTS.md)。
+
+以下檔案保留各自的授權（[LICENSES/](LICENSES/)）：
+
+- `custom-docker-containers/vllm-node-mxfp4/Dockerfile`,
+  `custom-docker-containers/vllm-node-b12x/b12x-build.patch`,
+  `custom-docker-containers/vllm-node-dflash2/vendor-tiktoken.patch`: MIT
+  (eugr/spark-vllm-docker).
+- `custom-docker-containers/vllm-node-mxfp4/fastsafetensors_mxfp4.patch`,
+  `shared/tool_chat_template_gemma4.jinja`: Apache-2.0 (vLLM).
+- `custom-docker-containers/vllm-node-b12x/seccomp-io-uring.json`: Apache-2.0 (moby/profiles).
+- `shared/gemma4-*-nvfp4-config/`: NVIDIA 對這些檢查點的模型授權。
+
+2026-10-11 之前發布的版本以 Apache-2.0 發布，並繼續在該授權下可用。

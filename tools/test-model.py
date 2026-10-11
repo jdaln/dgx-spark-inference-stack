@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
 
 import argparse
 import json

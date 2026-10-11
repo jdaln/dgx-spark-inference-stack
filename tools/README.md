@@ -1,56 +1,68 @@
-# Tools and Validation Harness
+# Tools
 
-The repo's supported operational tooling now lives under `tools/`. The old top-level `debugging/` folder has been folded into this area so newcomers only have one place to look for validation scripts, manual probes, and optional compatibility workarounds.
+Validation, smoke, soak and benchmark scripts. They need bash, jq, Node and Docker on the
+host. Python runs only in containers.
 
-If the docs and scripts disagree, prefer `tools/` plus `models.json` over older notes.
-
-## Recommended Workflow
-
-For a normal model bring-up or regression check, use this order:
-
-1. `bash tools/validate-stack.sh`
-2. `bash tools/run-model.sh --no-build <model-id>`
-3. `bash tools/smoke-gateway.sh`
-4. `node tools/soak-context.mjs --model <model-id> --target-prompt-tokens <n>`
-
-## Maintained Entry Points
-
-- `validate-stack.sh` renders the active compose config and runs structural assertions for the current supported services.
-- `check-models.sh` cross-checks the active compose fragments against `models.json`.
-- `inspect-model.sh` prints the effective image, command, environment, bind mounts, and healthcheck for a model without starting it.
-- `run-model.sh` starts one model through the current scheduler rules and waits for Docker health.
-- `reload-control-plane.sh` reloads `waker` and `request-validator` after `models.json` changes.
-- `smoke-gateway.sh` exercises the supported gateway-path smoke matrix.
-- `soak-context.mjs` calibrates and runs long-context soak probes against the real gateway path.
-
-## Manual Utilities
-
-- `test-model.py` is a lightweight direct probe for one-off text or tool-call checks against `/v1/chat/completions`.
-- `streaming-proxy/` contains an optional FastAPI shim for clients that need non-streaming tool-call responses re-emitted as SSE.
-
-Quick examples:
+## Bring-up or regression check
 
 ```bash
-# Plain text probe
-python3 tools/test-model.py --model qwen2.5-1.5b-instruct
+bash tools/validate-stack.sh                 # structural checks
+bash tools/download-weights.sh <model>       # fetch the pinned weights
+bash tools/run-model.sh --no-build <model>   # start one model under the scheduler rules
+bash tools/test-lane.sh <model>              # the model's capabilities through the gateway
+bash tools/smoke-gateway.sh                  # shared gateway matrix
+node tools/soak-context.mjs --model <model> --target-prompt-tokens <n>
+node tools/bench-lane.mjs --model <model>    # speed, prefill, throughput, quality under load
+```
 
-# Tool-call probe
-python3 tools/test-model.py --model qwen2.5-1.5b-instruct --tool-call
+A model with a custom parser, chat template or wrapper also needs its own live regression,
+run after `test-lane.sh`.
 
-# Optional SSE compatibility shim for strict clients
+## Scripts
+
+| Script | Does |
+|---|---|
+| `validate-stack.sh` | Renders the compose config and checks its structure, lane hardening and weight references. |
+| `check-models.sh` | Checks the compose fragments against `models.json`. |
+| `check-supply-chain-pinning.sh` | Checks that external images are pinned by digest and GitHub Actions by commit. |
+| `inspect-model.sh` | Prints a model's image, command, environment, mounts and healthcheck without starting it. |
+| `download-weights.sh` | Downloads models' pinned weights, and their draft models, into `./models` from a temporary container with network access. `--list` shows every model with its weights and image status. The only download path: model containers run offline. |
+| `run-model.sh` | Starts one model under the scheduler rules and waits for Docker health. |
+| `reload-control-plane.sh` | Recreates the waker and the validator after `models.json` changes. |
+| `test-lane.sh` | Checks models through the gateway per their `models.json` flags: cold start, chat with a system turn, leaked `<pad>` tokens, streaming, tokenize and detokenize, tool calls with `tool_choice` auto and required, a streamed tool call, image input, reasoning-effort mapping, default thinking state. Stops each model afterwards unless `--keep`. Results go to `tmp/test-lane/`. |
+| `smoke-gateway.sh` | Runs the shared gateway matrix. Needs the GPU free. |
+| `smoke-errors.sh` | Checks the error envelope: auth, bad JSON, missing and unknown model, unsupported sampling parameter. Starts no model. |
+| `soak-context.mjs` | Runs long-context soaks through the gateway, calibrated to a target prompt size. Reports go to `tmp/soak/`. |
+| `build-soak-bundle.sh` | Regenerates the soak filler from the control-plane source. `--check` fails if it is stale. |
+| `run-variant.sh` | Starts a model with an edited copy of its command, as a compose override in `tmp/variants/`, for A/B tests with `bench-lane.mjs`. `--restore <model>` returns to the committed shape. Refuses to run next to another main model and stops the variant when free memory drops under `VARIANT_MIN_FREE_GIB` (10). |
+| `bench-lane.mjs` | Benchmarks a model through the gateway: single-stream decode, prefill, throughput at several concurrency levels, and a graded quality battery under load. `--self-test` checks the graders offline. Reports go to `tmp/bench/`. |
+
+## Manual probes
+
+`test-model.py` sends one request to `/v1/chat/completions`. Run it in a container:
+
+```bash
+docker run --rm --network host -e VLLM_API_KEY -v "$PWD:/workspace:ro" -w /workspace \
+	python:3.12-slim sh -c "pip install -q requests && python tools/test-model.py --model gpt-oss-20b --tool-call"
+```
+
+`streaming-proxy/` turns a non-streaming tool-call response into SSE, for clients that
+cannot handle the streamed shape:
+
+```bash
 docker build -t vllm-streaming-proxy -f tools/streaming-proxy/Dockerfile tools/streaming-proxy
-docker run --rm -p 9000:9000 \
+docker run --rm -p 127.0.0.1:9000:9000 \
 	--add-host host.docker.internal:host-gateway \
 	-e UPSTREAM_BASE=http://host.docker.internal:8009/v1 \
 	vllm-streaming-proxy
 ```
 
-## Internal Helpers
+Then point the client at `http://localhost:9000/v1`.
 
-- `lib/common.sh` holds shared shell helpers for compose rendering, health waits, and path resolution.
-- `lib/resolve-compose-service.mjs` maps a model id, compose service, or container name to its effective rendered service definition.
-- `testdata/` stores bundled filler/context files used by the soak harness.
+## Internals
 
-## Legacy
-
-- `legacy/verify-memory.sh` is kept for historical reference only. It assumes an older service and model inventory and is not part of the supported harness anymore.
+- `lib/common.sh`: shared helpers for compose rendering, health waits and weight checks.
+- `lib/resolve-compose-service.mjs`: maps a model id, service or container name to its
+  rendered service.
+- `lib/bench-quality.mjs`: the graded quality battery.
+- `testdata/`: filler text for soaks and benchmarks.

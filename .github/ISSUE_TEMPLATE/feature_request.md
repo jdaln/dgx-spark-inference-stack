@@ -1,19 +1,15 @@
 ---
 name: Feature request
-about: Suggest an idea for this project
+about: Suggest a change or a new model
 title: ''
 labels: enhancement
 assignees: ''
 ---
 
-## Is your feature request related to a problem? Please describe.
-A clear and concise description of what the problem is. Ex. I'm always frustrated when [...]
+## Problem
 
-## Describe the solution you'd like
-A clear and concise description of what you want to happen.
+What you want to do and what stops you.
 
-## Describe alternatives you've considered
-A clear and concise description of any alternative solutions or features you've considered.
+## Proposal
 
-## Additional context
-Add any other context or screenshots about the feature request here.
+The change you suggest. For a new model, link the model card.

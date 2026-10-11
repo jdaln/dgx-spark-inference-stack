@@ -1,3 +1,4 @@
+# Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
 x-model-common: &model-common
   profiles: ["models"]
   deploy:
@@ -19,11 +20,18 @@ x-model-common: &model-common
     options:
       max-size: "10m"
       max-file: "3"
+  # No egress, no capabilities, no setuid gain; weights come from ./models (docs/security.md).
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
   networks:
-    - default
     - vllm_internal
 
 x-env-common: &env-common
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  HF_HUB_CACHE: /models
   HF_HOME: /root/.cache/huggingface
   TIKTOKEN_ENCODINGS_BASE: ${GPT_TIKTOKEN_ENCODINGS_BASE:-/workspace/vllm/tiktoken_encodings}
   VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
@@ -63,8 +71,6 @@ services:
       - 0.0.0.0
       - --port
       - "8000"
-      - --download-dir
-      - /models
       - --served-model-name
       - gpt-oss-20b
       - --quantization
@@ -96,15 +102,11 @@ services:
       - --tool-call-parser
       - openai
     volumes:
-        # HuggingFace model cache (required)
-      - ../vllm_cache_huggingface:/root/.cache/huggingface
-      # FlashInfer JIT cache (speeds up startup after first run)
-      - ../.cache/flashinfer:/root/.cache/flashinfer
-      # vLLM cache
-      - ../.cache/vllm:/root/.cache/vllm
-      # Ccache for rebuilds
-      - ../.cache/ccache:/root/.ccache
-      - ../models:/models
+      - ../cache/vllm-oss20b/huggingface:/root/.cache/huggingface
+      - ../cache/vllm-oss20b/flashinfer:/root/.cache/flashinfer
+      - ../cache/vllm-oss20b/vllm:/root/.cache/vllm
+      - ../cache/vllm-oss20b/ccache:/root/.ccache
+      - ../models:/models:ro
     environment:
       <<: *env-common
     healthcheck:
@@ -125,8 +127,6 @@ services:
       - 0.0.0.0
       - --port
       - "8000"
-      - --download-dir
-      - /models
       - --served-model-name
       - gpt-oss-120b
       - --quantization
@@ -142,12 +142,8 @@ services:
       - --tensor-parallel-size
       - "1"
       - --gpu-memory-utilization
-      # Normal-mode default. The small utility model can still coexist at 0.80, but
-      # the practical combined budget for substantial LLMs on this host is only about 0.94,
-      # so gpt-oss-20b and gpt-oss-120b should not both be resident at once.
+      # 0.80 leaves room for the utility helper.
       - ${GPT_OSS_120B_GPU_MEMORY_UTILIZATION:-0.80}
-      # Exclusive-only fallback for quick IDE switching when you also change models.json lifecycle back to exclusive:
-      # - ${GPT_OSS_120B_GPU_MEMORY_UTILIZATION:-0.93}
       - --max-num-seqs
       - "2"
       - --max-num-batched-tokens
@@ -164,16 +160,17 @@ services:
       - openai
       - --reasoning-parser
       - openai_gptoss
+      # Validated snapshot. Re-validate before changing it.
+      - --revision
+      - b5c939de8f754692c1647ca79fbf85e8c1e70f8a
+      - --tokenizer-revision
+      - b5c939de8f754692c1647ca79fbf85e8c1e70f8a
     volumes:
-        # HuggingFace model cache (required)
-      - ../vllm_cache_huggingface:/root/.cache/huggingface
-      # FlashInfer JIT cache (speeds up startup after first run)
-      - ../.cache/flashinfer:/root/.cache/flashinfer
-      # vLLM cache
-      - ../.cache/vllm:/root/.cache/vllm
-      # Ccache for rebuilds
-      - ../.cache/ccache:/root/.ccache
-      - ../models:/models
+      - ../cache/vllm-oss120b/huggingface:/root/.cache/huggingface
+      - ../cache/vllm-oss120b/flashinfer:/root/.cache/flashinfer
+      - ../cache/vllm-oss120b/vllm:/root/.cache/vllm
+      - ../cache/vllm-oss120b/ccache:/root/.ccache
+      - ../models:/models:ro
     environment:
       <<: *env-common
     healthcheck:
@@ -194,8 +191,6 @@ services:
       - 0.0.0.0
       - --port
       - "8000"
-      - --download-dir
-      - /models
       - --served-model-name
       - huihui-gpt-oss-120b-mxfp4-abliterated
       - --quantization
@@ -228,16 +223,17 @@ services:
       - openai
       - --reasoning-parser
       - openai_gptoss
+      # Validated snapshot. Re-validate before changing it.
+      - --revision
+      - 4be0d67357808a22b1d968b0b6da0f13a4f77bd0
+      - --tokenizer-revision
+      - 4be0d67357808a22b1d968b0b6da0f13a4f77bd0
     volumes:
-        # HuggingFace model cache (required)
-      - ../vllm_cache_huggingface:/root/.cache/huggingface
-      # FlashInfer JIT cache (speeds up startup after first run)
-      - ../.cache/flashinfer:/root/.cache/flashinfer
-      # vLLM cache
-      - ../.cache/vllm:/root/.cache/vllm
-      # Ccache for rebuilds
-      - ../.cache/ccache:/root/.ccache
-      - ../models:/models
+      - ../cache/vllm-huihui-gpt-oss-120b-abliterated/huggingface:/root/.cache/huggingface
+      - ../cache/vllm-huihui-gpt-oss-120b-abliterated/flashinfer:/root/.cache/flashinfer
+      - ../cache/vllm-huihui-gpt-oss-120b-abliterated/vllm:/root/.cache/vllm
+      - ../cache/vllm-huihui-gpt-oss-120b-abliterated/ccache:/root/.ccache
+      - ../models:/models:ro
     environment:
       <<: *env-common
     healthcheck:

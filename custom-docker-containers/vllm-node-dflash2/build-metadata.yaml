@@ -1,0 +1,16 @@
+# Provenance for vllm-node-dflash2
+image_tag: vllm-node-dflash2
+built_on: 2026-08-30
+gpu_arch: 12.1a   # GB10 / sm_121
+vllm_version: 0.26.1rc1.dev1231+g7a9993878
+vllm_commit: 7a9993878
+
+# Built by the upstream helper, which compiles vLLM from source. The pinned commit and the
+# local delta below make the build reproducible.
+upstream_repo: https://github.com/eugr/spark-vllm-docker
+upstream_commit: e9cf3596c4d8ecd677056b1d14eb5dda16c1f86e
+build_command: bash build-and-copy.sh -t vllm-node-dflash2 --use-wheels
+
+local_delta:
+  - vendor-tiktoken.patch   # replace a mid-build wget with a COPY
+  - fetch-tiktoken.sh       # populate the COPY source, checksum-verified

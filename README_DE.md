@@ -1,146 +1,184 @@
-# DGX Spark Inference Stack - Serviere das Zuhause!
+# DGX Spark Inference Stack
 
 🌍 **Lies dies in anderen Sprachen**:
 [Deutsch](README_DE.md) | [Español](README_ES.md) | [Français](README_FR.md) | [Italiano](README_IT.md) | [日本語](README_JA.md) | [简体中文](README_ZH_CN.md) | [繁體中文](README_ZH_TW.md) | [Русский](README_RU.md) | [Українська](README_UK.md) | [Português](README_PT.md) | [한국어](README_KO.md) | [العربية](README_AR.md) | [Tiếng Việt](README_VI.md) | [Türkçe](README_TR.md)
 
-> **Hinweis zur KI-Übersetzung:** Diese Datei wurde von einer KI aus [README.md](README.md) übersetzt und kann Fehler enthalten oder hinter der englischen Version zurückliegen. Im Zweifel ist die englische README maßgeblich.
+> Diese Datei wurde von einer KI aus [README.md](README.md) übersetzt. Im Zweifel gilt die englische Fassung.
 
-Dein Nvidia DGX Spark sollte kein weiteres Nebenprojekt sein. Nutze ihn. Das ist ein Docker-basierter Inferenz-Stack zum Bereitstellen großer Sprachmodelle (LLMs) mit NVIDIA vLLM und intelligentem Ressourcenmanagement. Dieser Stack bietet On-Demand-Modellladen mit automatischer Abschaltung bei Inaktivität, eine einzelne Scheduling-Spur für Hauptmodelle mit optionalem Utility-Helfer und ein einheitliches API-Gateway.
+Stellt LLMs von einem NVIDIA DGX Spark über eine OpenAI-kompatible API bereit. Ein Modell
+startet bei der ersten Anfrage, belegt die GPU allein und stoppt nach 20 Minuten ohne
+Nutzung. Ein kleines Hilfsmodell darf daneben geladen bleiben, etwa für Sitzungstitel.
 
-Das Ziel des Projekts ist es, einen Inferenzserver für dein Zuhause bereitzustellen. Nachdem ich das einen Monat lang getestet und neue Modelle ergänzt habe, habe ich beschlossen, es für die Community zu veröffentlichen. Bitte beachte, dass dies ein Hobbyprojekt ist und konkrete Hilfe zur Verbesserung sehr willkommen ist. Es basiert auf Informationen aus dem Internet und den NVIDIA-Foren. Ich hoffe wirklich, dass es Homelabs voranbringt. Der Fokus liegt vor allem auf einem einzelnen DGX Spark und es sollte darauf standardmäßig funktionieren, aber Unterstützung für zwei Systeme ist willkommen.
+Ein Hobbyprojekt für einen einzelnen DGX Spark. Setups mit zwei Geräten sind ungetestet.
+
+## Funktionsweise
+
+Ein nginx-Gateway auf Port `8009` nimmt jede Anfrage an. Ein Request-Validator prüft den
+API-Key, normalisiert den Body und bittet den Waker-Dienst, das angefragte Modell zu
+starten. Der Waker startet den Modellcontainer und wartet, bis er gesund ist. Belegt ein
+anderes Hauptmodell die GPU, bekommt der Client HTTP 429 mit Headern, die sagen, welches
+Modell es ist und wann die GPU frei wird. Details: [docs/architecture.md](docs/architecture.md).
+
+## Voraussetzungen
+
+- NVIDIA DGX Spark (GB10). Getestet unter DGX OS 7 (Ubuntu 24.04).
+- Docker mit Compose v2.20 oder neuer und dem NVIDIA Container Toolkit.
+- `jq`, `curl` und Node.js 20 oder neuer für die Skripte in `tools/`.
+- Ein NVIDIA-NGC-Konto für die Basis-Images. Registriere dich im
+  [NGC-Katalog](https://catalog.ngc.nvidia.com/) und führe dann `docker login nvcr.io` aus.
+  NGC ist in sanktionierten Ländern nicht verfügbar.
+- Speicherplatz für Gewichte unter `./models`: etwa 2 GB bis 80 GB pro Modell.
+- Nur für `qwen3.8-flash-next-nvfp4`: io_uring auf dem Host aktiviert
+  (`cat /proc/sys/kernel/io_uring_disabled` gibt `0` aus). Der Container des Modells läuft
+  mit einem seccomp-Profil, das io_uring erlaubt. Halte den Kernel aktuell: io_uring ist eine
+  häufige Quelle von Kernel-Exploits. Siehe [docs/security.md](docs/security.md#seccomp).
+
+## Installation
+
+### 1. Repository klonen und Laufzeitverzeichnisse anlegen
+
+```bash
+git clone <repository-url>
+cd dgx-spark-inference-stack
+mkdir -p models manual_download/openai_gpt-oss-encodings_fix
+```
+
+### 2. GPT-OSS-Tokenizer-Dateien herunterladen
+
+Der Build des GPT-OSS-Images kopiert sie hinein und scheitert ohne sie.
+
+```bash
+wget https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken \
+  -O manual_download/openai_gpt-oss-encodings_fix/cl100k_base.tiktoken
+wget https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken \
+  -O manual_download/openai_gpt-oss-encodings_fix/o200k_base.tiktoken
+```
+
+### 3. Ein Laufzeit-Image bauen
+
+Die Modelle laufen auf drei Images. Ein Modell startet nur, wenn sein Image lokal gebaut
+ist. Das GPT-OSS-Image ist ein Befehl und dauert etwa 20 Minuten:
+
+```bash
+docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dockerfile .
+```
+
+Das Standardmodell `qwen3.8-27b-nvfp4-dflash2` und das Hilfsmodell brauchen
+`vllm-node-dflash2`; die Gemma-Modelle und `qwen3.8-flash-next-nvfp4` brauchen
+`vllm-node-b12x`. Beide Builds stehen in [docs/runtime-baseline.md](docs/runtime-baseline.md).
+
+### 4. Gewichte herunterladen
+
+Modellcontainer haben keinen Internetzugang. Lade die Gewichte eines Modells vor seiner
+ersten Anfrage herunter. `--list` zeigt jedes Modell, ob seine Gewichte vorhanden sind und
+ob sein Image gebaut ist. Setze `HF_TOKEN` für zugangsbeschränkte Repositories.
+
+```bash
+bash tools/download-weights.sh --list
+bash tools/download-weights.sh gpt-oss-20b
+```
+
+### 5. Stack starten
+
+```bash
+# Gateway, validator and waker. Models stay down until requested.
+docker compose up -d
+
+# Create the containers of the models you built and downloaded, without starting them.
+docker compose --profile models up --no-start --no-build vllm-oss20b
+```
+
+Die Dienstnamen sind die `container`-Werte in [models.json](models.json). Sind alle drei
+Images gebaut, lass den Dienstnamen weg, um jeden Modellcontainer anzulegen.
+
+## Erste Anfrage
+
+Das Gateway lauscht nur auf `127.0.0.1:8009`. Für Fernzugriff leite den Port über SSH weiter:
+siehe [docs/security.md](docs/security.md#remote-access).
+
+```bash
+curl -X POST http://localhost:8009/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}" \
+  -d '{"model": "gpt-oss-20b", "messages": [{"role": "user", "content": "Hello!"}]}'
+```
+
+Die erste Anfrage startet das Modell und kann mehrere Minuten dauern. Bevor du den Port an
+andere Rechner weiterleitest, setze einen eigenen `VLLM_API_KEY` in einer `.env`-Datei im
+Repo-Wurzelverzeichnis und führe beide Befehle aus Schritt 5 erneut aus.
+
+Prüfe Chat, Streaming und Tool-Aufrufe eines Modells über das Gateway:
+
+```bash
+bash tools/test-lane.sh gpt-oss-20b
+```
+
+## Modelle
+
+| Modell | Rolle | Kontext | Image |
+|---|---|---:|---|
+| `qwen3.8-27b-nvfp4-dflash2` | Standard, Thinking an | 262144 | `vllm-node-dflash2` |
+| `qwen3.8-flash-next-nvfp4` | schwierigste Fragen, belegt die GPU allein | 262144 | `vllm-node-b12x` |
+| `gemma4-26b-a4b` | mehrsprachiger Chat, Bilder | 262144 | `vllm-node-b12x` |
+| `gpt-oss-20b` | schnell, kleiner | 131072 | `vllm-node-mxfp4` |
+| `lfm2.5-1.2b` | Hilfsmodell, bleibt geladen | 32768 | `vllm-node-dflash2` |
+
+[docs/models.md](docs/models.md) listet alle 10 Modelle und ihre Grenzen.
 
 ## Dokumentation
 
-- **[Architektur & Funktionsweise](docs/architecture.md)** - Verstehen, wie der Stack, der Waker-Dienst und der Request-Flow arbeiten.
-- **[Konfiguration](docs/configuration.md)** - Umgebungsvariablen, Netzwerkeinstellungen und Waker-Tuning.
-- **[Leitfaden zur Modellauswahl](docs/models.md)** - Aktueller Modellkatalog, Schnellauswahl und Validierungsstatus.
-- **[Integrationen](docs/integrations.md)** - Anleitungen für **Cline** (VS Code) und **OpenCode** (Terminal-Agent).
-- **[Sicherheit & Fernzugriff](docs/security.md)** - SSH-Härtung und Einrichtung von eingeschränktem Port-Forwarding.
-- **[Fehlerbehebung & Monitoring](docs/troubleshooting.md)** - Debugging, Logs und Lösungen für häufige Fehler.
-- **[Fortgeschrittene Nutzung](docs/advanced.md)** - Neue Modelle hinzufügen, eigene Konfigurationen und dauerhafter Betrieb.
-- **[Runtime-Baseline](docs/runtime-baseline.md)** - Welche lokalen Image-Tracks das Repo erwartet und wie du sie neu baust.
-- **[Werkzeuge & Validierungsharness](tools/README.md)** - Unterstützte Smoke-, Soak-, Inspektions- und manuelle Probe-Skripte.
-- **[TODO-Notizen](TODO.md)** - Ideen, was als Nächstes ansteht.
+- [Architektur](docs/architecture.md): Komponenten, Request-Flow, Endpunkte, Lebenszyklus.
+- [Konfiguration](docs/configuration.md): Umgebungsvariablen und `models.json`-Felder.
+- [Modelle](docs/models.md): der Katalog und Einschränkungen pro Modell.
+- [Runtime-Baseline](docs/runtime-baseline.md): die drei Images und wie du sie baust.
+- [Integrationen](docs/integrations.md): Cline, OpenCode und pi.
+- [Sicherheit](docs/security.md): Container-Härtung, seccomp, Fernzugriff über SSH.
+- [Fehlerbehebung](docs/troubleshooting.md): Fehlerbilder und was zu tun ist.
+- [Fortgeschrittene Nutzung](docs/advanced.md): Modell hinzufügen, Scheduler-Policy, Keep-Alive.
+- [Fehlervertrag](docs/error-contract.md): Fehlerformat und Codes.
+- [ComfyUI-Koexistenz](docs/comfyui-coexistence.md): die GPU mit ComfyUI teilen.
+- [Werkzeuge](tools/README.md): Skripte für Validierung, Smoke-Tests, Soaks und Benchmarks.
 
-## Schnellstart
+## Mitarbeit
 
-1. **Repository klonen**
-   ```bash
-   git clone <repository-url>
-   cd dgx-spark-inference-stack
-   ```
+Pull Requests sind willkommen. Fülle die Pull-Request-Vorlage aus. Beiträge werden unter AGPL-3.0-or-later
+angenommen.
 
-2. **Benötigte Verzeichnisse anlegen**
-   ```bash
-   mkdir -p models vllm_cache_huggingface manual_download/openai_gpt-oss-encodings_fix
-   ```
+Renovate aktualisiert die Digests der Docker-Basis-Images und die Pins der GitHub Actions
+monatlich. Für ein früheres Update bestätige es im Renovate-Dependency-Dashboard-Issue.
 
-3. **Erforderliche Tokenizer herunterladen (KRITISCH)**
-   Der Stack benötigt für GPT-OSS-Modelle manuell heruntergeladene `tiktoken`-Dateien.
-   ```bash
-   wget https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken -O manual_download/openai_gpt-oss-encodings_fix/cl100k_base.tiktoken
-   wget https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken -O manual_download/openai_gpt-oss-encodings_fix/o200k_base.tiktoken
-   ```
+## Danksagungen
 
-4. **Eigene Docker-Images bauen (VERPFLICHTEND)**
-   Der Stack verwendet lokal gebaute, optimierte vLLM-Images, damit die Performance stimmt.
-   *   **Zeit:** Rechne mit ungefähr 20 Minuten pro Image.
-   *   **Authentifizierung:** Du musst dich bei NVIDIA NGC anmelden, um Basis-Images ziehen zu können.
-       1.  Erstelle ein Entwicklerkonto im [NVIDIA NGC Catalog](https://catalog.ngc.nvidia.com/) (nicht aus einem sanktionierten Land).
-       2.  Führe `docker login nvcr.io` mit deinen Zugangsdaten aus.
-      **Build-Befehle:**
-      ```bash
-      # Avarok-Image bauen (Allzweck) - muss dieses Tag verwenden, damit lokal statt Upstream genutzt wird.
-      # Vom Repo-Root bauen, damit die manuell heruntergeladenen Tokenizer-Dateien eingebunden werden.
-      docker build -t avarok/vllm-dgx-spark:v11 -f custom-docker-containers/avarok/Dockerfile .
-
-      # Wenn Compose-Dienste standardmäßig das gepinnte Upstream-Avarok-Image verwenden,
-      # exportiere diese Überschreibung für die aktuelle Shell oder lege sie vor
-      # docker compose in .env ab.
-      export VLLM_TRACK_AVAROK=avarok/vllm-dgx-spark:v11
-
-      # Den repoeigenen MXFP4-Track bauen, der von GPT-OSS verwendet wird.
-      # Dadurch werden die manuell heruntergeladenen tiktoken-Dateien ins Image eingebettet.
-      docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dockerfile .
-
-      # Den aktualisierten TF5-Track bauen, der für GLM 4.7 verwendet wird.
-      docker build -t local/vllm-node-tf5:cu131 -f custom-docker-containers/vllm-node-tf5/Dockerfile .
-
-      # Den upstream-artigen TF5-Track bauen, der für Gemma 4 und neuere TF5-Rezepte verwendet wird.
-      # Die aktiven Gemma-Compose-Dienste erwarten genau dieses lokale Image-Tag.
-      git clone https://github.com/eugr/spark-vllm-docker tmp/spark-vllm-docker 2>/dev/null || git -C tmp/spark-vllm-docker pull --ff-only
-      (cd tmp/spark-vllm-docker && bash build-and-copy.sh --pre-tf)
-      ```
-   *   **Hinweis:** `vllm-node-tf5` wird derzeit nicht aus einem repo-lokalen Dockerfile gebaut. Wenn du Gemma 4 oder neuere Qwen-Folgemodelle auf dem TF5-Track nutzen willst, baue es explizit mit dem obigen Upstream-Helper-Flow. In [docs/runtime-baseline.md](docs/runtime-baseline.md) stehen die genauen Reproduktionsschritte und die Netzwerkvoraussetzungen zur Build-Zeit.
-
-5. **Stack starten**
-   ```bash
-   # Nur Gateway und Waker starten (Modelle starten bei Bedarf)
-   docker compose up -d
-
-   # Alle aktivierten Modellcontainer vorab anlegen, sobald die benötigten lokalen Track-Images existieren
-   docker compose --profile models up --no-start
-   ```
-
-6. **API testen**
-   ```bash
-    # Anfrage an den ausgelieferten Utility-Helfer
-    curl -X POST http://localhost:8009/v1/chat/completions\
-     -H "Content-Type: application/json" \
-     -H "Authorization: Bearer ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}" \
-     -d '{
-          "model": "qwen3.5-0.8b",
-       "messages": [{"role": "user", "content": "Hallo!"}]
-     }'
-   ```
-
-7. **Unterstützte Validierungsharness verwenden**
-   Nach dem ersten erfolgreichen `curl` solltest du statt Ad-hoc-Skripten den gepflegten Bring-up-Flow des Repos verwenden:
-   ```bash
-   bash tools/validate-stack.sh
-   bash tools/smoke-gateway.sh
-   ```
-   Für modellspezifische Bring-up-, Smoke-, Soak- und manuelle Probe-Befehle siehe [tools/README.md](tools/README.md).
-
-## Hier anfangen, wenn du neu bist
-
-- Lies zuerst [docs/architecture.md](docs/architecture.md), dann [tools/README.md](tools/README.md).
-- Behandle [tools/README.md](tools/README.md) zusammen mit [models.json](models.json) als aktuelle operative Quelle der Wahrheit.
-- Behandle diese README als kurzen Einstieg statt als vollständigen Modellkatalog. Für den breiteren Katalog nutze [docs/models.md](docs/models.md).
-
-## Voraussetzungen
-- Docker 20.10+ mit Docker Compose
-- NVIDIA-GPU(s) mit CUDA-Unterstützung und NVIDIA Container Toolkit
-- Linux-Host (getestet auf Ubuntu)
-
-## Beiträge
-
-Pull Requests sind sehr willkommen. :)
-Um die Stabilität zu sichern, erzwinge ich jedoch ein strenges **Pull-Request-Template**.
-
-## Aktueller Stand
-
-Diese README hebt nur die aktuell empfohlenen Standardpfade des Stacks hervor.
-
-- **Validierte Hauptmodelle:** `gpt-oss-20b`, `gpt-oss-120b` und `glm-4.7-flash-awq`
-- **Validierter Utility-Helfer:** `qwen3.5-0.8b` für Titel und Sitzungsmetadaten
-- **Alles andere:** Im Repo vorhanden, aber kein README-Standard, bis es mit dem aktuellen Harness erneut validiert wurde
-
-Für den breiteren Modellkatalog, experimentelle Pfade und manuelle Sonderfälle nutze [docs/models.md](docs/models.md) und [models.json](models.json).
-
-Für Client-Hinweise, Runtime-Besonderheiten und Troubleshooting-Notizen nutze [docs/integrations.md](docs/integrations.md) und [docs/troubleshooting.md](docs/troubleshooting.md).
-
-## Credits
-
-Besonderer Dank an die Community-Mitglieder, deren Docker-Images und Rezeptarbeit diesen Stack geprägt haben:
-
-- **Thomas P. Braun von Avarok**: Für das allgemeine vLLM-Image (`avarok/vllm-dgx-spark`) mit Unterstützung für nicht gegatete Aktivierungen (Nemotron), Hybridmodelle und Beiträge wie https://blog.avarok.net/dgx-spark-nemotron3-and-nvfp4-getting-to-65-tps-8c5569025eb6.
-- **Christopher Owen**: Für das MXFP4-optimierte vLLM-Image (`christopherowen/vllm-dgx-spark`), das performante Inferenz auf DGX Spark ermöglicht.
-- **eugr**: Für das ursprüngliche Community-Repository `eugr/spark-vllm-docker`, seine Anpassungen und die großartigen Beiträge in den NVIDIA-Foren.
-- **Patrick Yi / scitrera.ai**: Für das SGLang-Rezept für Utility-Modelle, das den lokalen Pfad für den `qwen3.5-0.8b`-Helfer geprägt hat.
-- **Raphael Amorim**: Für die Community-AutoRound-Rezeptform, die den experimentellen lokalen `qwen3.5-122b-a10b-int4-autoround`-Pfad geprägt hat.
-- **Bjarke Bolding**: Für die Long-Context-AutoRound-Rezeptform, die den experimentellen lokalen `qwen3-coder-next-int4-autoround`-Pfad geprägt hat.
+- **Christopher Owen**: der MXFP4-Fork von vLLM, aus dem das GPT-OSS-Image gebaut wird.
+- **eugr**: [`eugr/spark-vllm-docker`](https://github.com/eugr/spark-vllm-docker), das die
+  Images DFlash2 und B12X baut.
+- **[local-inference-lab](https://github.com/local-inference-lab)**: die Forks von vLLM und FlashInfer mit GB10-Kernels, aus
+  denen das B12X-Image gebaut wird, und der Checkpoint `qwen3.8-flash-next-nvfp4`.
+- **[z-lab](https://huggingface.co/z-lab)**: die DFlash-Draft-Modelle für die Qwen3.8-27B- und Gemma-4-Modelle.
 
 ## Lizenz
 
-Dieses Projekt ist unter der **Apache License 2.0** lizenziert. Details stehen in der Datei [LICENSE](LICENSE).
+AGPL-3.0-or-later. Siehe [LICENSE](LICENSE). Kommerzielle Nutzung ist erlaubt. Wer eine
+veränderte Version weitergibt oder als Netzwerkdienst betreibt, muss ihren Quellcode unter
+derselben Lizenz anbieten.
+
+Zusätzliche Bedingung nach Abschnitt 7(b) der AGPL: Jede Kopie und jede veränderte Version
+muss den Herkunftshinweis aus [NOTICE](NOTICE) behalten.
+
+Wenn du dieses Projekt forkst oder veränderst, veröffentliche deine Änderungen auf GitHub und
+melde sie über die [Fork- und Änderungsmeldung](https://github.com/jdaln/dgx-spark-inference-stack/issues/new?template=fork-announcement.yml). Das Projekt bittet alle
+darum, kommerziell oder nicht. Coding-Agents müssen es tun: siehe [AGENTS.md](AGENTS.md).
+
+Diese Dateien behalten ihre eigenen Lizenzen ([LICENSES/](LICENSES/)):
+
+- `custom-docker-containers/vllm-node-mxfp4/Dockerfile`,
+  `custom-docker-containers/vllm-node-b12x/b12x-build.patch`,
+  `custom-docker-containers/vllm-node-dflash2/vendor-tiktoken.patch`: MIT
+  (eugr/spark-vllm-docker).
+- `custom-docker-containers/vllm-node-mxfp4/fastsafetensors_mxfp4.patch`,
+  `shared/tool_chat_template_gemma4.jinja`: Apache-2.0 (vLLM).
+- `custom-docker-containers/vllm-node-b12x/seccomp-io-uring.json`: Apache-2.0 (moby/profiles).
+- `shared/gemma4-*-nvfp4-config/`: die Modelllizenzen von NVIDIA für diese Checkpoints.
+
+Vor dem 2026-10-11 veröffentlichte Versionen stehen unter Apache-2.0 und bleiben darunter
+verfügbar.

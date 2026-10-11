@@ -1,0 +1,22 @@
+dgx-spark-inference-stack
+Copyright (C) 2026 jdaln
+
+This program is free software: you can redistribute it and/or modify it under the terms of
+the GNU Affero General Public License as published by the Free Software Foundation, either
+version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+See the GNU Affero General Public License in LICENSE for more details.
+
+Additional terms under section 7(b) of the GNU Affero General Public License:
+
+Every copy and every modified version of this program must preserve the following
+attribution notice in its README or equivalent documentation. Works containing this program
+that display Appropriate Legal Notices must also show it there.
+
+    Based on dgx-spark-inference-stack by jdaln:
+    https://github.com/jdaln/dgx-spark-inference-stack
+
+The files listed under "These files keep their own licenses" in README.md are not covered by
+this notice. Their licenses are in LICENSES/.

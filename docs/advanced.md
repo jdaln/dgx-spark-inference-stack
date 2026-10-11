@@ -1,122 +1,139 @@
-# Advanced Usage
+# Advanced usage
 
-## Adding a New Model
+Adding a model, changing the scheduler, keeping a model loaded. Coding agents: read
+[AGENTS.md](../AGENTS.md) first.
 
-1. Add a model service to a compose file under `compose/` (usually one of the existing family files such as `compose/models-qwen.yml`, `compose/models-gemma.yml`, or a new `compose/models-custom.yml` if there is no existing family fit):
+## Adding a model
+
+### 1. Add the compose service
+
+Copy the nearest existing lane in the matching `compose/models-*.yml` file. Keep its
+anchors: they carry the hardening that `tools/validate-stack.sh` requires (see
+[security.md](security.md#model-containers)). Pin `--revision`. A new fragment must be listed
+under `include:` in `docker-compose.yml`.
+
 ```yaml
 services:
   vllm-my-model:
-    profiles: ["models"]
-    image: vllm-node
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_DFLASH2:-vllm-node-dflash2}
     container_name: vllm-my-model
     command:
       - vllm
       - serve
       - org/model-name
+      - --revision
+      - <commit>
       - --host
       - 0.0.0.0
       - --port
       - "8000"
-      - --download-dir
-      - /models
       - --served-model-name
       - my-model
       - --gpu-memory-utilization
-      - "0.82"
-      # ... copy the remaining flags, volumes, env, and healthcheck from the nearest existing model
+      - "0.80"
+      - --disable-uvicorn-access-log
+      - --disable-log-stats
+    volumes:
+      - ../models:/models:ro
+      - ../cache/vllm-my-model/huggingface:/root/.cache/huggingface
+    environment:
+      <<: *env-common
+    healthcheck:
+      <<: *healthcheck-default
 ```
 
-2. Make sure the compose fragment is included from `docker-compose.yml`:
-```yaml
-include:
-  - compose/models-custom.yml
-```
+### 2. Add the inventory entry
 
-3. Add the model to `models.json` so both waker and request-validator load the same inventory:
+The model does not exist for the gateway until it is in `models.json`. Fields:
+[configuration.md](configuration.md#modelsjson).
+
 ```json
 {
   "my-model": {
     "container": "vllm-my-model",
-    "port": 8000,
     "maxModelLen": 131072,
     "toolSupport": "full",
-    "validatorProfile": "default",
     "lifecycle": "normal",
     "experimental": true
   }
 }
 ```
 
-4. Run the structural checks before starting the model:
+`gateway.conf` needs no change.
+
+### 3. Check, download, start, reload
+
 ```bash
 bash tools/validate-stack.sh
-```
-
-5. Start the model through the compose-native harness:
-```bash
+bash tools/check-models.sh
+bash tools/download-weights.sh my-model
 bash tools/run-model.sh --timeout 7200 --no-build my-model
-```
-
-6. Reload the control plane if you changed only `models.json` or lifecycle mappings and need waker/request-validator to pick up the new config:
-```bash
 bash tools/reload-control-plane.sh
 ```
 
-7. Run the standard request-path checks for the new model.
+Two traps:
 
-If the model is intended to participate in the normal gateway workflow, run at least:
+- `reload-control-plane.sh` recreates containers from existing images. The waker and the
+  validator bake their source into their images, so after a code change, rebuild:
+
+  ```bash
+  docker compose build waker request-validator
+  docker compose up -d waker request-validator
+  ```
+
+- `gateway.conf` is a single-file bind mount. Most editors replace the file, and the mount
+  keeps the old one, so `nginx -s reload` loads the old contents. Recreate instead:
+
+  ```bash
+  docker compose up -d --force-recreate api-gateway
+  ```
+
+### 4. Validate through the gateway
+
 ```bash
+bash tools/test-lane.sh my-model
 bash tools/smoke-gateway.sh
 ```
 
-8. Always run a soak after adding a new model to determine the real safe context ceiling on this host.
+A lane that needs a custom parser, chat template or wrapper also gets its own live
+regression under `tools/`.
 
-This is mandatory for new-model bring-up in this repo. Do not guess the context limit from the checkpoint card or from the raw `max_position_embeddings` value. Use `tools/soak-context.mjs` to find the highest clean tier and the first borderline tier on the actual gateway path.
+### 5. Soak it
 
-Example pattern:
+The checkpoint card and `max_position_embeddings` do not tell you what the host can serve.
+Find the highest clean context tier through the gateway:
+
 ```bash
-node tools/soak-context.mjs \
-  --model my-model \
-  --target-prompt-tokens 64000 \
-  --concurrency 5 \
-  --requests 5 \
-  --max-tokens 256
+node tools/soak-context.mjs --model my-model --target-prompt-tokens 128000
 ```
 
-If the model defaults to hidden reasoning and that consumes the visible answer budget, include:
+Add `--disable-thinking` if reasoning uses up the answer budget, `--enable-thinking` to
+test the other way.
+
+### 6. Record the result
+
+Write the highest clean tier, the first failing tier and any required request shape into
+the lane's `notes`. Then set client limits, update [models.md](models.md) and drop
+`experimental`.
+
+## Changing scheduler policy
+
+The waker runs one main model plus the utility lane. To allow more:
+
+- Change the busy check in `waker/index.js` (`getRunningManagedExcept()`), not single call
+  sites.
+- Re-check the `--gpu-memory-utilization` totals. Concurrent main models on this host must
+  stay under about 0.94 together.
+- Decide what `exclusive` and `utility` mean once main models share the GPU.
+
+## Keeping a model loaded
+
+`/touch/<container>` resets the idle timer. It is on the internal network, so call it from
+inside the waker container:
+
 ```bash
-node tools/soak-context.mjs \
-  --model my-model \
-  --target-prompt-tokens 64000 \
-  --concurrency 5 \
-  --requests 5 \
-  --max-tokens 256 \
-  --disable-thinking
+*/4 * * * * docker exec vllm-waker node -e "fetch('http://127.0.0.1:18080/touch/vllm-qwen3.8-27b-nvfp4-dflash2',{method:'POST'})"
 ```
 
-9. Record the soak result in the repo before treating the model as a recommended choice.
-
-At minimum, update the model notes in `models.json` with:
-- the highest clean tested prompt tier
-- the first known borderline or failing tier
-- any request-shape requirement such as non-thinking defaults
-
-Only after that should you tighten client-facing limits, update docs, or consider promotion beyond `experimental`.
-
-No changes to `gateway.conf` are needed for normal model additions. All `/v1/` traffic is routed through request-validator, which uses `models.json` plus the shared loader to resolve the target model.
-
-## Changing Scheduler Policy
-
-The current default is not pure single-tenancy. Waker ignores the configured `lifecycle: "utility"` container during busy checks, which means the small helper can coexist with one main model while the rest of the stack still behaves as a single main-model lane.
-
-If you want broader multi-model concurrency:
-- Rework the busy-check path in `waker/index.js`, not just one call site. The current behavior comes from the utility container being excluded from the managed set before `getRunningManagedExcept()` runs.
-- Re-validate per-model `--gpu-memory-utilization` totals first. On this host, the practical combined budget for concurrently loaded substantial main models is only about `0.94`.
-- Decide what should happen to the current `exclusive` and `utility` lifecycle rules before enabling concurrent main models.
-
-## Persistent Model Keep-Alive
-
-Create a cron job to touch the model:
-```bash
-*/4 * * * * curl -X POST http://localhost:8009/debug/touch/vllm-qwen3.6-35b-a3b-fp8-mtp
-```
+Or set `IDLE_STOP_SECONDS=0` to turn idle stop off for every lane.

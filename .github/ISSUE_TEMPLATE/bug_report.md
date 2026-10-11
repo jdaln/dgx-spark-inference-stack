@@ -1,29 +1,28 @@
 ---
 name: Bug report
-about: Create a report to help us improve
+about: Something does not work as documented
 title: ''
 labels: bug
 assignees: ''
 ---
 
-## Describe the bug
-A clear and concise description of what the bug is.
+## What happened
 
-## To Reproduce
-Steps to reproduce the behavior:
-1. Go to '...'
-2. Click on '...'
-3. Scroll down to '...'
-4. See error
+What you did, what you expected, what you got.
 
-## Expected behavior
-A clear and concise description of what you expected to happen.
+## Model and command
 
-## Environment needed
- - **GPU**: (e.g. DGX Spark GB10)
- - **OS**: (e.g. Ubuntu 22.04)
- - **Docker Version**:
+- Model id:
+- Command or request:
+- Error envelope (`error.code` and `error.message`):
+
+## Environment
+
+- Hardware: (e.g. DGX Spark GB10)
+- OS:
+- Docker and Compose versions:
+- Commit:
 
 ## Logs
-If applicable, add logs.
-> **Note**: Remember the **No-Log Policy**. Only share non-sensitive metadata logs from `docker compose logs`. Do not share prompts or outputs.
+
+Output of `docker logs <container>`. Remove prompts, outputs and keys.

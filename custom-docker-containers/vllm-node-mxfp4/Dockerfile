@@ -62,106 +62,17 @@ ARG CUTLASS_SHA=fede53000a962b46e05bafe0c86311778caeb380
 RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
     uv pip install "nvidia-nvshmem-cu13<3.6" "apache-tvm-ffi<0.2"
 
-RUN --mount=type=cache,id=git-flashinfer,target=/git-cache/flashinfer \
-    --mount=type=cache,id=git-flashinfer-spdlog,target=/git-cache/flashinfer-spdlog \
-    retry() { \
-        attempts=0; \
-        until "$@"; do \
-            attempts=$((attempts + 1)); \
-            if [ "$attempts" -ge 3 ]; then \
-                return 1; \
-            fi; \
-            sleep 5; \
-        done; \
-    }; \
-    reset_cache_dir() { \
-        mkdir -p "$1"; \
-        find "$1" -mindepth 1 -maxdepth 1 -exec rm -rf {} +; \
-    }; \
-    if [ -d /git-cache/flashinfer/.git ] && [ -d /git-cache/flashinfer/.git/objects ]; then \
-        echo "=== Using cached FlashInfer repo ===" && \
-        rm -rf /workspace/flashinfer && \
-        mkdir -p /workspace/flashinfer && \
-        cp -a /git-cache/flashinfer/. /workspace/flashinfer/ && \
-        cd /workspace/flashinfer && \
-        if ! retry git fetch origin; then \
-            echo "WARN: FlashInfer fetch failed, continuing with cached repo" >&2; \
-        fi && \
-        if ! retry git fetch origin --tags; then \
-            echo "WARN: FlashInfer tag fetch failed, continuing with cached repo" >&2; \
-        fi; \
-    else \
-        echo "=== Cloning FlashInfer (first build) ===" && \
-        retry git clone ${FLASHINFER_REPO} /workspace/flashinfer; \
-    fi && \
-    cd /workspace/flashinfer && \
-    (git checkout --detach origin/${FLASHINFER_SHA} 2>/dev/null || git checkout ${FLASHINFER_SHA}) && \
-    reset_cache_dir /git-cache/flashinfer && \
-    cp -a /workspace/flashinfer/. /git-cache/flashinfer/ && \
-    SPDLOG_REPO=$(git config -f .gitmodules --get 'submodule.3rdparty/spdlog.url') && \
-    SPDLOG_SHA=$(git ls-tree HEAD 3rdparty/spdlog | awk '{print $3}') && \
-    if [ -z "$SPDLOG_REPO" ] || [ -z "$SPDLOG_SHA" ]; then \
-        echo "Unable to resolve spdlog submodule metadata" >&2; \
-        exit 1; \
-    fi && \
-    mkdir -p /workspace/flashinfer/3rdparty && \
-    if [ -d /git-cache/flashinfer-spdlog/.git ] && [ -d /git-cache/flashinfer-spdlog/.git/objects ]; then \
-        echo "=== Using cached spdlog repo ===" && \
-        rm -rf /workspace/flashinfer/3rdparty/spdlog && \
-        mkdir -p /workspace/flashinfer/3rdparty/spdlog && \
-        cp -a /git-cache/flashinfer-spdlog/. /workspace/flashinfer/3rdparty/spdlog/ && \
-        cd /workspace/flashinfer/3rdparty/spdlog && \
-        if ! retry git fetch origin; then \
-            echo "WARN: spdlog fetch failed, continuing with cached repo" >&2; \
-        fi && \
-        if ! retry git fetch origin --tags; then \
-            echo "WARN: spdlog tag fetch failed, continuing with cached repo" >&2; \
-        fi; \
-    else \
-        echo "=== Cloning spdlog (first build) ===" && \
-        retry git clone ${SPDLOG_REPO} /workspace/flashinfer/3rdparty/spdlog; \
-    fi && \
-    cd /workspace/flashinfer/3rdparty/spdlog && \
-    (git checkout --detach origin/${SPDLOG_SHA} 2>/dev/null || git checkout ${SPDLOG_SHA}) && \
-    reset_cache_dir /git-cache/flashinfer-spdlog && \
-    cp -a /workspace/flashinfer/3rdparty/spdlog/. /git-cache/flashinfer-spdlog/
+COPY --chmod=0755 custom-docker-containers/vllm-node-mxfp4/fetch-pinned.sh /usr/local/bin/fetch-pinned
 
-RUN --mount=type=cache,id=git-cutlass,target=/git-cache/cutlass \
-    retry() { \
-        attempts=0; \
-        until "$@"; do \
-            attempts=$((attempts + 1)); \
-            if [ "$attempts" -ge 3 ]; then \
-                return 1; \
-            fi; \
-            sleep 5; \
-        done; \
-    }; \
-    reset_cache_dir() { \
-        mkdir -p "$1"; \
-        find "$1" -mindepth 1 -maxdepth 1 -exec rm -rf {} +; \
-    }; \
+# CUTLASS comes from the MXFP4 fork, not from FlashInfer's own submodule pin.
+RUN --mount=type=cache,id=pinned-flashinfer,target=/cache/pinned/flashinfer \
+    --mount=type=cache,id=pinned-spdlog,target=/cache/pinned/spdlog \
+    --mount=type=cache,id=pinned-cutlass,target=/cache/pinned/cutlass \
+    fetch-pinned "$FLASHINFER_REPO" "$FLASHINFER_SHA" /workspace/flashinfer /cache/pinned/flashinfer && \
     cd /workspace/flashinfer && \
-    rm -rf 3rdparty/cutlass && \
-    mkdir -p 3rdparty/cutlass && \
-    if [ -d /git-cache/cutlass/.git ] && [ -d /git-cache/cutlass/.git/objects ]; then \
-        echo "=== Using cached CUTLASS repo ===" && \
-        cp -a /git-cache/cutlass/. 3rdparty/cutlass/ && \
-        cd 3rdparty/cutlass && \
-        if ! retry git fetch origin; then \
-            echo "WARN: CUTLASS fetch failed, continuing with cached repo" >&2; \
-        fi && \
-        if ! retry git fetch origin --tags; then \
-            echo "WARN: CUTLASS tag fetch failed, continuing with cached repo" >&2; \
-        fi; \
-    else \
-        echo "=== Cloning CUTLASS (first build) ===" && \
-        retry git clone ${CUTLASS_REPO} 3rdparty/cutlass; \
-    fi && \
-    cd /workspace/flashinfer/3rdparty/cutlass && \
-    (git checkout --detach origin/${CUTLASS_SHA} 2>/dev/null || git checkout ${CUTLASS_SHA}) && \
-    reset_cache_dir /git-cache/cutlass && \
-    cp -a /workspace/flashinfer/3rdparty/cutlass/. /git-cache/cutlass/
+    fetch-pinned "$(git config -f .gitmodules --get submodule.3rdparty/spdlog.url)" \
+        "$(git rev-parse HEAD:3rdparty/spdlog)" 3rdparty/spdlog /cache/pinned/spdlog && \
+    fetch-pinned "$CUTLASS_REPO" "$CUTLASS_SHA" 3rdparty/cutlass /cache/pinned/cutlass
 
 WORKDIR /workspace/flashinfer
 
@@ -180,52 +91,12 @@ RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
     uv build --no-build-isolation --wheel . --out-dir=/workspace/wheels -v
 
 ARG CACHEBUST_VLLM=1
-# That line still pins Christopher Owen's MXFP4 fork rather than the standard upstream vLLM repo.
+# Christopher Owen's MXFP4 fork of vLLM, not upstream.
 ARG VLLM_REPO=https://github.com/christopherowen/vllm.git
 ARG VLLM_SHA=045293d82b832229560ac4a13152a095af603b6e
 
-RUN --mount=type=cache,id=git-vllm-mxfp4,target=/git-cache/vllm-mxfp4 \
-    retry() { \
-        attempts=0; \
-        until "$@"; do \
-            attempts=$((attempts + 1)); \
-            if [ "$attempts" -ge 3 ]; then \
-                return 1; \
-            fi; \
-            sleep 5; \
-        done; \
-    }; \
-    reset_cache_dir() { \
-        mkdir -p "$1"; \
-        find "$1" -mindepth 1 -maxdepth 1 -exec rm -rf {} +; \
-    }; \
-    if [ -d /git-cache/vllm-mxfp4/.git ] && [ -d /git-cache/vllm-mxfp4/.git/objects ]; then \
-        echo "=== Using cached vLLM repo ===" && \
-        rm -rf $VLLM_BASE_DIR/vllm && \
-        mkdir -p $VLLM_BASE_DIR/vllm && \
-        cp -a /git-cache/vllm-mxfp4/. $VLLM_BASE_DIR/vllm/ && \
-        cd $VLLM_BASE_DIR/vllm && \
-        if ! retry git fetch origin; then \
-            echo "WARN: vLLM fetch failed, continuing with cached repo" >&2; \
-        fi && \
-        if ! retry git fetch origin --tags; then \
-            echo "WARN: vLLM tag fetch failed, continuing with cached repo" >&2; \
-        fi; \
-    else \
-        echo "Cache miss: Cloning vLLM from scratch..." && \
-        rm -rf $VLLM_BASE_DIR/vllm && \
-        retry git clone ${VLLM_REPO} $VLLM_BASE_DIR/vllm; \
-    fi && \
-    cd $VLLM_BASE_DIR/vllm && \
-    (git checkout --detach origin/${VLLM_SHA} 2>/dev/null || git checkout ${VLLM_SHA}) && \
-    if ! retry git submodule sync --recursive; then \
-        echo "WARN: vLLM submodule sync failed, continuing with existing config" >&2; \
-    fi && \
-    retry git submodule update --init --recursive && \
-    git clean -fdx && \
-    git gc --auto && \
-    reset_cache_dir /git-cache/vllm-mxfp4 && \
-    cp -a $VLLM_BASE_DIR/vllm/. /git-cache/vllm-mxfp4/
+RUN --mount=type=cache,id=pinned-vllm-mxfp4,target=/cache/pinned/vllm \
+    fetch-pinned "$VLLM_REPO" "$VLLM_SHA" "$VLLM_BASE_DIR/vllm" /cache/pinned/vllm submodules
 
 WORKDIR $VLLM_BASE_DIR/vllm
 

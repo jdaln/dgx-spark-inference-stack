@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/claude-code-settings.json",
+  "sandbox": {
+    "filesystem": {
+      "allowRead": ["."]
+    }
+  }
+}
+

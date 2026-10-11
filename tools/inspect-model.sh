@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
 
 set -euo pipefail
 
@@ -122,7 +123,7 @@ LOCAL_FIX_COUNT=0
 while IFS=$'\t' read -r source target mode; do
   [[ -n "$source" ]] || continue
   case "$source" in
-    "$REPO_DIR"/vllm_cache_huggingface|"$REPO_DIR"/models|"$REPO_DIR"/flashinfer_cache|"$REPO_DIR"/torch_extensions|"$REPO_DIR"/torchinductor|"$REPO_DIR"/stats)
+    "$REPO_DIR"/models|"$REPO_DIR"/cache/*|"$REPO_DIR"/stats)
       continue
       ;;
     "$REPO_DIR"/*)

@@ -6,6 +6,8 @@ on:
 
 jobs:
   auto-label:
+    # Fork announcements are not requests for help.
+    if: ${{ !contains(github.event.issue.labels.*.name, 'fork') }}
     runs-on: ubuntu-latest
     permissions:
       issues: write

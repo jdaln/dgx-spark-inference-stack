@@ -1,25 +1,25 @@
-// Request validator and router middleware.
-// This service:
-// 1. Reads the `model` from the request body to determine the target container.
-// 2. Calls the `waker` service to ensure the requested model is running.
-// 3. Forwards "busy" responses from the waker back to the client.
-// 4. Normalizes `max_completion_tokens` to `max_tokens` (OpenCode vs vLLM compatibility).
-// 5. Caps `max_tokens` to prevent context overflow (limits response length, NOT input prompt).
-// 6. Normalizes multimodal content format for models with incompatible chat templates.
-// 7. Strips tool parameters from models that don't support tool calling (small, VL, math).
-// 8. Forces `tool_choice: required` for models that ignore tools with "auto" (Qwen3-Coder, Qwen2.5-Coder).
-// 9. Fixes role alternation for Gemma/Llama models requiring strict user/assistant turns.
-// 10. Disables hidden thinking by default for models whose reasoning parser otherwise consumes the visible answer budget.
-// 11. Translates OpenCode-style reasoning-effort controls into binary Qwen thinking flags on the Qwen 3.6 lanes.
-// 12. Proxies the final, validated request to the correct vLLM container.
+// Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
+// Request validator. Resolves `model` to a container, asks the waker to start it, rewrites the
+// request per the lane's models.json flags and proxies it. Busy and error responses from the
+// waker go back to the client. Token budgeting is left to the engine.
 
+import { createHash, timingSafeEqual } from "node:crypto";
 import http from "node:http";
 import { pathToFileURL } from "node:url";
+import { isOpenAIErrorEnvelope, makeOpenAIError, writeOpenAIError } from "../shared/error-response.mjs";
 import { loadModelsConfig } from "../shared/models-config.mjs";
 
 const PORT = Number(process.env.PORT || 18081);
+// Matches the gateway's client_max_body_size 64m; direct callers get the same cap.
+const MAX_BODY_BYTES = Number(process.env.MAX_BODY_BYTES || 64 * 1024 * 1024);
 const VERBOSE = (process.env.VERBOSE || "0") !== "0";
 const WAKER_URL = process.env.WAKER_URL || "http://waker:18080";
+// The waker's idle timer only sees request starts; long responses refresh it on this interval.
+const TOUCH_INTERVAL_MS = Number(process.env.TOUCH_INTERVAL_MS || 60_000);
+// Same key the model containers enforce, checked before a lane is woken. Empty disables it, as in vLLM.
+const API_KEY_DIGEST = process.env.VLLM_API_KEY
+  ? createHash("sha256").update(process.env.VLLM_API_KEY).digest()
+  : null;
 const MODELS_CONFIG_PATH = process.env.MODELS_CONFIG_PATH || "/config/models.json";
 const MODELS_CONFIG = loadModelsConfig(MODELS_CONFIG_PATH);
 const MODEL_CONFIG = Object.fromEntries(
@@ -32,8 +32,15 @@ const MODEL_CONFIG = Object.fromEntries(
       maxModelLen: entry.maxModelLen,
       toolSupport: entry.toolSupport,
       validatorProfile: entry.validatorProfile,
+      thinkingDefault: entry.thinkingDefault,
+      reasoningEffort: entry.reasoningEffort,
+      reasoningEffortDefault: entry.reasoningEffortDefault,
+      backend: entry.backend,
+      lifecycle: entry.lifecycle,
       multimodal: entry.multimodal,
-      normalizeTextContent: entry.normalizeTextContent
+      normalizeTextContent: entry.normalizeTextContent,
+      speculativeDecoding: entry.speculativeDecoding,
+      reasoningNeedsSpecialTokens: entry.reasoningNeedsSpecialTokens
     }
   ])
 );
@@ -68,33 +75,24 @@ function shouldNormalizeTextContent(targetConfig) {
   return targetConfig.normalizeTextContent === true;
 }
 
-const DEFAULT_NON_THINKING_MODELS = new Set([
-  "glm-4.7-flash-awq",
-  "nemotron-3-nano-30b-nvfp4",
-  "huihui-qwen3.5-35b-a3b-abliterated",
-  "huihui-qwen3.6-27b-abliterated",
-  "qwen3.5-122b-a10b-int4-autoround",
-  "qwen3.6-27b-fp8",
-  "qwen3.6-27b-fp8-mtp",
-  "qwen3.6-35b-a3b-fp8",
-  "qwen3.6-35b-a3b-fp8-mtp"
-]);
+// vLLM silently ignores min_p and logit_bias under speculative decoding. Reject them instead.
+// Neutral values (min_p 0, an empty logit_bias) pass.
+function unsupportedSamplingParam(body, targetConfig) {
+  if (!targetConfig?.speculativeDecoding) return null;
+  let data;
+  try {
+    data = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  if (typeof data.min_p === "number" && data.min_p > 0) return "min_p";
+  if (data.logit_bias && typeof data.logit_bias === "object" && Object.keys(data.logit_bias).length > 0) return "logit_bias";
+  return null;
+}
 
-const OPENCODE_BINARY_REASONING_MODELS = new Set([
-  "huihui-qwen3.6-27b-abliterated",
-  "qwen3.6-27b-fp8",
-  "qwen3.6-27b-fp8-mtp",
-  "qwen3.6-35b-a3b-fp8",
-  "qwen3.6-35b-a3b-fp8-mtp"
-]);
-
-const SMALL_CONTEXT_BUFFER_MODELS = new Set([
-  "huihui-qwen3.6-27b-abliterated",
-  "qwen3.6-27b-fp8",
-  "qwen3.6-27b-fp8-mtp",
-  "qwen3.6-35b-a3b-fp8",
-  "qwen3.6-35b-a3b-fp8-mtp"
-]);
+// Engines measured to answer at full length when the client omits max_tokens. Add a backend
+// only after measuring it.
+const BACKEND_OWNS_TOKEN_BUDGET = new Set(["vllm", "sglang"]);
 
 const RECOGNIZED_REASONING_EFFORTS = new Set([
   "none",
@@ -148,6 +146,70 @@ function stripReasoningEffortFields(data) {
   }
 }
 
+// The Qwen3.8 chat template accepts only xhigh, medium and low and raises on any other
+// effort, so a plain "high" would fail with a 400. Map the common vocabulary onto those levels.
+const QWEN38_GRADED_REASONING = {
+  off: new Set(["none"]),
+  levels: new Map([
+    ["minimal", "low"],
+    ["low", "low"],
+    ["medium", "medium"],
+    ["high", "xhigh"],
+    ["xhigh", "xhigh"],
+    ["max", "xhigh"],
+    ["auto", "xhigh"]
+  ])
+};
+
+function applyGradedReasoningEffort(targetConfig, data) {
+  if (targetConfig?.reasoningEffort !== "graded") {
+    return;
+  }
+
+  const graded = QWEN38_GRADED_REASONING;
+
+  const chatTemplateKwargs =
+    data.chat_template_kwargs && typeof data.chat_template_kwargs === "object" && !Array.isArray(data.chat_template_kwargs)
+      ? data.chat_template_kwargs
+      : {};
+  const explicitThinking = chatTemplateKwargs.enable_thinking !== undefined || chatTemplateKwargs.thinking !== undefined;
+
+  // A lane may replace the template's default effort for callers that state none.
+  let requested = getRequestedReasoningEffort(data);
+  if (!requested && !explicitThinking && targetConfig.reasoningEffortDefault) {
+    requested = targetConfig.reasoningEffortDefault;
+    log(`Applying lane default reasoning_effort=${requested} for ${data.model}`);
+  }
+  if (!requested) {
+    return;
+  }
+
+  // An explicit thinking flag from the caller wins over reasoning_effort.
+  if (explicitThinking) {
+    stripReasoningEffortFields(data);
+    log(`Preserving explicit chat_template_kwargs thinking flags for ${data.model}; ignoring reasoning_effort=${requested}`);
+    return;
+  }
+
+  stripReasoningEffortFields(data);
+
+  if (graded.off.has(requested)) {
+    data.chat_template_kwargs = { ...chatTemplateKwargs, enable_thinking: false, thinking: false };
+    log(`Mapped reasoning_effort=${requested} to thinking=false for ${data.model}`);
+    return;
+  }
+
+  const resolved = graded.levels.get(requested);
+  if (!resolved) {
+    log(`Dropping unsupported reasoning_effort=${requested} for ${data.model}; falling back to template default`);
+    return;
+  }
+
+  data.reasoning_effort = resolved;
+  if (resolved !== requested) {
+    log(`Mapped reasoning_effort=${requested} to ${resolved} for ${data.model}`);
+  }
+}
 
 function applyOpenCodeReasoningEffort(targetConfig, data) {
   const reasoningEffort = getRequestedReasoningEffort(data);
@@ -155,7 +217,7 @@ function applyOpenCodeReasoningEffort(targetConfig, data) {
     return;
   }
 
-  if (!targetConfig || !OPENCODE_BINARY_REASONING_MODELS.has(targetConfig.modelId)) {
+  if (targetConfig?.reasoningEffort !== "binary") {
     return;
   }
 
@@ -187,8 +249,21 @@ function applyOpenCodeReasoningEffort(targetConfig, data) {
   log(`Mapped reasoning_effort=${reasoningEffort} to chat_template_kwargs thinking=${enableThinking} for ${data.model}`);
 }
 
+// Gemma 4's reasoning parser needs its channel marker tokens, which non-streaming responses
+// strip by default. Keep special tokens when thinking is on, unless the client chose.
+function keepSpecialTokensForReasoning(targetConfig, data) {
+  if (!targetConfig?.reasoningNeedsSpecialTokens || data.stream === true || data.skip_special_tokens !== undefined) {
+    return;
+  }
+  const kwargs = data.chat_template_kwargs;
+  if (kwargs && typeof kwargs === "object" && (kwargs.enable_thinking === true || kwargs.thinking === true)) {
+    data.skip_special_tokens = false;
+    log(`Kept special tokens so the reasoning parser can split thinking for ${data.model}`);
+  }
+}
+
 function normalizeQwenThinkingFlag(targetConfig, data) {
-  if (!targetConfig || !OPENCODE_BINARY_REASONING_MODELS.has(targetConfig.modelId)) {
+  if (targetConfig?.reasoningEffort !== "binary") {
     return;
   }
 
@@ -211,16 +286,8 @@ function normalizeQwenThinkingFlag(targetConfig, data) {
   log(`Normalized top-level thinking into chat_template_kwargs for ${data.model}`);
 }
 
-function getTokenSafetyBuffer(targetConfig, maxModelLen) {
-  if (targetConfig && SMALL_CONTEXT_BUFFER_MODELS.has(targetConfig.modelId)) {
-    return 4096;
-  }
-
-  return Math.max(512, Math.floor(maxModelLen * 0.1));
-}
-
 function shouldDisableThinkingByDefault(targetConfig, data) {
-  if (!targetConfig || !DEFAULT_NON_THINKING_MODELS.has(targetConfig.modelId)) {
+  if (targetConfig?.thinkingDefault !== "off") {
     return false;
   }
 
@@ -236,61 +303,45 @@ function shouldDisableThinkingByDefault(targetConfig, data) {
   return chatTemplateKwargs.enable_thinking === undefined && chatTemplateKwargs.thinking === undefined;
 }
 
+function isAuthorized(req) {
+  if (!API_KEY_DIGEST) return true;
+  const match = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || "");
+  if (!match) return false;
+  return timingSafeEqual(createHash("sha256").update(match[1].trim()).digest(), API_KEY_DIGEST);
+}
+
 function json(res, code, obj, headers = {}) {
   res.writeHead(code, { ...headers, "Content-Type": "application/json" });
   res.end(JSON.stringify(obj));
 }
 
-// Rough estimate of tokens from text.
-// Use a standard ~4 chars/token heuristic and keep the separate safety buffer below;
-// the older 2.5 chars/token estimate was over-capping large code prompts long before
-// the actual model context limit on GLM 4.7.
-function estimateTokens(text) {
-  if (typeof text !== "string") return 0;
-  return Math.ceil(text.length / 4);
-}
-
-// Estimate total input tokens from messages
-function estimateInputTokens(data) {
-  let total = 0;
-  // Base overhead for chat template, special tokens, etc.
-  // Chat templates can add 500-2000 tokens depending on system prompts
-  const overhead = 500;
-
-  if (data.messages && Array.isArray(data.messages)) {
-    for (const msg of data.messages) {
-      if (msg.content) {
-        if (typeof msg.content === "string") {
-          total += estimateTokens(msg.content);
-        } else if (Array.isArray(msg.content)) { // Multimodal content
-          for (const part of msg.content) {
-            if (part.type === "text" && part.text) {
-              total += estimateTokens(part.text);
-            } else if (part.type === "image_url") {
-              total += 1500; // Conservative estimate for image tokens
-            }
-          }
-        }
-      }
-      total += 20; // Overhead per message (role token, separators, etc.)
+function forwardedResponseHeaders(headers) {
+  const forwardedHeaders = {};
+  for (const [key, value] of Object.entries(headers)) {
+    const k = key.toLowerCase();
+    if (
+      k === "retry-after" ||
+      k === "x-time-until-release-sec" ||
+      k.startsWith("x-dgx-") ||
+      k.startsWith("x-busy-") ||
+      k.startsWith("x-model-")
+    ) {
+      forwardedHeaders[key] = value;
     }
   }
-  return total + overhead;
+  return forwardedHeaders;
 }
 
-// Validates and modifies the request body
 function processBody(body, targetConfig, url) {
   try {
     const data = JSON.parse(body);
 
-    // Normalize array-based text content to a plain string for text models whose chat templates only accept strings
-    // OpenCode sends: {"content": [{"type": "text", "text": "Hi"}]}
-    // Some chat templates (like Qwen3-Next and the Qwen3.5 Unsloth template) expect: {"content": "Hi"}
+    // Some chat templates accept only string content, while OpenCode sends
+    // [{"type": "text", "text": "Hi"}]. Join the text parts; images are dropped on text-only lanes.
     const needsContentNormalization = shouldNormalizeTextContent(targetConfig);
     if (needsContentNormalization && Array.isArray(data.messages)) {
       for (const msg of data.messages) {
         if (Array.isArray(msg.content)) {
-          // Extract text parts and concatenate, skip images for text-only models
           const textParts = msg.content
             .filter(part => part.type === "text" && part.text)
             .map(part => part.text);
@@ -302,163 +353,73 @@ function processBody(body, targetConfig, url) {
       }
     }
 
-    // Fix for Gemma/Llama models that require strict role alternation (user/assistant/user...).
-    // This logic handles merging consecutive roles and system prompt injection.
-    if (data.model && (data.model.includes("gemma") || data.model.includes("llama")) && Array.isArray(data.messages)) {
-      let systemContent = "";
-
-      // Extract and remove all system messages
-      data.messages = data.messages.filter(m => {
-        if (m.role === "system") {
-          systemContent += (systemContent ? "\n\n" : "") + (m.content || "");
-          return false;
-        }
-        return true;
-      });
-
-      // Inject Llama specific tool instruction to force raw JSON arguments and prevent over-eager calling
-      if (data.model.includes("llama")) {
-        const toolInstruction = `CRITICAL INSTRUCTIONS:
+    // Llama tool-calling guidance: raw JSON arguments, and no tool calls for plain conversation.
+    // All other message structure belongs to the chat templates.
+    if (targetConfig?.validatorProfile === "llama-tools" && Array.isArray(data.messages) && Array.isArray(data.tools) && data.tools.length > 0) {
+      const toolInstruction = `CRITICAL INSTRUCTIONS:
 1. When calling tools, you must provide array and object arguments as raw JSON values (e.g. [1, 2] or {"key": "value"}), NOT as JSON strings. Do not quote these values.
 2. If the user greets you (e.g. "Hi", "Hello"), reply with text. Do NOT call tools unless specifically needed for a task.`;
-        systemContent += (systemContent ? "\n\n" : "") + toolInstruction;
-        log(`Injected strict tool instruction for Llama calling fix: ${data.model}`);
 
-        // Also rewrite tool definitions to explicitly warn against stringification
-        if (data.tools && Array.isArray(data.tools)) {
-          const warnText = " (Provide as raw JSON, NOT a string)";
+      // After any leading system messages; the Llama template allows several.
+      let insertAt = 0;
+      while (insertAt < data.messages.length && data.messages[insertAt].role === "system") insertAt++;
+      data.messages.splice(insertAt, 0, { role: "system", content: toolInstruction });
+      log(`Injected strict tool instruction for Llama calling fix: ${data.model}`);
 
-          // Helper to recursively update schema descriptions
-          const updateSchema = (schema) => {
-            if (!schema || typeof schema !== 'object') return;
+      const warnText = " (Provide as raw JSON, NOT a string)";
 
-            if (schema.type === 'array' || schema.type === 'object') {
-              if (schema.description && !schema.description.includes(warnText)) {
-                schema.description += warnText;
-              } else if (!schema.description) {
-                schema.description = "Provide as raw JSON, NOT a string";
-              }
-            }
+      const updateSchema = (schema) => {
+        if (!schema || typeof schema !== 'object') return;
 
-            if (schema.properties) {
-              for (const key in schema.properties) {
-                updateSchema(schema.properties[key]);
-              }
-            }
-            if (schema.items) {
-              updateSchema(schema.items);
-            }
-          };
-
-          for (const tool of data.tools) {
-            // Update parameter descriptions
-            if (tool.function && tool.function.parameters) {
-              updateSchema(tool.function.parameters);
-            }
-            // Specific fix for 'question' tool to prevent over-eager usage
-            if (tool.function && tool.function.name === 'question') {
-              tool.function.description += " Only use this tool if you need to gather specific information for a task. Do not use for general greetings.";
-            }
-          }
-          log(`Rewrote tool descriptions for Llama model: ${data.model}`);
-        }
-      }
-
-      // Merge consecutive messages with the same role
-      const mergedMessages = [];
-      for (const msg of data.messages) {
-        if (mergedMessages.length > 0 && mergedMessages[mergedMessages.length - 1].role === msg.role) {
-          // Merge content with the previous message of the same role
-          const prev = mergedMessages[mergedMessages.length - 1];
-          if (typeof prev.content === "string" && typeof msg.content === "string") {
-            prev.content += "\n\n" + msg.content;
-          } else {
-            // Handle cases where content might be an array or other format
-            prev.content = String(prev.content) + "\n\n" + String(msg.content);
-          }
-          log(`Merged consecutive ${msg.role} messages for Gemma`);
-        } else {
-          mergedMessages.push({ ...msg });
-        }
-      }
-      data.messages = mergedMessages;
-
-      // Prepend system content to the first user message
-      if (systemContent) {
-        log(`Found system prompt for ${data.model}, merging into user message.`);
-        const prefix = `[System Instruction]\n${systemContent}\n\n`;
-
-        if (data.messages.length > 0 && data.messages[0].role === "user") {
-          if (typeof data.messages[0].content === "string") {
-            data.messages[0].content = prefix + data.messages[0].content;
-          } else if (Array.isArray(data.messages[0].content)) {
-            data.messages[0].content.unshift({ type: "text", text: prefix });
-          }
-        } else {
-          // Insert a new user message at the beginning with system content
-          data.messages.unshift({ role: "user", content: prefix.trim() });
-        }
-      }
-
-      // Ensure conversation starts with a user message
-      if (data.messages.length === 0) {
-        log(`Empty messages array for ${data.model}, adding placeholder user message`);
-        data.messages.push({ role: "user", content: "Hi" });
-      } else if (data.messages[0].role !== "user") {
-        log(`First message is not user for ${data.model}, inserting placeholder`);
-        data.messages.unshift({ role: "user", content: " " });
-      }
-
-      // Fix alternation: if two consecutive messages have the same role, insert a placeholder
-      const fixedMessages = [];
-      for (let i = 0; i < data.messages.length; i++) {
-        const msg = data.messages[i];
-        if (fixedMessages.length > 0) {
-          const lastRole = fixedMessages[fixedMessages.length - 1].role;
-          if (lastRole === msg.role) {
-            // Insert a placeholder message to fix alternation
-            const placeholderRole = lastRoTestle === "user" ? "assistant" : "user";
-            const placeholderContent = placeholderRole === "assistant" ? "Understood." : "Continue.";
-            log(`Inserting ${placeholderRole} placeholder to fix alternation for ${data.model}`);
-            fixedMessages.push({ role: placeholderRole, content: placeholderContent });
+        if (schema.type === 'array' || schema.type === 'object') {
+          if (schema.description && !schema.description.includes(warnText)) {
+            schema.description += warnText;
+          } else if (!schema.description) {
+            schema.description = "Provide as raw JSON, NOT a string";
           }
         }
-        fixedMessages.push(msg);
+
+        if (schema.properties) {
+          for (const key in schema.properties) {
+            updateSchema(schema.properties[key]);
+          }
+        }
+        if (schema.items) {
+          updateSchema(schema.items);
+        }
+      };
+
+      for (const tool of data.tools) {
+        if (tool.function && tool.function.parameters) {
+          updateSchema(tool.function.parameters);
+        }
+        // Llama calls the client's `question` tool even on greetings.
+        if (tool.function && tool.function.name === 'question') {
+          const hint = "Only use this tool if you need to gather specific information for a task. Do not use for general greetings.";
+          tool.function.description = tool.function.description ? `${tool.function.description} ${hint}` : hint;
+        }
       }
-      data.messages = fixedMessages;
+      log(`Rewrote tool descriptions for Llama model: ${data.model}`);
     }
 
-    const maxModelLen = targetConfig?.maxModelLen || 131072; // Default fallback
-    const estimatedInput = estimateInputTokens(data);
-    const safetyBuffer = getTokenSafetyBuffer(targetConfig, maxModelLen);
-    const availableTokens = maxModelLen - estimatedInput - safetyBuffer;
-    const optimalMaxTokens = Math.max(1, availableTokens);
-
-    // Normalize token limits: prefer max_completion_tokens (OpenAI's newer field), fallback to max_tokens
-    // Different clients/models use different fields (OpenCode uses max_completion_tokens, vLLM uses max_tokens)
-    // See: https://github.com/anomalyco/opencode/issues/9611
-    let requestedMaxTokens = data.max_completion_tokens ?? data.max_tokens;
-
-    if (requestedMaxTokens !== undefined) {
-      log(`Requested tokens: ${requestedMaxTokens} (from ${data.max_completion_tokens !== undefined ? 'max_completion_tokens' : 'max_tokens'})`);
+    // max_tokens is left as the client sent it: the engine sizes the budget from the real
+    // templated prompt. Warn for engines not known to do that.
+    if (targetConfig && !BACKEND_OWNS_TOKEN_BUDGET.has(targetConfig.backend ?? "vllm")) {
+      warn(
+        `Model '${targetConfig.modelId}' runs on backend '${targetConfig.backend}', which has not been ` +
+        `confirmed to compute its own output budget from the prompt. Requests that omit max_tokens may ` +
+        `be truncated by the engine's own default. Verify before relying on this lane for long answers.`
+      );
     }
 
-    // Cap to safe limit or set default
-    if (requestedMaxTokens === undefined || requestedMaxTokens < 1) {
-      requestedMaxTokens = optimalMaxTokens;
-      log(`Set max_tokens: ${optimalMaxTokens} (model: ${maxModelLen}, input: ~${estimatedInput})`);
-    } else if (requestedMaxTokens > optimalMaxTokens) {
-      log(`Capped max_tokens: ${requestedMaxTokens} -> ${optimalMaxTokens} (model: ${maxModelLen})`);
-      requestedMaxTokens = optimalMaxTokens;
+    // OpenCode sends max_completion_tokens; vLLM reads max_tokens.
+    // https://github.com/anomalyco/opencode/issues/9611
+    if (data.max_completion_tokens !== undefined && data.max_tokens === undefined) {
+      data.max_tokens = data.max_completion_tokens;
+      log(`Normalized max_completion_tokens -> max_tokens (${data.max_tokens})`);
     }
 
-    // Set both fields to the capped value for maximum compatibility
-    data.max_tokens = requestedMaxTokens;
-    data.max_completion_tokens = requestedMaxTokens;
-
-    // Strip tool parameters for models that don't support tool calling
-    // - Small utility models (270m, 1.5b, qwen-math)
-    // - Vision/VL models (they don't have tool parsers configured)
+    // Lanes without a tool parser.
     if (shouldStripTools(targetConfig)) {
       const toolParams = ["tool_choice", "tools", "functions", "function_call", "parallel_tool_calls"];
       for (const param of toolParams) {
@@ -469,16 +430,7 @@ function processBody(body, targetConfig, url) {
       }
     }
 
-    // Force tool_choice to "required" for models that ignore tools with "auto"
-    // 
-    // KNOWN ISSUES:
-    // - qwen3-next FP4 models: tool_choice="required" crashes xgrammar structured outputs on GB10
-    //   The xgrammar grammar constraints trigger CUDA illegal instruction on CUDA 12.1
-    //   TODO: Re-enable for qwen3-next when vLLM/PyTorch supports CUDA 12.1/GB10 properly
-    //
-    // WORKING MODELS:
-    // - qwen3-coder: Works with tool_choice="required"
-    // - qwen2.5-coder: Works with tool_choice="required"
+    // Lanes that ignore tools under "auto". Not after a tool result, so the model can answer.
     const hasToolResults = Array.isArray(data.messages) && data.messages.some(m => m.role === "tool");
     if (shouldForceToolChoice(targetConfig) && data.tools && data.tools.length > 0 && !hasToolResults) {
       if (!data.tool_choice || data.tool_choice === "auto") {
@@ -488,6 +440,7 @@ function processBody(body, targetConfig, url) {
     }
 
     normalizeQwenThinkingFlag(targetConfig, data);
+    applyGradedReasoningEffort(targetConfig, data);
     applyOpenCodeReasoningEffort(targetConfig, data);
 
     if (shouldDisableThinkingByDefault(targetConfig, data)) {
@@ -503,10 +456,12 @@ function processBody(body, targetConfig, url) {
       log(`Disabled thinking by default for ${data.model} to preserve visible final answers`);
     }
 
+    keepSpecialTokensForReasoning(targetConfig, data);
+
     return JSON.stringify(data);
   } catch (e) {
     warn("Failed to parse or process JSON body:", e.message);
-    return body; // Return original body on failure
+    return body;
   }
 }
 
@@ -518,7 +473,123 @@ function isMainModule() {
   return import.meta.url === pathToFileURL(process.argv[1]).href;
 }
 
-// Proxy request to the final vLLM container
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    let done = false;
+    const fail = (err) => {
+      if (done) return;
+      done = true;
+      reject(err);
+    };
+    req.on("data", (chunk) => {
+      if (done) return;
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        const err = new Error("request body too large");
+        err.code = "body_too_large";
+        fail(err);
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      if (done) return;
+      done = true;
+      resolve(Buffer.concat(chunks).toString("utf8"));
+    });
+    req.on("error", fail);
+  });
+}
+
+// Drop hop-by-hop headers. The body is re-buffered, so content-length is recomputed.
+const HOP_BY_HOP_HEADERS = new Set([
+  "transfer-encoding",
+  "connection",
+  "keep-alive",
+  "expect",
+  "upgrade",
+  "te",
+  "trailer",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "proxy-connection"
+]);
+
+function forwardableRequestHeaders(headers) {
+  const forwarded = {};
+  for (const [key, value] of Object.entries(headers)) {
+    if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase())) {
+      forwarded[key] = value;
+    }
+  }
+  return forwarded;
+}
+
+// node:http, not fetch: undici's 300 s headers timeout is shorter than a cold start.
+function wakerEnsure(modelId, signal) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(`${WAKER_URL}/ensure/${encodeURIComponent(modelId)}`, { method: "POST", signal }, (res) => {
+      const chunks = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, text: Buffer.concat(chunks).toString("utf8") }));
+      res.on("error", reject);
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+function touchWaker(container) {
+  fetch(`${WAKER_URL}/touch/${encodeURIComponent(container)}`, { method: "POST" })
+    .then((r) => r.arrayBuffer())
+    .catch((err) => log(`Waker touch failed for ${container}:`, err.message));
+}
+
+const MAX_UPSTREAM_ERROR_BYTES = 1024 * 1024;
+
+function upstreamErrorType(status) {
+  if (status === 401) return "authentication_error";
+  if (status === 403) return "permission_error";
+  if (status === 404) return "not_found_error";
+  if (status === 429) return "rate_limit_error";
+  if (status === 503) return "service_unavailable_error";
+  return status < 500 ? "invalid_request_error" : "api_error";
+}
+
+// Engines disagree on error bodies. Re-wrap them so clients get one envelope.
+function forwardUpstreamError(proxyRes, res) {
+  const chunks = [];
+  let size = 0;
+  proxyRes.on("data", (chunk) => {
+    size += chunk.length;
+    if (size <= MAX_UPSTREAM_ERROR_BYTES) chunks.push(chunk);
+  });
+  proxyRes.on("end", () => {
+    const status = proxyRes.statusCode;
+    const text = Buffer.concat(chunks).toString("utf8");
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch { }
+    const source = parsed?.error && typeof parsed.error === "object" ? parsed.error : parsed ?? {};
+    const headers = {};
+    for (const key of ["retry-after", "x-request-id"]) {
+      if (proxyRes.headers[key]) headers[key] = proxyRes.headers[key];
+    }
+    writeOpenAIError(res, status, {
+      message:
+        (typeof source.message === "string" && source.message) ||
+        (typeof parsed?.error === "string" && parsed.error) ||
+        (typeof source.detail === "string" && source.detail) ||
+        text.trim().slice(0, 500) ||
+        `Upstream model service returned status ${status}.`,
+      type: upstreamErrorType(status),
+      param: source.param ?? null,
+      code: typeof source.code === "string" ? source.code : "upstream_error"
+    }, headers);
+  });
+}
+
 function proxyRequest(req, res, body, target) {
   log(`Proxying to ${target.host}:${target.port}${req.url}`);
   const options = {
@@ -526,107 +597,232 @@ function proxyRequest(req, res, body, target) {
     port: target.port,
     path: req.url,
     method: req.method,
-    headers: { ...req.headers, "content-length": Buffer.byteLength(body) },
+    headers: { ...forwardableRequestHeaders(req.headers), "content-length": Buffer.byteLength(body) },
   };
 
   const proxyReq = http.request(options, (proxyRes) => {
+    proxyRes.on("error", (err) => {
+      warn(`Upstream response error from ${target.host}:`, err.message);
+      res.destroy();
+    });
+    if (proxyRes.statusCode >= 400) {
+      forwardUpstreamError(proxyRes, res);
+      return;
+    }
     res.writeHead(proxyRes.statusCode, proxyRes.headers);
     proxyRes.pipe(res);
   });
   proxyReq.on("error", (err) => {
     warn(`Proxy error to ${target.host}:`, err.message);
-    json(res, 502, { error: "Bad Gateway", message: err.message });
+    if (res.headersSent) {
+      // Response already streaming; too late for an error envelope.
+      res.destroy();
+      return;
+    }
+    writeOpenAIError(res, 502, {
+      message: `Upstream model service for '${target.modelId}' is unavailable.`,
+      type: "api_error",
+      param: null,
+      code: "upstream_unavailable"
+    });
+  });
+  // The utility lane is never idle-stopped, so it needs no keep-alive.
+  const keepAlive = target.lifecycle === "utility"
+    ? null
+    : setInterval(() => touchWaker(target.host), TOUCH_INTERVAL_MS);
+  // Stop upstream generation when the client disconnects mid-response.
+  res.on("close", () => {
+    if (!res.writableEnded) proxyReq.destroy();
+    if (keepAlive) {
+      clearInterval(keepAlive);
+      touchWaker(target.host);
+    }
   });
   proxyReq.write(body);
   proxyReq.end();
 }
 
-// Main server logic
+const MODELS_LIST_RESPONSE = {
+  object: "list",
+  data: MODELS_CONFIG.entries.map((entry) => ({
+    id: entry.model,
+    object: "model",
+    created: 0,
+    owned_by: "dgx-spark"
+  }))
+};
+
 const server = http.createServer(async (req, res) => {
   if (req.url === "/healthz" && req.method === "GET") {
     return json(res, 200, { status: "ok" });
   }
 
-  // Read the entire request body first
-  const body = await new Promise((resolve) => {
-    let data = "";
-    req.on("data", (chunk) => (data += chunk));
-    req.on("end", () => resolve(data));
-  });
+  if (!isAuthorized(req)) {
+    return writeOpenAIError(res, 401, {
+      message: "Missing or invalid API key.",
+      type: "authentication_error",
+      param: null,
+      code: "invalid_api_key"
+    });
+  }
+
+  const pathname = req.url.split("?")[0];
+  if (req.method === "GET" && pathname === "/v1/models") {
+    return json(res, 200, MODELS_LIST_RESPONSE);
+  }
+  if (req.method === "GET" && pathname.startsWith("/v1/models/")) {
+    let id = null;
+    try { id = decodeURIComponent(pathname.slice("/v1/models/".length)); } catch { }
+    const model = MODELS_LIST_RESPONSE.data.find((entry) => entry.id === id);
+    if (model) return json(res, 200, model);
+    return writeOpenAIError(res, 404, {
+      message: `Model '${id ?? pathname}' is not configured in models.json.`,
+      type: "not_found_error",
+      param: "model",
+      code: "model_not_found"
+    });
+  }
+
+  let body;
+  try {
+    body = await readBody(req);
+  } catch (err) {
+    if (err.code === "body_too_large") {
+      return writeOpenAIError(
+        res,
+        413,
+        {
+          message: `Request body exceeds the ${MAX_BODY_BYTES} byte limit.`,
+          type: "invalid_request_error",
+          param: null,
+          code: "request_too_large"
+        },
+        { Connection: "close" }
+      );
+    }
+    // Client aborted or socket error while uploading; nothing left to answer.
+    res.destroy();
+    return;
+  }
 
   try {
-    // Determine the target model from the request body
     let modelId;
     if (req.method === "POST" && body) {
       try {
         modelId = JSON.parse(body).model;
       } catch {
-        return json(res, 400, { error: "Invalid JSON body" });
+        return writeOpenAIError(res, 400, {
+          message: "Request body is not valid JSON.",
+          type: "invalid_request_error",
+          param: null,
+          code: "invalid_json"
+        });
       }
     }
 
     if (!modelId) {
-      return json(res, 400, { error: "Missing 'model' field in request body" });
+      return writeOpenAIError(res, 400, {
+        message: "Request body is missing required field 'model'.",
+        type: "invalid_request_error",
+        param: "model",
+        code: "missing_model"
+      });
     }
 
-    const targetConfig = MODEL_CONFIG[modelId];
+    const targetConfig = Object.hasOwn(MODEL_CONFIG, modelId) ? MODEL_CONFIG[modelId] : undefined;
     if (!targetConfig) {
-      return json(res, 404, { error: `Model '${modelId}' not found or not configured` });
+      return writeOpenAIError(res, 404, {
+        message: `Model '${modelId}' is not configured in models.json.`,
+        type: "not_found_error",
+        param: "model",
+        code: "model_not_found"
+      });
     }
 
-    // Call the waker's blocking ensure endpoint with a long timeout (21 min)
+    const unsupported = unsupportedSamplingParam(body, targetConfig);
+    if (unsupported) {
+      return writeOpenAIError(res, 400, {
+        message: `Parameter '${unsupported}' is not supported by model '${modelId}': it runs speculative decoding, which ignores it.`,
+        type: "invalid_request_error",
+        param: unsupported,
+        code: "unsupported_parameter"
+      });
+    }
+
+    // 21 minutes, past the waker's 15-minute health wait.
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 1260000);
+    // A client that leaves during a cold start must not have its request run afterwards.
+    const abortOnClose = () => controller.abort();
+    res.on("close", abortOnClose);
 
     let wakerRes;
     try {
-      wakerRes = await fetch(`${WAKER_URL}/ensure/${modelId}`, {
-        method: "POST",
-        signal: controller.signal
-      });
+      wakerRes = await wakerEnsure(modelId, controller.signal);
     } catch (err) {
+      if (res.destroyed) return;
       clearTimeout(timeout);
       warn(`Waker fetch error for ${modelId}:`, err.message);
-      return json(res, 504, { error: "Gateway Timeout", message: "Waker service took too long to respond or is unreachable" });
+      return writeOpenAIError(res, 504, {
+        message: `Waker service timed out or is unreachable while preparing model '${modelId}'.`,
+        type: "api_error",
+        param: null,
+        code: "waker_timeout"
+      });
     } finally {
       clearTimeout(timeout);
     }
 
     let wakerBody;
     try {
-      wakerBody = await wakerRes.json();
+      wakerBody = JSON.parse(wakerRes.text);
     } catch (err) {
+      if (res.destroyed) return;
       warn(`Failed to parse waker response for ${modelId}:`, err.message);
-      return json(res, 502, { error: "Bad Gateway", message: "Invalid response from waker service" });
+      return writeOpenAIError(res, 502, {
+        message: `Waker service returned invalid JSON while preparing model '${modelId}'.`,
+        type: "api_error",
+        param: null,
+        code: "waker_invalid_response"
+      });
+    }
+    res.off("close", abortOnClose);
+    if (res.destroyed) {
+      log(`Client left while ${modelId} was starting; not proxying.`);
+      return;
     }
 
-    // If the model isn't ready (e.g., busy or error), forward the waker's response.
     if (wakerRes.status !== 200 || !wakerBody.ok) {
-      // Filter headers: only forward relevant ones, exclude hop-by-hop or conflicting headers
-      const forwardedHeaders = {};
-      for (const [key, value] of wakerRes.headers.entries()) {
-        const k = key.toLowerCase();
-        if (k === "retry-after" || k.startsWith("x-")) {
-          forwardedHeaders[key] = value;
-        }
-      }
+      const forwardedHeaders = forwardedResponseHeaders(wakerRes.headers);
 
       log(`Model not ready, forwarding waker's response (Status: ${wakerRes.status})`);
+      if (wakerRes.status !== 200 && !isOpenAIErrorEnvelope(wakerBody)) {
+        wakerBody = makeOpenAIError({
+          message: `Waker service returned status ${wakerRes.status} while preparing model '${modelId}'.`,
+          type: "api_error",
+          param: null,
+          code: "waker_error"
+        });
+      }
       return json(res, wakerRes.status, wakerBody, forwardedHeaders);
     }
 
-    // Waker confirmed the model is ready, proceed to process the body and proxy.
     log(`Model ${modelId} is ready, processing and proxying request.`);
     const processedBody = processBody(body, targetConfig, req.url);
     proxyRequest(req, res, processedBody, targetConfig);
 
   } catch (err) {
     warn("Main handler error:", err);
-    json(res, 500, { error: "Internal Server Error", message: err.message });
+    writeOpenAIError(res, 500, {
+      message: "Internal request-validator error.",
+      type: "api_error",
+      param: null,
+      code: "internal_error"
+    });
   }
 });
 
-export { processBody };
+export { processBody, unsupportedSamplingParam, MODEL_CONFIG };
 
 if (isMainModule()) {
   server.setTimeout(0);

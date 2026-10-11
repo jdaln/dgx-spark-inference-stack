@@ -1,3 +1,4 @@
+# Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
 x-model-common: &model-common
   deploy:
     resources:
@@ -16,8 +17,12 @@ x-model-common: &model-common
     options:
       max-size: "10m"
       max-file: "3"
+  # No egress, no capabilities, no setuid gain; weights come from ./models (docs/security.md).
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
   networks:
-    - default
     - vllm_internal
 
 x-model-profiled: &model-profiled
@@ -25,6 +30,9 @@ x-model-profiled: &model-profiled
   profiles: ["models"]
 
 x-env-common: &env-common
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  HF_HUB_CACHE: /models
   HF_HOME: /root/.cache/huggingface
   VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
   VLLM_NO_USAGE_STATS: "1"
@@ -36,91 +44,35 @@ x-healthcheck-default: &healthcheck-default
   timeout: 5s
   retries: 5
 
-x-gemma4-build: &gemma4-build
-  context: ..
-  dockerfile: ./custom-docker-containers/vllm-node-tf5-gemma4/Dockerfile
-  args:
-    BASE_IMAGE: ${VLLM_TRACK_IMAGE_TF5:-vllm-node-tf5}
-
 services:
   vllm-gemma4-26b-a4b:
     <<: *model-profiled
-    build: *gemma4-build
-    image: ${GEMMA4_IMAGE:-vllm-node-tf5-gemma4}
+    # MoE runs on FlashInfer's FP4 kernels: the b12x MoE kernels lack GELU-tanh.
+    image: ${VLLM_TRACK_IMAGE_B12X:-vllm-node-b12x}
     container_name: vllm-gemma4-26b-a4b
     entrypoint: []
     command:
       - vllm
       - serve
-      - google/gemma-4-26B-A4B-it
+      - nvidia/Gemma-4-26B-A4B-NVFP4
       - --host
       - 0.0.0.0
       - --port
       - "8000"
-      - --download-dir
-      - /models
       - --served-model-name
       - gemma4-26b-a4b
+      - --chat-template
+      - /workspace/tool_chat_template_gemma4.jinja
+      # Config copy without the fp8 KV scheme: fp8 KV breaks system turns.
+      - --hf-config-path
+      - /workspace/gemma4-26b-nvfp4-config
       - --max-model-len
       - "${GEMMA4_26B_A4B_MAX_MODEL_LEN:-262144}"
+      # 50% still holds 2.19 full windows of KV.
       - --gpu-memory-utilization
-      - "${GEMMA4_26B_A4B_GPU_MEMORY_UTILIZATION:-0.70}"
-      - --load-format
-      - fastsafetensors
-      - --enable-prefix-caching
-      - --enable-auto-tool-choice
-      - --tool-call-parser
-      - gemma4
-      - --reasoning-parser
-      - gemma4
-      - --quantization
-      - fp8
-      - --kv-cache-dtype
-      - fp8
-      - --max-num-batched-tokens
-      - "${GEMMA4_26B_A4B_MAX_NUM_BATCHED_TOKENS:-8192}"
-      - --tensor-parallel-size
-      - "${GEMMA4_26B_A4B_TENSOR_PARALLEL_SIZE:-1}"
-      - --distributed-executor-backend
-      - ray
-    volumes:
-      - ../vllm_cache_huggingface:/root/.cache/huggingface
-      - ../models:/models
-      - ../flashinfer_cache:/root/.cache/flashinfer
-      - ../torch_extensions:/root/.cache/torch_extensions
-      - ../torchinductor:/tmp/torchinductor_root
-    environment:
-      <<: *env-common
-      RAY_memory_usage_threshold: "${GEMMA4_26B_A4B_RAY_MEMORY_USAGE_THRESHOLD:-0.99}"
-    healthcheck:
-      <<: *healthcheck-default
-      start_period: 1800s
-
-  vllm-huihui-gemma4-e2b-abliterated:
-    <<: *model-profiled
-    build: *gemma4-build
-    image: ${GEMMA4_IMAGE:-vllm-node-tf5-gemma4}
-    container_name: vllm-huihui-gemma4-e2b-abliterated
-    entrypoint: []
-    command:
-      - vllm
-      - serve
-      - huihui-ai/Huihui-gemma-4-E2B-it-abliterated
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8000"
-      - --download-dir
-      - /models
-      - --served-model-name
-      - huihui-gemma4-e2b-abliterated
-      - --max-model-len
-      - "${HUIHUI_GEMMA4_E2B_MAX_MODEL_LEN:-131072}"
-      - --gpu-memory-utilization
-      - "${HUIHUI_GEMMA4_E2B_GPU_MEMORY_UTILIZATION:-0.70}"
-      - --load-format
-      - fastsafetensors
-      - --enable-prefix-caching
+      - "${GEMMA4_26B_A4B_GPU_MEMORY_UTILIZATION:-0.50}"
+      # The full-prompt admission check stalls prompts above ~148k uncached tokens.
+      - --no-scheduler-reserve-full-isl
       - --enable-auto-tool-choice
       - --tool-call-parser
       - gemma4
@@ -129,74 +81,101 @@ services:
       - --kv-cache-dtype
       - auto
       - --max-num-batched-tokens
-      - "${HUIHUI_GEMMA4_E2B_MAX_NUM_BATCHED_TOKENS:-8192}"
+      - "${GEMMA4_26B_A4B_MAX_NUM_BATCHED_TOKENS:-8192}"
       - --tensor-parallel-size
-      - "${HUIHUI_GEMMA4_E2B_TENSOR_PARALLEL_SIZE:-1}"
+      - "${GEMMA4_26B_A4B_TENSOR_PARALLEL_SIZE:-1}"
+      # No Ray: it cannot find the node IP on the internal network.
       - --distributed-executor-backend
-      - ray
+      - mp
+      # Depth 8: deeper or load-scaled drafts were no faster.
+      - --speculative-config
+      - '{"method":"dflash","model":"z-lab/gemma-4-26B-A4B-it-DFlash","revision":"77d4202772dfe50b2396ec7bac9cfffc7b9e7057","num_speculative_tokens":8}'
+      # Validated snapshot. Re-validate before changing it.
+      - --revision
+      - a19cfe00be84568a6867111c9a68c9c44fdcffe6
+      - --tokenizer-revision
+      - a19cfe00be84568a6867111c9a68c9c44fdcffe6
     volumes:
-      - ../vllm_cache_huggingface:/root/.cache/huggingface
-      - ../models:/models
-      - ../flashinfer_cache:/root/.cache/flashinfer
-      - ../torch_extensions:/root/.cache/torch_extensions
-      - ../torchinductor:/tmp/torchinductor_root
+      - ../cache/vllm-gemma4-26b-a4b/huggingface:/root/.cache/huggingface
+      - ../models:/models:ro
+      - ../cache/vllm-gemma4-26b-a4b/flashinfer:/root/.cache/flashinfer
+      - ../cache/vllm-gemma4-26b-a4b/torch_extensions:/root/.cache/torch_extensions
+      - ../cache/vllm-gemma4-26b-a4b/torchinductor:/tmp/torchinductor_root
+      - ../shared/tool_chat_template_gemma4.jinja:/workspace/tool_chat_template_gemma4.jinja:ro
+      - ../shared/gemma4-26b-nvfp4-config:/workspace/gemma4-26b-nvfp4-config:ro
     environment:
       <<: *env-common
-      RAY_memory_usage_threshold: "${HUIHUI_GEMMA4_E2B_RAY_MEMORY_USAGE_THRESHOLD:-0.99}"
+      CUTE_DSL_ARCH: sm_121a
+      VLLM_WORKER_MULTIPROC_METHOD: spawn
+      # The draft needs the V2 model runner.
+      VLLM_USE_V2_MODEL_RUNNER: "1"
     healthcheck:
       <<: *healthcheck-default
       start_period: 1800s
 
   vllm-gemma4-31b:
     <<: *model-profiled
-    build: *gemma4-build
-    image: ${GEMMA4_IMAGE:-vllm-node-tf5-gemma4}
+    # The draft's buffers limit the window to 180224 at 75%; a full window needs ~85%.
+    image: ${VLLM_TRACK_IMAGE_B12X:-vllm-node-b12x}
     container_name: vllm-gemma4-31b
     entrypoint: []
     command:
       - vllm
       - serve
-      - google/gemma-4-31B-it
+      # ModelOpt NVFP4 on the MLPs; attention, lm_head and vision stay BF16.
+      - nvidia/Gemma-4-31B-IT-NVFP4
       - --host
       - 0.0.0.0
       - --port
       - "8000"
-      - --download-dir
-      - /models
       - --served-model-name
       - gemma4-31b
+      - --chat-template
+      - /workspace/tool_chat_template_gemma4.jinja
       - --max-model-len
-      - "${GEMMA4_31B_MAX_MODEL_LEN:-262144}"
+      - "${GEMMA4_31B_MAX_MODEL_LEN:-180224}"
       - --gpu-memory-utilization
-      - "${GEMMA4_31B_GPU_MEMORY_UTILIZATION:-0.70}"
-      - --load-format
-      - fastsafetensors
-      - --enable-prefix-caching
+      - "${GEMMA4_31B_GPU_MEMORY_UTILIZATION:-0.75}"
+      # Admission gate off, as on vllm-gemma4-26b-a4b.
+      - --no-scheduler-reserve-full-isl
       - --enable-auto-tool-choice
       - --tool-call-parser
       - gemma4
       - --reasoning-parser
       - gemma4
-      - --quantization
-      - fp8
+      # Config copy without the fp8 KV scheme (the checkpoint ships no KV scales): BF16 KV.
+      - --hf-config-path
+      - /workspace/gemma4-31b-nvfp4-config
       - --kv-cache-dtype
-      - fp8
+      - auto
       - --max-num-batched-tokens
       - "${GEMMA4_31B_MAX_NUM_BATCHED_TOKENS:-8192}"
       - --tensor-parallel-size
       - "${GEMMA4_31B_TENSOR_PARALLEL_SIZE:-1}"
+      # No Ray: it cannot find the node IP on the internal network.
       - --distributed-executor-backend
-      - ray
+      - mp
+      - --speculative-config
+      - '{"method":"dflash","model":"z-lab/gemma-4-31B-it-DFlash","revision":"eabd648301ce28583cc14757912e5e0f84e152e1","num_speculative_tokens":8}'
+      # Validated snapshot. Re-validate before changing it.
+      - --revision
+      - 4135a98a9b728a548947683219633b25682223ac
+      - --tokenizer-revision
+      - 4135a98a9b728a548947683219633b25682223ac
     volumes:
-      - ../vllm_cache_huggingface:/root/.cache/huggingface
-      - ../models:/models
-      - ../flashinfer_cache:/root/.cache/flashinfer
-      - ../torch_extensions:/root/.cache/torch_extensions
-      - ../torchinductor:/tmp/torchinductor_root
+      - ../cache/vllm-gemma4-31b/huggingface:/root/.cache/huggingface
+      - ../models:/models:ro
+      - ../cache/vllm-gemma4-31b/flashinfer:/root/.cache/flashinfer
+      - ../cache/vllm-gemma4-31b/torch_extensions:/root/.cache/torch_extensions
+      - ../cache/vllm-gemma4-31b/torchinductor:/tmp/torchinductor_root
+      - ../shared/tool_chat_template_gemma4.jinja:/workspace/tool_chat_template_gemma4.jinja:ro
+      - ../shared/gemma4-31b-nvfp4-config:/workspace/gemma4-31b-nvfp4-config:ro
     environment:
       <<: *env-common
-      TORCHINDUCTOR_AUTOGRAD_CACHE: "0"
-      RAY_memory_usage_threshold: "${GEMMA4_31B_RAY_MEMORY_USAGE_THRESHOLD:-0.99}"
+      CUTE_DSL_ARCH: sm_121a
+      VLLM_WORKER_MULTIPROC_METHOD: spawn
+      # The draft needs the V2 model runner.
+      VLLM_USE_V2_MODEL_RUNNER: "1"
     healthcheck:
       <<: *healthcheck-default
       start_period: 1800s

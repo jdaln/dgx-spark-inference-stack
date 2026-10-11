@@ -1,0 +1,76 @@
+# Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
+services:
+  vllm-lfm2.5-1.2b:
+    profiles: ["models"]
+    image: ${VLLM_TRACK_IMAGE_DFLASH2:-vllm-node-dflash2}
+    container_name: vllm-lfm2.5-1.2b
+    command:
+      - vllm
+      - serve
+      - --model
+      - LiquidAI/LFM2.5-1.2B-Instruct
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --served-model-name
+      - lfm2.5-1.2b
+      - --gpu-memory-utilization
+      - "${LFM25_1P2B_GPU_MEMORY_UTILIZATION:-0.06}"
+      - --max-model-len
+      - "${LFM25_1P2B_MAX_MODEL_LEN:-32768}"
+      - --tensor-parallel-size
+      - "${LFM25_1P2B_TENSOR_PARALLEL_SIZE:-1}"
+      # Eager: CUDA graph capture costs more memory than the utility helper should take.
+      - --enforce-eager
+      - --disable-uvicorn-access-log
+      - --disable-log-stats
+      # Validated snapshot. Re-validate before changing it.
+      - --revision
+      - 0f604ada3f766f9f257460c4c9f0b5d6f69d431b
+      - --tokenizer-revision
+      - 0f604ada3f766f9f257460c4c9f0b5d6f69d431b
+    volumes:
+      - ../cache/vllm-lfm2.5-1.2b/huggingface:/root/.cache/huggingface
+      - ../models:/models:ro
+      - ../cache/vllm-lfm2.5-1.2b/flashinfer:/root/.cache/flashinfer
+      - ../cache/vllm-lfm2.5-1.2b/torch_extensions:/root/.cache/torch_extensions
+      - ../cache/vllm-lfm2.5-1.2b/torchinductor:/tmp/torchinductor_root
+    environment:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      HF_HOME: /root/.cache/huggingface
+      HF_HUB_CACHE: /models
+      VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+      VLLM_NO_USAGE_STATS: "1"
+      VLLM_CONFIGURE_LOGGING: ${VLLM_LOGGING:-0}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: "all"
+              capabilities: ["gpu"]
+    shm_size: "4g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 900s
+    logging:
+      driver: ${DOCKER_LOG_DRIVER:-json-file}
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # No egress, no capabilities, no setuid gain, as in the other fragments.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - vllm_internal

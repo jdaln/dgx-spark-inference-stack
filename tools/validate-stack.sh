@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
 
 set -euo pipefail
 
@@ -11,16 +12,14 @@ TMP_DIR="$(make_workspace_tmp_dir validate-stack)"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 ACTIVE_JSON="$TMP_DIR/active.json"
-NEMOTRON_JSON="$TMP_DIR/nemotron.json"
-EXPECTED_STANDARD_IMAGE="${VLLM_TRACK_IMAGE_STANDARD:-vllm-node}"
+EXPECTED_DFLASH2_IMAGE="${VLLM_TRACK_IMAGE_DFLASH2:-vllm-node-dflash2}"
+EXPECTED_FLASHNEXT_IMAGE="${VLLM_TRACK_IMAGE_B12X:-vllm-node-b12x}"
 
 render_active_compose_json "$ACTIVE_JSON"
 echo "OK: rendered active compose config with models profile"
 
 "$SCRIPT_DIR/check-models.sh" "$MODELS_FILE" "$ROOT_COMPOSE_FILE"
 
-render_fragment_compose_json "$NEMOTRON_JSON" "compose/models-nemotron.yml"
-echo "OK: rendered deferred Nemotron fragment with local path base"
 
 FAILURES=0
 CHECKS=0
@@ -45,6 +44,29 @@ assert_equals() {
     pass "$label"
   else
     fail "$label (expected '$expected', got '$actual')"
+  fi
+}
+
+assert_repo_file() {
+  local path="$1"
+  local label="$2"
+
+  if [[ -f "$REPO_DIR/$path" ]]; then
+    pass "$label"
+  else
+    fail "$label (missing $path)"
+  fi
+}
+
+assert_repo_file_contains() {
+  local path="$1"
+  local pattern="$2"
+  local label="$3"
+
+  if [[ -f "$REPO_DIR/$path" ]] && grep -qE "$pattern" "$REPO_DIR/$path"; then
+    pass "$label"
+  else
+    fail "$label (no match for /$pattern/ in $path)"
   fi
 }
 
@@ -168,21 +190,13 @@ NODE
 
 GPT_20B_JSON="$(resolve_service_json "$ACTIVE_JSON" "gpt-oss-20b")"
 GPT_120B_JSON="$(resolve_service_json "$ACTIVE_JSON" "gpt-oss-120b")"
-UTILITY_JSON="$(resolve_service_json "$ACTIVE_JSON" "qwen3.5-0.8b")"
-QWEN36_27B_FP8_JSON="$(resolve_service_json "$ACTIVE_JSON" "qwen3.6-27b-fp8")"
-QWEN36_27B_FP8_MTP_JSON="$(resolve_service_json "$ACTIVE_JSON" "qwen3.6-27b-fp8-mtp")"
-QWEN36_35B_A3B_FP8_JSON="$(resolve_service_json "$ACTIVE_JSON" "qwen3.6-35b-a3b-fp8")"
-QWEN36_35B_A3B_FP8_MTP_JSON="$(resolve_service_json "$ACTIVE_JSON" "qwen3.6-35b-a3b-fp8-mtp")"
-HUIHUI_QWEN36_27B_JSON="$(resolve_service_json "$ACTIVE_JSON" "huihui-qwen3.6-27b-abliterated")"
-QWEN35_122B_AUTOROUND_JSON="$(resolve_service_json "$ACTIVE_JSON" "qwen3.5-122b-a10b-int4-autoround")"
-HUIHUI_QWEN35_35B_A3B_JSON="$(resolve_service_json "$ACTIVE_JSON" "huihui-qwen3.5-35b-a3b-abliterated")"
-JACKRONG_QWEN35_35B_A3B_JSON="$(resolve_service_json "$ACTIVE_JSON" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled")"
-QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON="$(resolve_service_json "$ACTIVE_JSON" "qwen3-coder-next-int4-autoround")"
+UTILITY_JSON="$(resolve_service_json "$ACTIVE_JSON" "lfm2.5-1.2b")"
+QWEN38_27B_NVFP4_DFLASH2_JSON="$(resolve_service_json "$ACTIVE_JSON" "qwen3.8-27b-nvfp4-dflash2")"
+HUIHUI_QWEN38_27B_JSON="$(resolve_service_json "$ACTIVE_JSON" "huihui-qwen3.8-27b-abliterated")"
+HUIHUI_QWEN38_27B_NVFP4_JSON="$(resolve_service_json "$ACTIVE_JSON" "huihui-qwen3.8-27b-abliterated-nvfp4")"
+QWEN38_FLASH_NEXT_JSON="$(resolve_service_json "$ACTIVE_JSON" "qwen3.8-flash-next-nvfp4")"
 GEMMA4_26B_JSON="$(resolve_service_json "$ACTIVE_JSON" "gemma4-26b-a4b")"
 GEMMA4_31B_JSON="$(resolve_service_json "$ACTIVE_JSON" "gemma4-31b")"
-HUIHUI_GEMMA4_E2B_JSON="$(resolve_service_json "$ACTIVE_JSON" "huihui-gemma4-e2b-abliterated")"
-GLM_47_JSON="$(resolve_service_json "$ACTIVE_JSON" "glm-4.7-flash-awq")"
-NEMOTRON_SERVICE_JSON="$(resolve_service_json "$NEMOTRON_JSON" "vllm-nemotron-3-nano-30b-nvfp4")"
 
 assert_equals "$(jq -r '.image // ""' <<<"$GPT_20B_JSON")" "vllm-node-mxfp4" "gpt-oss-20b uses MXFP4 track image"
 assert_json_value "$GPT_20B_JSON" '.build.dockerfile // ""' "./custom-docker-containers/vllm-node-mxfp4/Dockerfile" "gpt-oss-20b maps to the repo MXFP4 Dockerfile"
@@ -200,255 +214,218 @@ assert_env_value "$GPT_120B_JSON" "TIKTOKEN_ENCODINGS_BASE" "/workspace/vllm/tik
 
 assert_shared_health_url_resolution "shared health-url resolution handles model ids, container names, and fallback templates"
 
-assert_equals "$(jq -r '.image // ""' <<<"$UTILITY_JSON" | sed 's/@sha256:.*//')" "scitrera/dgx-spark-sglang:0.5.9-t5" "qwen3.5-0.8b uses the SGLang utility image"
-assert_flag_value "$UTILITY_JSON" "--model-path" "Qwen/Qwen3.5-0.8B" "qwen3.5-0.8b points at the Qwen 3.5 utility checkpoint"
-assert_flag_value "$UTILITY_JSON" "--served-model-name" "qwen3.5-0.8b" "qwen3.5-0.8b keeps the local served model id"
-assert_flag_value "$UTILITY_JSON" "--mem-fraction-static" "0.05" "qwen3.5-0.8b uses the validated low-footprint utility memory fraction"
-assert_flag_value "$UTILITY_JSON" "--tp-size" "1" "qwen3.5-0.8b keeps single-GPU tensor parallelism"
-assert_flag_value "$UTILITY_JSON" "--attention-backend" "triton" "qwen3.5-0.8b pins the Blackwell-safe SGLang attention backend"
-assert_flag_value "$UTILITY_JSON" "--context-length" "32768" "qwen3.5-0.8b keeps the conservative utility context limit"
-assert_env_value "$UTILITY_JSON" "HF_HUB_CACHE" "/models" "qwen3.5-0.8b reuses the shared Hugging Face cache"
+assert_equals "$(jq -r '.image // ""' <<<"$UTILITY_JSON")" "$EXPECTED_DFLASH2_IMAGE" "lfm2.5-1.2b runs on the current upstream vLLM build"
+assert_json_value "$UTILITY_JSON" '.command[3] // ""' "LiquidAI/LFM2.5-1.2B-Instruct" "lfm2.5-1.2b points at the official Liquid AI instruct checkpoint"
+assert_flag_value "$UTILITY_JSON" "--served-model-name" "lfm2.5-1.2b" "lfm2.5-1.2b keeps the local served model id"
+assert_flag_value "$UTILITY_JSON" "--gpu-memory-utilization" "0.06" "lfm2.5-1.2b keeps the low-footprint utility memory fraction"
+assert_flag_value "$UTILITY_JSON" "--max-model-len" "32768" "lfm2.5-1.2b keeps the conservative utility context limit"
+assert_flag_value "$UTILITY_JSON" "--tensor-parallel-size" "1" "lfm2.5-1.2b keeps single-GPU tensor parallelism"
+assert_command_has_flag "$UTILITY_JSON" "--enforce-eager" "lfm2.5-1.2b stays eager so the utility footprint stays small"
+assert_env_value "$UTILITY_JSON" "HF_HUB_CACHE" "/models" "lfm2.5-1.2b reuses the shared Hugging Face cache"
 
-assert_equals "$(jq -r '.image // ""' <<<"$QWEN36_27B_FP8_JSON")" "vllm-node-tf5" "qwen3.6-27b-fp8 uses the TF5 track image"
-assert_json_value "$QWEN36_27B_FP8_JSON" '.command[2] // ""' "Qwen/Qwen3.6-27B-FP8" "qwen3.6-27b-fp8 points at the official Qwen 3.6 27B checkpoint"
-assert_flag_value "$QWEN36_27B_FP8_JSON" "--served-model-name" "qwen3.6-27b-fp8" "qwen3.6-27b-fp8 keeps the local served model id"
-assert_flag_value "$QWEN36_27B_FP8_JSON" "--max-model-len" "262144" "qwen3.6-27b-fp8 keeps the upstream max model length"
-assert_flag_value "$QWEN36_27B_FP8_JSON" "--max-num-batched-tokens" "32768" "qwen3.6-27b-fp8 keeps the upstream batched-token budget"
-assert_flag_value "$QWEN36_27B_FP8_JSON" "--gpu-memory-utilization" "0.80" "qwen3.6-27b-fp8 keeps the upstream memory envelope"
-assert_command_has_flag "$QWEN36_27B_FP8_JSON" "--trust-remote-code" "qwen3.6-27b-fp8 trusts remote code like the upstream recipe"
-assert_flag_value "$QWEN36_27B_FP8_JSON" "--chat-template" "/workspace/unsloth.jinja" "qwen3.6-27b-fp8 uses the mounted chat template"
-assert_flag_value "$QWEN36_27B_FP8_JSON" "--tool-call-parser" "qwen3_coder" "qwen3.6-27b-fp8 keeps the Qwen tool parser"
-assert_flag_value "$QWEN36_27B_FP8_JSON" "--reasoning-parser" "qwen3" "qwen3.6-27b-fp8 keeps the Qwen reasoning parser"
-assert_flag_value "$QWEN36_27B_FP8_JSON" "--kv-cache-dtype" "fp8" "qwen3.6-27b-fp8 keeps fp8 KV cache"
-assert_flag_value "$QWEN36_27B_FP8_JSON" "--load-format" "instanttensor" "qwen3.6-27b-fp8 keeps the upstream InstantTensor loader"
-assert_flag_value "$QWEN36_27B_FP8_JSON" "--attention-backend" "flashinfer" "qwen3.6-27b-fp8 keeps FlashInfer attention"
-assert_command_has_flag "$QWEN36_27B_FP8_JSON" "--disable-uvicorn-access-log" "qwen3.6-27b-fp8 suppresses uvicorn access logs"
-assert_command_has_flag "$QWEN36_27B_FP8_JSON" "--disable-log-stats" "qwen3.6-27b-fp8 suppresses periodic stats logs"
-assert_flag_value "$QWEN36_27B_FP8_JSON" "--tensor-parallel-size" "1" "qwen3.6-27b-fp8 uses single-GPU tensor parallelism"
-assert_flag_value "$QWEN36_27B_FP8_JSON" "--pipeline-parallel-size" "1" "qwen3.6-27b-fp8 keeps single-stage pipeline parallelism"
-assert_command_has_flag "$QWEN36_27B_FP8_JSON" "--enable-prefix-caching" "qwen3.6-27b-fp8 enables prefix caching"
-assert_command_has_flag "$QWEN36_27B_FP8_JSON" "--enable-auto-tool-choice" "qwen3.6-27b-fp8 enables auto tool choice"
-assert_env_value "$QWEN36_27B_FP8_JSON" "VLLM_MARLIN_USE_ATOMIC_ADD" "1" "qwen3.6-27b-fp8 enables the Marlin atomic-add workaround"
-assert_env_value "$QWEN36_27B_FP8_JSON" "QWEN35_CHAT_TEMPLATE_MODEL_ID" "Qwen/Qwen3.5-0.8B" "qwen3.6-27b-fp8 bootstraps the template installer from the cached generic Qwen checkpoint"
-assert_volume_mount "$QWEN36_27B_FP8_JSON" "$REPO_DIR/mods/fix-qwen3-coder-next" "/workspace/mods/fix-qwen3-coder-next" "qwen3.6-27b-fp8 mounts the reusable Qwen runtime patch read-only"
-assert_volume_mount "$QWEN36_27B_FP8_JSON" "$REPO_DIR/mods/fix-qwen3.5-chat-template" "/workspace/mods/fix-qwen3.5-chat-template" "qwen3.6-27b-fp8 mounts the reusable chat-template installer read-only"
-assert_volume_mount "$QWEN36_27B_FP8_JSON" "$REPO_DIR/mods/fix-qwen3.5-moe-runtime" "/workspace/mods/fix-qwen3.5-moe-runtime" "qwen3.6-27b-fp8 mounts the reusable runtime wrapper read-only"
+assert_equals "$(jq -r '.image // ""' <<<"$QWEN38_27B_NVFP4_DFLASH2_JSON")" "$EXPECTED_DFLASH2_IMAGE" "qwen3.8-27b-nvfp4-dflash2 uses the DFlash2 track image"
+assert_json_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" '.command[3] // ""' "RadixArk/Qwen3.8-27B-NVFP4" "qwen3.8-27b-nvfp4-dflash2 points at the upstream NVFP4 checkpoint"
+assert_flag_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--served-model-name" "qwen3.8-27b-nvfp4-dflash2" "qwen3.8-27b-nvfp4-dflash2 keeps the local served model id"
+assert_flag_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--max-model-len" "262144" "qwen3.8-27b-nvfp4-dflash2 keeps the upstream max model length"
+assert_flag_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--gpu-memory-utilization" "0.80" "qwen3.8-27b-nvfp4-dflash2 uses the tuned solo-host memory envelope (upstream 0.7 is a TP=2 cluster default; 0.85 exceeds free memory on this host)"
+assert_flag_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--tensor-parallel-size" "1" "qwen3.8-27b-nvfp4-dflash2 runs single-GPU on this solo host"
+assert_flag_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--kv-cache-dtype" "fp8" "qwen3.8-27b-nvfp4-dflash2 keeps the upstream fp8 KV cache"
+assert_flag_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--tool-call-parser" "qwen3_xml" "qwen3.8-27b-nvfp4-dflash2 keeps the upstream XML tool parser"
+assert_flag_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--reasoning-parser" "qwen3" "qwen3.8-27b-nvfp4-dflash2 keeps the Qwen reasoning parser"
+assert_flag_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--load-format" "instanttensor" "qwen3.8-27b-nvfp4-dflash2 keeps the upstream InstantTensor loader"
+assert_flag_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--speculative-config" '{"method":"dflash","model":"z-lab/Qwen3.8-27B-DFlash2","revision":"50307d4c4cde6860d4eee73e2547cd786fe8e8a4","num_speculative_tokens":8,"draft_tensor_parallel_size":1,"num_speculative_tokens_per_batch_size":[[1,2,8],[3,4,6],[5,8,4]]}' "qwen3.8-27b-nvfp4-dflash2 runs the pinned DFlash2 draft with depth falling by batch size (8/6/4)"
+assert_command_has_flag "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--enable-auto-tool-choice" "qwen3.8-27b-nvfp4-dflash2 enables auto tool choice"
+assert_command_has_flag "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--enable-prefix-caching" "qwen3.8-27b-nvfp4-dflash2 keeps prefix caching"
+assert_command_has_flag "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--async-scheduling" "qwen3.8-27b-nvfp4-dflash2 keeps async scheduling"
+assert_command_has_flag "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--disable-uvicorn-access-log" "qwen3.8-27b-nvfp4-dflash2 suppresses uvicorn access logs"
+assert_command_has_flag "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--disable-log-stats" "qwen3.8-27b-nvfp4-dflash2 suppresses periodic stats logs"
+assert_command_lacks_flag "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--disable-log-requests" "qwen3.8-27b-nvfp4-dflash2 avoids the stale request log flag"
 
-assert_equals "$(jq -r '.image // ""' <<<"$QWEN36_27B_FP8_MTP_JSON")" "vllm-node-tf5" "qwen3.6-27b-fp8-mtp uses the TF5 track image"
-assert_json_value "$QWEN36_27B_FP8_MTP_JSON" '.command[2] // ""' "Qwen/Qwen3.6-27B-FP8" "qwen3.6-27b-fp8-mtp points at the official Qwen 3.6 27B checkpoint"
-assert_flag_value "$QWEN36_27B_FP8_MTP_JSON" "--served-model-name" "qwen3.6-27b-fp8-mtp" "qwen3.6-27b-fp8-mtp keeps the local served model id"
-assert_flag_value "$QWEN36_27B_FP8_MTP_JSON" "--max-model-len" "262144" "qwen3.6-27b-fp8-mtp keeps the upstream max model length"
-assert_flag_value "$QWEN36_27B_FP8_MTP_JSON" "--max-num-batched-tokens" "32768" "qwen3.6-27b-fp8-mtp keeps the upstream batched-token budget"
-assert_flag_value "$QWEN36_27B_FP8_MTP_JSON" "--gpu-memory-utilization" "0.80" "qwen3.6-27b-fp8-mtp keeps the upstream memory envelope"
-assert_flag_value "$QWEN36_27B_FP8_MTP_JSON" "--tool-call-parser" "qwen3_coder" "qwen3.6-27b-fp8-mtp keeps the Qwen tool parser"
-assert_flag_value "$QWEN36_27B_FP8_MTP_JSON" "--reasoning-parser" "qwen3" "qwen3.6-27b-fp8-mtp keeps the Qwen reasoning parser"
-assert_flag_value "$QWEN36_27B_FP8_MTP_JSON" "--load-format" "instanttensor" "qwen3.6-27b-fp8-mtp keeps the upstream InstantTensor loader"
-assert_command_has_flag "$QWEN36_27B_FP8_MTP_JSON" "--disable-uvicorn-access-log" "qwen3.6-27b-fp8-mtp suppresses uvicorn access logs"
-assert_command_has_flag "$QWEN36_27B_FP8_MTP_JSON" "--disable-log-stats" "qwen3.6-27b-fp8-mtp suppresses periodic stats logs"
-assert_flag_value "$QWEN36_27B_FP8_MTP_JSON" "--speculative-config" '{"method":"mtp","num_speculative_tokens":2}' "qwen3.6-27b-fp8-mtp keeps the upstream MTP config"
-assert_env_value "$QWEN36_27B_FP8_MTP_JSON" "QWEN35_CHAT_TEMPLATE_MODEL_ID" "Qwen/Qwen3.5-0.8B" "qwen3.6-27b-fp8-mtp bootstraps the template installer from the cached generic Qwen checkpoint"
-assert_volume_mount "$QWEN36_27B_FP8_MTP_JSON" "$REPO_DIR/mods/fix-qwen3.5-moe-runtime" "/workspace/mods/fix-qwen3.5-moe-runtime" "qwen3.6-27b-fp8-mtp mounts the reusable runtime wrapper read-only"
+assert_equals "$(jq -r '.image // ""' <<<"$QWEN38_FLASH_NEXT_JSON")" "$EXPECTED_FLASHNEXT_IMAGE" "qwen3.8-flash-next-nvfp4 runs the B12X image built by the vendored helper delta"
+assert_json_value "$QWEN38_FLASH_NEXT_JSON" '.build // "none" | tostring' "none" "qwen3.8-flash-next-nvfp4 has no compose build; the image comes from custom-docker-containers/vllm-node-b12x"
+assert_json_value "$QWEN38_FLASH_NEXT_JSON" '.command[2] // ""' "/models/models--local-inference-lab--Qwen3.8-Flash-Next-NVFP4/snapshots/6c01ac378d22f6652c9f392c87700496eca8e5dc" "qwen3.8-flash-next-nvfp4 serves the pinned B12X snapshot by path"
+assert_env_value "$QWEN38_FLASH_NEXT_JSON" "HF_HUB_OFFLINE" "1" "qwen3.8-flash-next-nvfp4 never resolves against the hub"
+assert_flag_value "$QWEN38_FLASH_NEXT_JSON" "--served-model-name" "qwen3.8-flash-next-nvfp4" "qwen3.8-flash-next-nvfp4 keeps the local served model id"
+assert_flag_value "$QWEN38_FLASH_NEXT_JSON" "--max-model-len" "262144" "qwen3.8-flash-next-nvfp4 serves the native context"
+assert_flag_value "$QWEN38_FLASH_NEXT_JSON" "--max-num-seqs" "8" "qwen3.8-flash-next-nvfp4 runs up to 8 sequences so a third request does not queue"
+assert_flag_value "$QWEN38_FLASH_NEXT_JSON" "--gpu-memory-utilization" "0.80" "qwen3.8-flash-next-nvfp4 keeps the 0.80 memory envelope"
+assert_flag_value "$QWEN38_FLASH_NEXT_JSON" "--kv-cache-dtype" "fp8" "qwen3.8-flash-next-nvfp4 runs the recipe's fp8 KV (121/121 bench quality under load)"
+assert_flag_value "$QWEN38_FLASH_NEXT_JSON" "--quantization" "modelopt_mixed" "qwen3.8-flash-next-nvfp4 loads the mixed NVFP4/MXFP8 layout"
+assert_flag_value "$QWEN38_FLASH_NEXT_JSON" "--load-format" "b12x" "qwen3.8-flash-next-nvfp4 uses the b12x loader"
+for _flag in --gdn-decode-kernel --linear-backend --moe-backend; do
+    assert_flag_value "$QWEN38_FLASH_NEXT_JSON" "$_flag" "b12x" "qwen3.8-flash-next-nvfp4 uses the b12x kernels for $_flag"
+done
+assert_flag_value "$QWEN38_FLASH_NEXT_JSON" "--speculative-config" '{"method":"mtp","num_speculative_tokens":4}' "qwen3.8-flash-next-nvfp4 runs the recipe's MTP depth 4"
+assert_flag_value "$QWEN38_FLASH_NEXT_JSON" "--tool-call-parser" "qwen3_xml" "qwen3.8-flash-next-nvfp4 keeps the Qwen XML tool parser"
+assert_flag_value "$QWEN38_FLASH_NEXT_JSON" "--reasoning-parser" "qwen3" "qwen3.8-flash-next-nvfp4 keeps the Qwen reasoning parser"
+assert_command_has_flag "$QWEN38_FLASH_NEXT_JSON" "--enable-chunked-prefill" "qwen3.8-flash-next-nvfp4 keeps chunked prefill"
+assert_command_has_flag "$QWEN38_FLASH_NEXT_JSON" "--disable-log-stats" "qwen3.8-flash-next-nvfp4 suppresses per-interval stats logging"
+assert_env_value "$QWEN38_FLASH_NEXT_JSON" "VLLM_PLE_TABLE_MEMORY" "disk" "qwen3.8-flash-next-nvfp4 serves the PLE table from disk so the checkpoint fits"
+assert_json_value "$QWEN38_FLASH_NEXT_JSON" '.security_opt | join(",")' "no-new-privileges:true,seccomp=./custom-docker-containers/vllm-node-b12x/seccomp-io-uring.json" "qwen3.8-flash-next-nvfp4 blocks privilege gain and adds only io_uring to the default seccomp profile"
+assert_equals "$(jq -r '.defaultAction + " " + ([.syscalls[] | select(.action == "SCMP_ACT_ALLOW") | select(.names | any(startswith("io_uring"))) | (.names | join("+")) + (if .args then ":" + (.args | map(.value | tostring) | join(",")) else "" end)] | sort | join(" "))' "$REPO_DIR/custom-docker-containers/vllm-node-b12x/seccomp-io-uring.json")" "SCMP_ACT_ERRNO io_uring_register:0 io_uring_register:1 io_uring_register:2 io_uring_register:3 io_uring_setup+io_uring_enter" "the B12X seccomp profile denies by default and allows io_uring_register only for buffers and files"
+assert_json_value "$QWEN38_FLASH_NEXT_JSON" '.cap_drop | join(",")' "ALL" "qwen3.8-flash-next-nvfp4 drops every Linux capability"
+assert_json_value "$QWEN38_FLASH_NEXT_JSON" '.cap_add | length | tostring' "0" "qwen3.8-flash-next-nvfp4 adds no capability back"
+assert_json_value "$QWEN38_FLASH_NEXT_JSON" '.networks | join(",")' "vllm_internal" "qwen3.8-flash-next-nvfp4 has no egress (internal network only)"
+# Upstream's launcher passes --privileged and --ipc=host. No lane in this repo does that.
+assert_json_value "$QWEN38_FLASH_NEXT_JSON" '.privileged // false | tostring' "false" "qwen3.8-flash-next-nvfp4 is not privileged"
+assert_json_value "$QWEN38_FLASH_NEXT_JSON" '.ipc // ""' "" "qwen3.8-flash-next-nvfp4 keeps its own IPC namespace rather than sharing the host's"
+assert_json_value "$QWEN38_FLASH_NEXT_JSON" '.shm_size // ""' "17179869184" "qwen3.8-flash-next-nvfp4 inherits the standard 16g shared-memory size"
 
-assert_equals "$(jq -r '.image // ""' <<<"$QWEN36_35B_A3B_FP8_JSON")" "vllm-node-tf5" "qwen3.6-35b-a3b-fp8 uses the TF5 track image"
-assert_json_value "$QWEN36_35B_A3B_FP8_JSON" '.command[2] // ""' "Qwen/Qwen3.6-35B-A3B-FP8" "qwen3.6-35b-a3b-fp8 points at the official Qwen 3.6 35B A3B checkpoint"
-assert_flag_value "$QWEN36_35B_A3B_FP8_JSON" "--served-model-name" "qwen3.6-35b-a3b-fp8" "qwen3.6-35b-a3b-fp8 keeps the local served model id"
-assert_flag_value "$QWEN36_35B_A3B_FP8_JSON" "--max-model-len" "262144" "qwen3.6-35b-a3b-fp8 keeps the upstream max model length"
-assert_flag_value "$QWEN36_35B_A3B_FP8_JSON" "--max-num-batched-tokens" "32768" "qwen3.6-35b-a3b-fp8 keeps the upstream batched-token budget"
-assert_flag_value "$QWEN36_35B_A3B_FP8_JSON" "--gpu-memory-utilization" "0.84" "qwen3.6-35b-a3b-fp8 uses the tuned local memory envelope"
-assert_command_has_flag "$QWEN36_35B_A3B_FP8_JSON" "--trust-remote-code" "qwen3.6-35b-a3b-fp8 trusts remote code like the upstream recipe"
-assert_flag_value "$QWEN36_35B_A3B_FP8_JSON" "--chat-template" "/workspace/unsloth.jinja" "qwen3.6-35b-a3b-fp8 uses the mounted chat template"
-assert_flag_value "$QWEN36_35B_A3B_FP8_JSON" "--tool-call-parser" "qwen3_coder" "qwen3.6-35b-a3b-fp8 keeps the Qwen tool parser"
-assert_flag_value "$QWEN36_35B_A3B_FP8_JSON" "--reasoning-parser" "qwen3" "qwen3.6-35b-a3b-fp8 keeps the Qwen reasoning parser"
-assert_flag_value "$QWEN36_35B_A3B_FP8_JSON" "--kv-cache-dtype" "fp8" "qwen3.6-35b-a3b-fp8 keeps fp8 KV cache"
-assert_flag_value "$QWEN36_35B_A3B_FP8_JSON" "--load-format" "instanttensor" "qwen3.6-35b-a3b-fp8 keeps the upstream InstantTensor loader"
-assert_flag_value "$QWEN36_35B_A3B_FP8_JSON" "--attention-backend" "flashinfer" "qwen3.6-35b-a3b-fp8 keeps FlashInfer attention"
-assert_command_has_flag "$QWEN36_35B_A3B_FP8_JSON" "--disable-uvicorn-access-log" "qwen3.6-35b-a3b-fp8 suppresses uvicorn access logs"
-assert_command_has_flag "$QWEN36_35B_A3B_FP8_JSON" "--disable-log-stats" "qwen3.6-35b-a3b-fp8 suppresses periodic stats logs"
-assert_flag_value "$QWEN36_35B_A3B_FP8_JSON" "--tensor-parallel-size" "1" "qwen3.6-35b-a3b-fp8 uses single-GPU tensor parallelism"
-assert_flag_value "$QWEN36_35B_A3B_FP8_JSON" "--pipeline-parallel-size" "1" "qwen3.6-35b-a3b-fp8 keeps single-stage pipeline parallelism"
-assert_env_value "$QWEN36_35B_A3B_FP8_JSON" "QWEN35_CHAT_TEMPLATE_MODEL_ID" "Qwen/Qwen3.5-0.8B" "qwen3.6-35b-a3b-fp8 bootstraps the template installer from the cached generic Qwen checkpoint"
-assert_volume_mount "$QWEN36_35B_A3B_FP8_JSON" "$REPO_DIR/mods/fix-qwen3-coder-next" "/workspace/mods/fix-qwen3-coder-next" "qwen3.6-35b-a3b-fp8 mounts the reusable Qwen runtime patch read-only"
-assert_volume_mount "$QWEN36_35B_A3B_FP8_JSON" "$REPO_DIR/mods/fix-qwen3.5-chat-template" "/workspace/mods/fix-qwen3.5-chat-template" "qwen3.6-35b-a3b-fp8 mounts the reusable chat-template installer read-only"
-assert_volume_mount "$QWEN36_35B_A3B_FP8_JSON" "$REPO_DIR/mods/fix-qwen3.5-moe-runtime" "/workspace/mods/fix-qwen3.5-moe-runtime" "qwen3.6-35b-a3b-fp8 mounts the reusable runtime wrapper read-only"
+# Tracks built by upstream helpers keep their patches and pinned commits in the repo.
+for _f in README.md build-metadata.yaml b12x-build.patch seccomp-io-uring.json; do
+    assert_repo_file "custom-docker-containers/vllm-node-b12x/$_f" "B12X build input $_f is vendored"
+done
+EXPECTED_DFLASH2_IMAGE_HUIHUI="${VLLM_TRACK_IMAGE_DFLASH2:-vllm-node-dflash2}"
+assert_equals "$(jq -r '.image // ""' <<<"$HUIHUI_QWEN38_27B_JSON")" "$EXPECTED_DFLASH2_IMAGE_HUIHUI" "huihui-qwen3.8-27b-abliterated rides the DFlash2 track, which registers its qwen3_5 architecture"
+assert_flag_value "$HUIHUI_QWEN38_27B_JSON" "--model" "huihui-ai/Huihui-Qwen3.8-27B-abliterated" "huihui-qwen3.8-27b-abliterated serves the upstream abliterated checkpoint"
+assert_flag_value "$HUIHUI_QWEN38_27B_JSON" "--served-model-name" "huihui-qwen3.8-27b-abliterated" "huihui-qwen3.8-27b-abliterated keeps the local served model id"
+assert_flag_value "$HUIHUI_QWEN38_27B_JSON" "--max-model-len" "262144" "huihui-qwen3.8-27b-abliterated serves the native context"
+assert_flag_value "$HUIHUI_QWEN38_27B_JSON" "--kv-cache-dtype" "fp8" "huihui-qwen3.8-27b-abliterated uses fp8 KV, which is what makes a 51 GiB BF16 checkpoint fit at full context"
+assert_flag_value "$HUIHUI_QWEN38_27B_JSON" "--gpu-memory-utilization" "0.80" "huihui-qwen3.8-27b-abliterated keeps the envelope its heavier weights were sized against"
+assert_flag_value "$HUIHUI_QWEN38_27B_JSON" "--tool-call-parser" "qwen3_xml" "huihui-qwen3.8-27b-abliterated keeps the Qwen XML tool parser used by the Qwen3.8 family"
+assert_flag_value "$HUIHUI_QWEN38_27B_JSON" "--reasoning-parser" "qwen3" "huihui-qwen3.8-27b-abliterated keeps the Qwen reasoning parser"
+# The stock DFlash2 draft keeps its acceptance on the abliterated weights.
+assert_flag_value "$HUIHUI_QWEN38_27B_JSON" "--speculative-config" '{"method":"dflash","model":"z-lab/Qwen3.8-27B-DFlash2","revision":"50307d4c4cde6860d4eee73e2547cd786fe8e8a4","num_speculative_tokens":8,"draft_tensor_parallel_size":1,"num_speculative_tokens_per_batch_size":[[1,2,8],[3,4,6],[5,8,4]]}' "huihui-qwen3.8-27b-abliterated runs the stock DFlash2 draft (measured: acceptance held on the abliterated weights)"
 
-assert_equals "$(jq -r '.image // ""' <<<"$QWEN36_35B_A3B_FP8_MTP_JSON")" "vllm-node-tf5" "qwen3.6-35b-a3b-fp8-mtp uses the TF5 track image"
-assert_json_value "$QWEN36_35B_A3B_FP8_MTP_JSON" '.command[2] // ""' "Qwen/Qwen3.6-35B-A3B-FP8" "qwen3.6-35b-a3b-fp8-mtp points at the official Qwen 3.6 35B A3B checkpoint"
-assert_flag_value "$QWEN36_35B_A3B_FP8_MTP_JSON" "--served-model-name" "qwen3.6-35b-a3b-fp8-mtp" "qwen3.6-35b-a3b-fp8-mtp keeps the local served model id"
-assert_flag_value "$QWEN36_35B_A3B_FP8_MTP_JSON" "--max-model-len" "262144" "qwen3.6-35b-a3b-fp8-mtp keeps the upstream max model length"
-assert_flag_value "$QWEN36_35B_A3B_FP8_MTP_JSON" "--max-num-batched-tokens" "32768" "qwen3.6-35b-a3b-fp8-mtp keeps the upstream batched-token budget"
-assert_flag_value "$QWEN36_35B_A3B_FP8_MTP_JSON" "--gpu-memory-utilization" "0.84" "qwen3.6-35b-a3b-fp8-mtp uses the tuned local memory envelope"
-assert_flag_value "$QWEN36_35B_A3B_FP8_MTP_JSON" "--tool-call-parser" "qwen3_coder" "qwen3.6-35b-a3b-fp8-mtp keeps the Qwen tool parser"
-assert_flag_value "$QWEN36_35B_A3B_FP8_MTP_JSON" "--reasoning-parser" "qwen3" "qwen3.6-35b-a3b-fp8-mtp keeps the Qwen reasoning parser"
-assert_flag_value "$QWEN36_35B_A3B_FP8_MTP_JSON" "--load-format" "instanttensor" "qwen3.6-35b-a3b-fp8-mtp keeps the upstream InstantTensor loader"
-assert_command_has_flag "$QWEN36_35B_A3B_FP8_MTP_JSON" "--disable-uvicorn-access-log" "qwen3.6-35b-a3b-fp8-mtp suppresses uvicorn access logs"
-assert_command_has_flag "$QWEN36_35B_A3B_FP8_MTP_JSON" "--disable-log-stats" "qwen3.6-35b-a3b-fp8-mtp suppresses periodic stats logs"
-assert_flag_value "$QWEN36_35B_A3B_FP8_MTP_JSON" "--speculative-config" '{"method":"mtp","num_speculative_tokens":2}' "qwen3.6-35b-a3b-fp8-mtp keeps the upstream MTP config"
-assert_env_value "$QWEN36_35B_A3B_FP8_MTP_JSON" "QWEN35_CHAT_TEMPLATE_MODEL_ID" "Qwen/Qwen3.5-0.8B" "qwen3.6-35b-a3b-fp8-mtp bootstraps the template installer from the cached generic Qwen checkpoint"
-assert_volume_mount "$QWEN36_35B_A3B_FP8_MTP_JSON" "$REPO_DIR/mods/fix-qwen3.5-moe-runtime" "/workspace/mods/fix-qwen3.5-moe-runtime" "qwen3.6-35b-a3b-fp8-mtp mounts the reusable runtime wrapper read-only"
+# The NVFP4 and BF16 lanes differ only in the checkpoint, so they stay comparable.
+assert_flag_value "$HUIHUI_QWEN38_27B_NVFP4_JSON" "--model" "sakamakismile/Huihui-Qwen3.8-27B-abliterated-NVFP4" "huihui-qwen3.8-27b-abliterated-nvfp4 serves the third-party NVFP4 requant under test"
+assert_flag_value "$HUIHUI_QWEN38_27B_NVFP4_JSON" "--served-model-name" "huihui-qwen3.8-27b-abliterated-nvfp4" "huihui-qwen3.8-27b-abliterated-nvfp4 uses a distinct served-model-name"
+for _flag in --max-model-len --kv-cache-dtype --gpu-memory-utilization --max-num-seqs --tool-call-parser --reasoning-parser --speculative-config; do
+    _bf16="$(command_flag_value "$HUIHUI_QWEN38_27B_JSON" "$_flag")"
+    _nvfp4="$(command_flag_value "$HUIHUI_QWEN38_27B_NVFP4_JSON" "$_flag")"
+    assert_equals "$_nvfp4" "$_bf16" "huihui-qwen3.8-27b-abliterated-nvfp4 matches the BF16 lane on $_flag, so the A/B isolates quantization"
+done
 
-assert_equals "$(jq -r '.image // ""' <<<"$HUIHUI_QWEN36_27B_JSON")" "vllm-node-mxfp4-qwen35" "huihui-qwen3.6-27b-abliterated uses the dedicated qwen3_5-aware image"
-assert_json_value "$HUIHUI_QWEN36_27B_JSON" '.build.dockerfile // ""' "./custom-docker-containers/vllm-node-mxfp4-qwen35/Dockerfile" "huihui-qwen3.6-27b-abliterated maps to the repo-local qwen3_5 Dockerfile"
-assert_json_value "$HUIHUI_QWEN36_27B_JSON" '.command[2] // ""' "huihui-ai/Huihui-Qwen3.6-27B-abliterated" "huihui-qwen3.6-27b-abliterated points at the Huihui Qwen 3.6 checkpoint"
-assert_flag_value "$HUIHUI_QWEN36_27B_JSON" "--served-model-name" "huihui-qwen3.6-27b-abliterated" "huihui-qwen3.6-27b-abliterated keeps the local served model id"
-assert_flag_value "$HUIHUI_QWEN36_27B_JSON" "--max-model-len" "262144" "huihui-qwen3.6-27b-abliterated keeps the 262k context target"
-assert_flag_value "$HUIHUI_QWEN36_27B_JSON" "--max-num-batched-tokens" "16384" "huihui-qwen3.6-27b-abliterated starts with the conservative batched-token budget"
-assert_flag_value "$HUIHUI_QWEN36_27B_JSON" "--gpu-memory-utilization" "0.70" "huihui-qwen3.6-27b-abliterated starts with the conservative memory envelope"
-assert_flag_value "$HUIHUI_QWEN36_27B_JSON" "--tool-call-parser" "qwen3_coder" "huihui-qwen3.6-27b-abliterated uses the Qwen coder tool parser"
-assert_flag_value "$HUIHUI_QWEN36_27B_JSON" "--reasoning-parser" "qwen3" "huihui-qwen3.6-27b-abliterated keeps the Qwen reasoning parser"
-assert_flag_value "$HUIHUI_QWEN36_27B_JSON" "--kv-cache-dtype" "auto" "huihui-qwen3.6-27b-abliterated keeps the conservative automatic KV-cache dtype on the TF5 runtime"
-assert_flag_value "$HUIHUI_QWEN36_27B_JSON" "--load-format" "fastsafetensors" "huihui-qwen3.6-27b-abliterated uses fastsafetensors loading"
-assert_flag_value "$HUIHUI_QWEN36_27B_JSON" "--attention-backend" "flashinfer" "huihui-qwen3.6-27b-abliterated keeps FlashInfer attention"
-assert_command_has_flag "$HUIHUI_QWEN36_27B_JSON" "--enforce-eager" "huihui-qwen3.6-27b-abliterated disables compile-time fusion paths on the TF5 runtime"
-assert_command_has_flag "$HUIHUI_QWEN36_27B_JSON" "--disable-uvicorn-access-log" "huihui-qwen3.6-27b-abliterated suppresses uvicorn access logs"
-assert_command_has_flag "$HUIHUI_QWEN36_27B_JSON" "--disable-log-stats" "huihui-qwen3.6-27b-abliterated suppresses periodic stats logs"
-assert_flag_value "$HUIHUI_QWEN36_27B_JSON" "--chat-template" "/workspace/unsloth.jinja" "huihui-qwen3.6-27b-abliterated uses the mounted Qwen chat template"
-assert_flag_value "$HUIHUI_QWEN36_27B_JSON" "--tensor-parallel-size" "1" "huihui-qwen3.6-27b-abliterated uses single-GPU tensor parallelism"
-assert_command_has_flag "$HUIHUI_QWEN36_27B_JSON" "--enable-prefix-caching" "huihui-qwen3.6-27b-abliterated enables prefix caching"
-assert_command_has_flag "$HUIHUI_QWEN36_27B_JSON" "--enable-auto-tool-choice" "huihui-qwen3.6-27b-abliterated enables auto tool choice"
-assert_env_value "$HUIHUI_QWEN36_27B_JSON" "VLLM_MARLIN_USE_ATOMIC_ADD" "1" "huihui-qwen3.6-27b-abliterated enables the Marlin atomic-add workaround"
-assert_env_value "$HUIHUI_QWEN36_27B_JSON" "QWEN35_CHAT_TEMPLATE_MODEL_ID" "Qwen/Qwen3.5-0.8B" "huihui-qwen3.6-27b-abliterated bootstraps the template installer from the cached generic Qwen checkpoint"
-assert_volume_mount "$HUIHUI_QWEN36_27B_JSON" "$REPO_DIR/mods/fix-qwen3-coder-next" "/workspace/mods/fix-qwen3-coder-next" "huihui-qwen3.6-27b-abliterated mounts the vendored Qwen runtime fix read-only"
-assert_volume_mount "$HUIHUI_QWEN36_27B_JSON" "$REPO_DIR/mods/fix-qwen3.5-chat-template" "/workspace/mods/fix-qwen3.5-chat-template" "huihui-qwen3.6-27b-abliterated mounts the vendored chat-template installer read-only"
-assert_volume_mount "$HUIHUI_QWEN36_27B_JSON" "$REPO_DIR/mods/fix-qwen3.5-moe-runtime" "/workspace/mods/fix-qwen3.5-moe-runtime" "huihui-qwen3.6-27b-abliterated mounts the reusable Qwen3.5 MoE runtime wrapper read-only"
+assert_repo_file "custom-docker-containers/vllm-node-dflash2/vendor-tiktoken.patch" "DFlash2 local delta is vendored rather than living only in a tmp/ clone"
+assert_repo_file "custom-docker-containers/vllm-node-dflash2/fetch-tiktoken.sh" "DFlash2 tiktoken fetch helper is vendored"
+assert_repo_file "custom-docker-containers/vllm-node-dflash2/build-metadata.yaml" "DFlash2 records the upstream commit its patch applies to"
 
-assert_equals "$(jq -r '.image // ""' <<<"$QWEN35_122B_AUTOROUND_JSON")" "vllm-node-tf5" "qwen3.5-122b-a10b-int4-autoround uses the TF5 track image"
-assert_json_value "$QWEN35_122B_AUTOROUND_JSON" '.command[2] // ""' "Intel/Qwen3.5-122B-A10B-int4-AutoRound" "qwen3.5-122b-a10b-int4-autoround points at the Intel AutoRound checkpoint"
-assert_flag_value "$QWEN35_122B_AUTOROUND_JSON" "--served-model-name" "qwen3.5-122b-a10b-int4-autoround" "qwen3.5-122b-a10b-int4-autoround keeps the local served model id"
-assert_flag_value "$QWEN35_122B_AUTOROUND_JSON" "--max-model-len" "auto" "qwen3.5-122b-a10b-int4-autoround keeps the single-GPU auto max-model-len override"
-assert_flag_value "$QWEN35_122B_AUTOROUND_JSON" "--gpu-memory-utilization" "0.70" "qwen3.5-122b-a10b-int4-autoround keeps the working single-GPU memory envelope"
-assert_flag_value "$QWEN35_122B_AUTOROUND_JSON" "--max-num-batched-tokens" "8192" "qwen3.5-122b-a10b-int4-autoround keeps the batched-token ceiling from the working recipe"
-assert_flag_value "$QWEN35_122B_AUTOROUND_JSON" "--tool-call-parser" "qwen3_coder" "qwen3.5-122b-a10b-int4-autoround keeps the Qwen tool parser"
-assert_flag_value "$QWEN35_122B_AUTOROUND_JSON" "--reasoning-parser" "qwen3" "qwen3.5-122b-a10b-int4-autoround keeps the Qwen reasoning parser"
-assert_env_value "$QWEN35_122B_AUTOROUND_JSON" "VLLM_MARLIN_USE_ATOMIC_ADD" "1" "qwen3.5-122b-a10b-int4-autoround enables the Marlin atomic-add workaround"
-assert_volume_mount "$QWEN35_122B_AUTOROUND_JSON" "$REPO_DIR/mods/fix-qwen3.5-autoround" "/workspace/mods/fix-qwen3.5-autoround" "qwen3.5-122b-a10b-int4-autoround mounts the vendored autoround patch read-only"
+# Token budgeting is left to the engine: the gateway exposes the tokenizer endpoints and
+# each lane declares its backend.
+assert_repo_file_contains "gateway.conf" '^\s*location ~ \^/\(tokenize\|detokenize\)\$' "gateway routes /tokenize and /detokenize to the validator"
+assert_repo_file_contains "shared/models-config.mjs" 'ALLOWED_BACKENDS' "models.json declares a serving backend per model rather than assuming vLLM"
 
-assert_equals "$(jq -r '.image // ""' <<<"$HUIHUI_QWEN35_35B_A3B_JSON")" "vllm-node-tf5" "huihui-qwen3.5-35b-a3b-abliterated uses the TF5 track image"
-assert_json_value "$HUIHUI_QWEN35_35B_A3B_JSON" '.command[2] // ""' "huihui-ai/Huihui-Qwen3.5-35B-A3B-abliterated" "huihui-qwen3.5-35b-a3b-abliterated points at the local Huihui checkpoint"
-assert_flag_value "$HUIHUI_QWEN35_35B_A3B_JSON" "--served-model-name" "huihui-qwen3.5-35b-a3b-abliterated" "huihui-qwen3.5-35b-a3b-abliterated keeps the local served model id"
-assert_flag_value "$HUIHUI_QWEN35_35B_A3B_JSON" "--max-model-len" "262144" "huihui-qwen3.5-35b-a3b-abliterated keeps the 262k context target"
-assert_flag_value "$HUIHUI_QWEN35_35B_A3B_JSON" "--max-num-batched-tokens" "16384" "huihui-qwen3.5-35b-a3b-abliterated keeps the conservative batched-token budget"
-assert_flag_value "$HUIHUI_QWEN35_35B_A3B_JSON" "--gpu-memory-utilization" "0.70" "huihui-qwen3.5-35b-a3b-abliterated keeps the planned normal-lifecycle memory envelope"
-assert_flag_value "$HUIHUI_QWEN35_35B_A3B_JSON" "--tool-call-parser" "qwen3_coder" "huihui-qwen3.5-35b-a3b-abliterated uses the Qwen coder tool parser"
-assert_flag_value "$HUIHUI_QWEN35_35B_A3B_JSON" "--reasoning-parser" "qwen3" "huihui-qwen3.5-35b-a3b-abliterated keeps the Qwen reasoning parser"
-assert_flag_value "$HUIHUI_QWEN35_35B_A3B_JSON" "--kv-cache-dtype" "fp8" "huihui-qwen3.5-35b-a3b-abliterated keeps fp8 KV cache"
-assert_flag_value "$HUIHUI_QWEN35_35B_A3B_JSON" "--load-format" "fastsafetensors" "huihui-qwen3.5-35b-a3b-abliterated keeps fastsafetensors loading"
-assert_command_lacks_flag "$HUIHUI_QWEN35_35B_A3B_JSON" "--language-model-only" "huihui-qwen3.5-35b-a3b-abliterated keeps multimodal initialization enabled"
-assert_flag_value "$HUIHUI_QWEN35_35B_A3B_JSON" "--attention-backend" "flashinfer" "huihui-qwen3.5-35b-a3b-abliterated keeps FlashInfer attention"
-assert_flag_value "$HUIHUI_QWEN35_35B_A3B_JSON" "--chat-template" "/workspace/unsloth.jinja" "huihui-qwen3.5-35b-a3b-abliterated uses the mounted Qwen3.5 chat template"
-assert_flag_value "$HUIHUI_QWEN35_35B_A3B_JSON" "--tensor-parallel-size" "1" "huihui-qwen3.5-35b-a3b-abliterated uses single-GPU tensor parallelism"
-assert_command_has_flag "$HUIHUI_QWEN35_35B_A3B_JSON" "--enable-prefix-caching" "huihui-qwen3.5-35b-a3b-abliterated enables prefix caching"
-assert_command_has_flag "$HUIHUI_QWEN35_35B_A3B_JSON" "--enable-auto-tool-choice" "huihui-qwen3.5-35b-a3b-abliterated enables auto tool choice"
-assert_env_value "$HUIHUI_QWEN35_35B_A3B_JSON" "HF_HUB_OFFLINE" "1" "huihui-qwen3.5-35b-a3b-abliterated stays offline against the local cache"
-assert_env_value "$HUIHUI_QWEN35_35B_A3B_JSON" "TRANSFORMERS_OFFLINE" "1" "huihui-qwen3.5-35b-a3b-abliterated keeps Transformers offline"
-assert_env_value "$HUIHUI_QWEN35_35B_A3B_JSON" "VLLM_MARLIN_USE_ATOMIC_ADD" "1" "huihui-qwen3.5-35b-a3b-abliterated enables the Marlin atomic-add workaround"
-assert_env_value "$HUIHUI_QWEN35_35B_A3B_JSON" "QWEN35_CHAT_TEMPLATE_MODEL_ID" "huihui-ai/Huihui-Qwen3.5-35B-A3B-abliterated" "huihui-qwen3.5-35b-a3b-abliterated points the template installer at the mounted local checkpoint"
-assert_volume_mount "$HUIHUI_QWEN35_35B_A3B_JSON" "$REPO_DIR/mods/fix-qwen3-coder-next" "/workspace/mods/fix-qwen3-coder-next" "huihui-qwen3.5-35b-a3b-abliterated mounts the vendored Qwen3/Coder-Next runtime fix read-only"
-assert_volume_mount "$HUIHUI_QWEN35_35B_A3B_JSON" "$REPO_DIR/mods/fix-qwen3.5-chat-template" "/workspace/mods/fix-qwen3.5-chat-template" "huihui-qwen3.5-35b-a3b-abliterated mounts the vendored Qwen3.5 chat-template installer read-only"
-assert_volume_mount "$HUIHUI_QWEN35_35B_A3B_JSON" "$REPO_DIR/mods/fix-qwen3.5-moe-runtime" "/workspace/mods/fix-qwen3.5-moe-runtime" "huihui-qwen3.5-35b-a3b-abliterated mounts the reusable Qwen3.5 MoE runtime wrapper read-only"
+# Soaks ask models about this bundle; a stale one makes correct answers look wrong.
+if bash "$SCRIPT_DIR/build-soak-bundle.sh" --check >/dev/null 2>&1; then
+    pass "soak context bundle is current with its sources"
+else
+    fail "soak context bundle is stale (run: bash tools/build-soak-bundle.sh)"
+fi
 
-assert_equals "$(jq -r '.image // ""' <<<"$JACKRONG_QWEN35_35B_A3B_JSON")" "vllm-node-tf5" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled uses the TF5 track image"
-assert_json_value "$JACKRONG_QWEN35_35B_A3B_JSON" '.command[2] // ""' "Jackrong/Qwen3.5-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled points at the local Jackrong checkpoint"
-assert_flag_value "$JACKRONG_QWEN35_35B_A3B_JSON" "--served-model-name" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled keeps the local served model id"
-assert_flag_value "$JACKRONG_QWEN35_35B_A3B_JSON" "--max-model-len" "262144" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled keeps the 262k context target"
-assert_flag_value "$JACKRONG_QWEN35_35B_A3B_JSON" "--max-num-batched-tokens" "32768" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled keeps the high batched-token budget"
-assert_flag_value "$JACKRONG_QWEN35_35B_A3B_JSON" "--gpu-memory-utilization" "0.80" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled keeps the planned single-GPU memory envelope"
-assert_flag_value "$JACKRONG_QWEN35_35B_A3B_JSON" "--tool-call-parser" "qwen3_xml" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled uses the XML-oriented Qwen tool parser"
-assert_flag_value "$JACKRONG_QWEN35_35B_A3B_JSON" "--reasoning-parser" "qwen3" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled keeps the Qwen reasoning parser"
-assert_flag_value "$JACKRONG_QWEN35_35B_A3B_JSON" "--kv-cache-dtype" "fp8" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled keeps fp8 KV cache"
-assert_flag_value "$JACKRONG_QWEN35_35B_A3B_JSON" "--load-format" "fastsafetensors" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled keeps fastsafetensors loading"
-assert_command_has_flag "$JACKRONG_QWEN35_35B_A3B_JSON" "--language-model-only" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled runs in language-model-only mode"
-assert_flag_value "$JACKRONG_QWEN35_35B_A3B_JSON" "--attention-backend" "flashinfer" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled keeps FlashInfer attention"
-assert_flag_value "$JACKRONG_QWEN35_35B_A3B_JSON" "--chat-template" "/workspace/unsloth.jinja" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled uses the mounted Unsloth chat template"
-assert_flag_value "$JACKRONG_QWEN35_35B_A3B_JSON" "--tensor-parallel-size" "1" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled uses single-GPU tensor parallelism"
-assert_flag_value "$JACKRONG_QWEN35_35B_A3B_JSON" "--distributed-executor-backend" "ray" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled keeps the distributed executor backend"
-assert_command_has_flag "$JACKRONG_QWEN35_35B_A3B_JSON" "--enable-prefix-caching" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled enables prefix caching"
-assert_command_has_flag "$JACKRONG_QWEN35_35B_A3B_JSON" "--enable-auto-tool-choice" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled enables auto tool choice"
-assert_env_value "$JACKRONG_QWEN35_35B_A3B_JSON" "HF_HUB_OFFLINE" "1" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled stays offline against the local cache"
-assert_env_value "$JACKRONG_QWEN35_35B_A3B_JSON" "TRANSFORMERS_OFFLINE" "1" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled keeps Transformers offline"
-assert_env_value "$JACKRONG_QWEN35_35B_A3B_JSON" "RAY_memory_usage_threshold" "0.99" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled raises Ray's host-memory kill threshold for compile spikes"
-assert_env_value "$JACKRONG_QWEN35_35B_A3B_JSON" "VLLM_MARLIN_USE_ATOMIC_ADD" "1" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled enables the Marlin atomic-add workaround"
-assert_env_value "$JACKRONG_QWEN35_35B_A3B_JSON" "QWEN35_CHAT_TEMPLATE_MODEL_ID" "Jackrong/Qwen3.5-35B-A3B-Claude-4.6-Opus-Reasoning-Distilled" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled points the template installer at the mounted local checkpoint"
-assert_volume_mount "$JACKRONG_QWEN35_35B_A3B_JSON" "$REPO_DIR/mods/fix-qwen3-coder-next" "/workspace/mods/fix-qwen3-coder-next" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled mounts the vendored Qwen3/Coder-Next runtime fix read-only"
-assert_volume_mount "$JACKRONG_QWEN35_35B_A3B_JSON" "$REPO_DIR/mods/fix-qwen3.5-chat-template" "/workspace/mods/fix-qwen3.5-chat-template" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled mounts the vendored Qwen3.5 chat-template installer read-only"
-assert_volume_mount "$JACKRONG_QWEN35_35B_A3B_JSON" "$REPO_DIR/mods/fix-qwen3.5-moe-runtime" "/workspace/mods/fix-qwen3.5-moe-runtime" "jackrong-qwen3.5-35b-a3b-claude-4.6-opus-reasoning-distilled mounts the reusable Qwen3.5 MoE runtime wrapper read-only"
+# The validator's max_tokens handling depends on the engine, so the declared backend must
+# match what the container runs.
+backend_mismatches=0
+for model_id in $(jq -r 'keys[]' "$MODELS_FILE"); do
+    service_json="$(resolve_service_json "$ACTIVE_JSON" "$model_id" 2>/dev/null)" || continue
+    command_line="$(jq -r '.commandLine // ""' <<<"$service_json")"
+    declared="$(jq -r --arg m "$model_id" '.[$m].backend // "vllm"' "$MODELS_FILE")"
 
-assert_equals "$(jq -r '.image // ""' <<<"$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON")" "vllm-node-tf5" "qwen3-coder-next-int4-autoround uses the TF5 track image"
-assert_json_value "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" '.command[2] // ""' "Intel/Qwen3-Coder-Next-int4-AutoRound" "qwen3-coder-next-int4-autoround points at the Intel coder-next autoround checkpoint"
-assert_flag_value "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "--served-model-name" "qwen3-coder-next-int4-autoround" "qwen3-coder-next-int4-autoround keeps the local served model id"
-assert_flag_value "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "--max-model-len" "1048576" "qwen3-coder-next-int4-autoround keeps the configured 1M context window"
-assert_command_has_flag "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "--language-model-only" "qwen3-coder-next-int4-autoround runs in language-model-only mode"
-assert_command_has_flag "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "--enable-chunked-prefill" "qwen3-coder-next-int4-autoround enables chunked prefill"
-assert_flag_value "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "--max-num-batched-tokens" "49152" "qwen3-coder-next-int4-autoround keeps the high batched-token budget"
-assert_flag_value "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "--max-num-seqs" "384" "qwen3-coder-next-int4-autoround keeps the high sequence fanout limit"
-assert_flag_value "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "--kv-cache-dtype" "fp8" "qwen3-coder-next-int4-autoround keeps fp8 KV cache"
-assert_flag_value "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "--optimization-level" "3" "qwen3-coder-next-int4-autoround keeps optimization level 3"
-assert_flag_value "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "--performance-mode" "throughput" "qwen3-coder-next-int4-autoround keeps throughput mode"
-assert_flag_value "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "--mamba-cache-mode" "align" "qwen3-coder-next-int4-autoround keeps aligned mamba cache mode"
-assert_flag_value "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "--hf-overrides" '{"rope_scaling": {"rope_type": "yarn", "factor": 4.0, "original_max_position_embeddings": 262144}}' "qwen3-coder-next-int4-autoround keeps the Yarn rope-scaling override"
-assert_env_value "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "VLLM_MARLIN_USE_ATOMIC_ADD" "1" "qwen3-coder-next-int4-autoround enables the Marlin atomic-add workaround"
-assert_env_value "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "VLLM_SLEEP_WHEN_IDLE" "0" "qwen3-coder-next-int4-autoround keeps the engine awake while loaded"
-assert_env_value "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "VLLM_ALLOW_LONG_MAX_MODEL_LEN" "1" "qwen3-coder-next-int4-autoround allows the extended max-model-len override"
-assert_env_value "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS" "1" "qwen3-coder-next-int4-autoround estimates CUDA-graph memory during profiling"
-assert_env_value "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "SAFETENSORS_FAST_GPU" "1" "qwen3-coder-next-int4-autoround enables fast safetensors GPU reads"
-assert_env_value "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "VLLM_USE_FLASHINFER_MOE_FP8" "1" "qwen3-coder-next-int4-autoround enables FlashInfer FP8 MoE mode"
-assert_volume_mount "$QWEN3_CODER_NEXT_INT4_AUTOROUND_JSON" "$REPO_DIR/mods/fix-qwen3-next-autoround" "/workspace/mods/fix-qwen3-next-autoround" "qwen3-coder-next-int4-autoround mounts the vendored reverse patch read-only"
+    actual="vllm"
+    case "$command_line" in
+        *sglang*) actual="sglang" ;;
+        *llama-server*|*llama_cpp*) actual="llamacpp" ;;
+    esac
 
-assert_equals "$(jq -r '.image // ""' <<<"$GEMMA4_26B_JSON")" "vllm-node-tf5-gemma4" "gemma4-26b-a4b uses the dedicated Gemma-capable TF5 image"
-assert_json_value "$GEMMA4_26B_JSON" '.build.dockerfile // ""' "./custom-docker-containers/vllm-node-tf5-gemma4/Dockerfile" "gemma4-26b-a4b maps to the repo-local Gemma overlay Dockerfile"
+    if [[ "$declared" != "$actual" ]]; then
+        fail "$model_id launches '$actual' but models.json declares backend '$declared'"
+        backend_mismatches=$((backend_mismatches + 1))
+    fi
+done
+if [[ "$backend_mismatches" == "0" ]]; then
+    pass "every model's declared backend matches the process its container launches"
+fi
+
+# Comments may mention a chars/4 estimate; code may not.
+if awk '!/^[[:space:]]*\/\// && /chars?\/4|length \/ 4|estimateInputTokens|getTokenSafetyBuffer/ { found = 1 } END { exit !found }' \
+   "$REPO_DIR/request-validator/index.js"; then
+    fail "request-validator does not reintroduce gateway-side token estimation"
+else
+    pass "request-validator does not reintroduce gateway-side token estimation"
+fi
+
+assert_equals "$(jq -r '.image // ""' <<<"$GEMMA4_26B_JSON")" "$EXPECTED_FLASHNEXT_IMAGE" "gemma4-26b-a4b runs the B12X image (native FP4 MoE, DFlash)"
+assert_json_value "$GEMMA4_26B_JSON" '.build // "none" | tostring' "none" "gemma4-26b-a4b has no compose build; the image comes from custom-docker-containers/vllm-node-b12x"
+assert_json_value "$GEMMA4_26B_JSON" '.command[2] // ""' "nvidia/Gemma-4-26B-A4B-NVFP4" "gemma4-26b-a4b serves the NVIDIA ModelOpt NVFP4 checkpoint"
 assert_flag_value "$GEMMA4_26B_JSON" "--tool-call-parser" "gemma4" "gemma4-26b-a4b keeps the upstream tool parser"
 assert_flag_value "$GEMMA4_26B_JSON" "--reasoning-parser" "gemma4" "gemma4-26b-a4b keeps the upstream reasoning parser"
 assert_flag_value "$GEMMA4_26B_JSON" "--max-model-len" "262144" "gemma4-26b-a4b keeps the upstream max model length"
 assert_flag_value "$GEMMA4_26B_JSON" "--max-num-batched-tokens" "8192" "gemma4-26b-a4b keeps the upstream batched token limit"
+assert_flag_value "$GEMMA4_26B_JSON" "--gpu-memory-utilization" "0.50" "gemma4-26b-a4b takes 50% of memory, which still holds 2.19 full windows of KV"
 assert_flag_value "$GEMMA4_26B_JSON" "--tensor-parallel-size" "1" "gemma4-26b-a4b uses the host-safe tensor parallel default"
-assert_flag_value "$GEMMA4_26B_JSON" "--distributed-executor-backend" "ray" "gemma4-26b-a4b keeps the upstream executor backend"
-assert_env_value "$GEMMA4_26B_JSON" "RAY_memory_usage_threshold" "0.99" "gemma4-26b-a4b raises Ray's host-memory kill threshold for swap-backed startup and first-request spikes"
+assert_flag_value "$GEMMA4_26B_JSON" "--distributed-executor-backend" "mp" "gemma4-26b-a4b runs the multiprocess executor (no Ray on the internal network)"
+assert_command_lacks_flag "$GEMMA4_26B_JSON" "--quantization" "gemma4-26b-a4b takes its quantization from the checkpoint (online fp8 padded tool prompts)"
+assert_command_lacks_flag "$GEMMA4_26B_JSON" "--moe-backend" "gemma4-26b-a4b lets vLLM pick FlashInfer's FP4 MoE (b12x MoE has no GELU-tanh)"
+assert_flag_value "$GEMMA4_26B_JSON" "--kv-cache-dtype" "auto" "gemma4-26b-a4b keeps a BF16 KV cache (fp8 KV padded system turns)"
+assert_flag_value "$GEMMA4_26B_JSON" "--hf-config-path" "/workspace/gemma4-26b-nvfp4-config" "gemma4-26b-a4b reads the config copy without the uncalibrated fp8 KV scheme"
+assert_volume_mount "$GEMMA4_26B_JSON" "$REPO_DIR/shared/gemma4-26b-nvfp4-config" "/workspace/gemma4-26b-nvfp4-config" "gemma4-26b-a4b mounts its config copy"
+assert_equals "$(jq -r '.quantization_config | (.quant_algo + "/" + ((.kv_cache_scheme // "none") | tostring))' "$REPO_DIR/shared/gemma4-26b-nvfp4-config/config.json")" "NVFP4/none" "gemma4-26b-a4b config copy keeps NVFP4 and drops the KV scheme"
+assert_repo_file "shared/gemma4-26b-nvfp4-config/generation_config.json" "gemma4-26b-a4b config copy keeps the checkpoint's sampling defaults"
+assert_equals "$(jq -r '(.command | index("--speculative-config")) as $i | .command[$i + 1] | fromjson | "\(.method) \(.model)@\(.revision) \(.num_speculative_tokens)"' <<<"$GEMMA4_26B_JSON")" "dflash z-lab/gemma-4-26B-A4B-it-DFlash@77d4202772dfe50b2396ec7bac9cfffc7b9e7057 8" "gemma4-26b-a4b drafts with the pinned z-lab DFlash model at depth 8"
+assert_env_value "$GEMMA4_26B_JSON" "VLLM_USE_V2_MODEL_RUNNER" "1" "gemma4-26b-a4b runs the V2 model runner (the draft mixes sliding and full attention)"
+assert_command_has_flag "$GEMMA4_26B_JSON" "--no-scheduler-reserve-full-isl" "gemma4-26b-a4b turns off the full-prompt admission gate that stalls long prompts"
 
-assert_equals "$(jq -r '.image // ""' <<<"$GEMMA4_31B_JSON")" "vllm-node-tf5-gemma4" "gemma4-31b uses the dedicated Gemma-capable TF5 image"
-assert_json_value "$GEMMA4_31B_JSON" '.build.dockerfile // ""' "./custom-docker-containers/vllm-node-tf5-gemma4/Dockerfile" "gemma4-31b maps to the repo-local Gemma overlay Dockerfile"
-assert_json_value "$GEMMA4_31B_JSON" '.command[2] // ""' "google/gemma-4-31B-it" "gemma4-31b points at the dense 31B model id"
+assert_equals "$(jq -r '.image // ""' <<<"$GEMMA4_31B_JSON")" "$EXPECTED_FLASHNEXT_IMAGE" "gemma4-31b runs the B12X image (DFlash draft)"
+assert_json_value "$GEMMA4_31B_JSON" '.build // "none" | tostring' "none" "gemma4-31b has no compose build; the image comes from custom-docker-containers/vllm-node-b12x"
+assert_json_value "$GEMMA4_31B_JSON" '.command[2] // ""' "nvidia/Gemma-4-31B-IT-NVFP4" "gemma4-31b serves the NVIDIA ModelOpt NVFP4 checkpoint"
 assert_flag_value "$GEMMA4_31B_JSON" "--tool-call-parser" "gemma4" "gemma4-31b keeps the upstream tool parser"
 assert_flag_value "$GEMMA4_31B_JSON" "--reasoning-parser" "gemma4" "gemma4-31b keeps the upstream reasoning parser"
-assert_flag_value "$GEMMA4_31B_JSON" "--max-model-len" "262144" "gemma4-31b starts with the mirrored max model length"
+assert_flag_value "$GEMMA4_31B_JSON" "--max-model-len" "180224" "gemma4-31b serves 180224 tokens: a full window with the draft needs ~85% of memory"
+assert_flag_value "$GEMMA4_31B_JSON" "--gpu-memory-utilization" "0.75" "gemma4-31b takes 75% of memory, leaving the host ~20 GiB"
 assert_flag_value "$GEMMA4_31B_JSON" "--max-num-batched-tokens" "8192" "gemma4-31b starts with the mirrored batched token limit"
 assert_flag_value "$GEMMA4_31B_JSON" "--tensor-parallel-size" "1" "gemma4-31b uses the host-safe tensor parallel default"
-assert_flag_value "$GEMMA4_31B_JSON" "--distributed-executor-backend" "ray" "gemma4-31b keeps the upstream executor backend"
-assert_env_value "$GEMMA4_31B_JSON" "TORCHINDUCTOR_AUTOGRAD_CACHE" "0" "gemma4-31b disables Torch AOTAutograd cache saves to avoid the TF5 Gemma compile pickling bug"
-assert_env_value "$GEMMA4_31B_JSON" "RAY_memory_usage_threshold" "0.99" "gemma4-31b raises Ray's host-memory kill threshold for swap-backed startup and first-request spikes"
+assert_flag_value "$GEMMA4_31B_JSON" "--distributed-executor-backend" "mp" "gemma4-31b runs the multiprocess executor (no Ray on the internal network)"
+assert_equals "$(jq -r '(.command | index("--speculative-config")) as $i | .command[$i + 1] | fromjson | "\(.method) \(.model)@\(.revision) \(.num_speculative_tokens)"' <<<"$GEMMA4_31B_JSON")" "dflash z-lab/gemma-4-31B-it-DFlash@eabd648301ce28583cc14757912e5e0f84e152e1 8" "gemma4-31b drafts with the pinned z-lab DFlash model at depth 8"
+assert_env_value "$GEMMA4_31B_JSON" "VLLM_USE_V2_MODEL_RUNNER" "1" "gemma4-31b runs the V2 model runner (the draft mixes sliding and full attention)"
+assert_command_lacks_flag "$GEMMA4_31B_JSON" "--quantization" "gemma4-31b takes its quantization from the checkpoint (online fp8 broke the dense lane)"
+assert_flag_value "$GEMMA4_31B_JSON" "--kv-cache-dtype" "auto" "gemma4-31b leaves the KV dtype to its config copy (BF16)"
+assert_flag_value "$GEMMA4_31B_JSON" "--hf-config-path" "/workspace/gemma4-31b-nvfp4-config" "gemma4-31b reads the config copy without the uncalibrated fp8 KV scheme"
+assert_volume_mount "$GEMMA4_31B_JSON" "$REPO_DIR/shared/gemma4-31b-nvfp4-config" "/workspace/gemma4-31b-nvfp4-config" "gemma4-31b mounts its config copy"
+assert_equals "$(jq -r '.quantization_config | (.quant_algo + "/" + ((.kv_cache_scheme // "none") | tostring))' "$REPO_DIR/shared/gemma4-31b-nvfp4-config/config.json")" "NVFP4/none" "gemma4-31b config copy keeps NVFP4 and drops the KV scheme"
+assert_repo_file "shared/gemma4-31b-nvfp4-config/generation_config.json" "gemma4-31b config copy keeps the checkpoint's sampling defaults"
+assert_command_has_flag "$GEMMA4_31B_JSON" "--no-scheduler-reserve-full-isl" "gemma4-31b turns off the full-prompt admission gate that stalls long prompts"
 
-assert_equals "$(jq -r '.image // ""' <<<"$HUIHUI_GEMMA4_E2B_JSON")" "vllm-node-tf5-gemma4" "huihui-gemma4-e2b-abliterated uses the dedicated Gemma-capable TF5 image lane"
-assert_json_value "$HUIHUI_GEMMA4_E2B_JSON" '.build.dockerfile // ""' "./custom-docker-containers/vllm-node-tf5-gemma4/Dockerfile" "huihui-gemma4-e2b-abliterated maps to the repo-local Gemma overlay Dockerfile"
-assert_json_value "$HUIHUI_GEMMA4_E2B_JSON" '.command[2] // ""' "huihui-ai/Huihui-gemma-4-E2B-it-abliterated" "huihui-gemma4-e2b-abliterated points at the Huihui Gemma E2B checkpoint"
-assert_flag_value "$HUIHUI_GEMMA4_E2B_JSON" "--served-model-name" "huihui-gemma4-e2b-abliterated" "huihui-gemma4-e2b-abliterated keeps the local served model id"
-assert_flag_value "$HUIHUI_GEMMA4_E2B_JSON" "--tool-call-parser" "gemma4" "huihui-gemma4-e2b-abliterated keeps the Gemma tool parser"
-assert_flag_value "$HUIHUI_GEMMA4_E2B_JSON" "--reasoning-parser" "gemma4" "huihui-gemma4-e2b-abliterated keeps the Gemma reasoning parser"
-assert_flag_value "$HUIHUI_GEMMA4_E2B_JSON" "--max-model-len" "131072" "huihui-gemma4-e2b-abliterated keeps the checkpoint's native max model length"
-assert_flag_value "$HUIHUI_GEMMA4_E2B_JSON" "--max-num-batched-tokens" "8192" "huihui-gemma4-e2b-abliterated starts with the conservative batched token limit"
-assert_flag_value "$HUIHUI_GEMMA4_E2B_JSON" "--gpu-memory-utilization" "0.70" "huihui-gemma4-e2b-abliterated starts with the Gemma host-safe memory envelope"
-assert_flag_value "$HUIHUI_GEMMA4_E2B_JSON" "--load-format" "fastsafetensors" "huihui-gemma4-e2b-abliterated uses fastsafetensors loading"
-assert_flag_value "$HUIHUI_GEMMA4_E2B_JSON" "--kv-cache-dtype" "auto" "huihui-gemma4-e2b-abliterated keeps automatic KV-cache selection for the BF16 checkpoint"
-assert_command_lacks_flag "$HUIHUI_GEMMA4_E2B_JSON" "--quantization" "huihui-gemma4-e2b-abliterated does not force Gemma FP8 quantization flags onto the BF16 checkpoint"
-assert_flag_value "$HUIHUI_GEMMA4_E2B_JSON" "--tensor-parallel-size" "1" "huihui-gemma4-e2b-abliterated uses single-GPU tensor parallelism"
-assert_flag_value "$HUIHUI_GEMMA4_E2B_JSON" "--distributed-executor-backend" "ray" "huihui-gemma4-e2b-abliterated keeps the Gemma executor backend"
-assert_env_value "$HUIHUI_GEMMA4_E2B_JSON" "RAY_memory_usage_threshold" "0.99" "huihui-gemma4-e2b-abliterated raises Ray's host-memory kill threshold for Gemma startup spikes"
-
-assert_equals "$(jq -r '.image // ""' <<<"$GLM_47_JSON")" "local/vllm-glm-4.7-flash-awq:tf5" "glm-4.7-flash-awq uses local TF5 image"
-assert_equals "$(jq -r '.build.args.BASE_IMAGE // ""' <<<"$GLM_47_JSON")" "local/vllm-node-tf5:cu131" "glm-4.7-flash-awq build uses refreshed TF5 base"
-assert_flag_value "$GLM_47_JSON" "--tool-call-parser" "glm47" "glm-4.7-flash-awq keeps glm47 parser"
-assert_flag_value "$GLM_47_JSON" "--reasoning-parser" "glm45" "glm-4.7-flash-awq keeps reasoning parser"
-assert_flag_value "$GLM_47_JSON" "--max-model-len" "131072" "glm-4.7-flash-awq keeps validated long-context max model length"
-assert_flag_value "$GLM_47_JSON" "--max-num-batched-tokens" "2048" "glm-4.7-flash-awq keeps validated long-context batched token limit"
-assert_flag_value "$GLM_47_JSON" "--max-num-seqs" "5" "glm-4.7-flash-awq keeps validated five-user concurrency limit"
-assert_flag_value "$GLM_47_JSON" "--gpu-memory-utilization" "0.70" "glm-4.7-flash-awq keeps validated long-context memory envelope"
-assert_env_value "$GLM_47_JSON" "HF_HUB_DISABLE_XET" "1" "glm-4.7-flash-awq disables Xet in the local image path"
-
-assert_equals "$(jq -r '.image // ""' <<<"$NEMOTRON_SERVICE_JSON")" "$EXPECTED_STANDARD_IMAGE" "Nemotron fragment uses the selected standard-track image"
-assert_flag_value "$NEMOTRON_SERVICE_JSON" "--tool-call-parser" "qwen3_coder" "Nemotron fragment keeps local tool parser"
-assert_flag_value "$NEMOTRON_SERVICE_JSON" "--reasoning-parser-plugin" "/workspace/plugins/nano_v3_reasoning_parser.py" "Nemotron fragment keeps local reasoning parser plugin"
-assert_flag_value "$NEMOTRON_SERVICE_JSON" "--reasoning-parser" "nano_v3" "Nemotron fragment keeps local reasoning parser"
-assert_command_lacks_flag "$NEMOTRON_SERVICE_JSON" "--disable-log-requests" "Nemotron fragment avoids stale request log flag"
-assert_command_lacks_flag "$NEMOTRON_SERVICE_JSON" "--disable-log-stats" "Nemotron fragment avoids stale stats log flag"
-assert_env_value "$NEMOTRON_SERVICE_JSON" "VLLM_USE_FLASHINFER_MOE_FP4" "0" "Nemotron fragment keeps FP4 MoE override"
-assert_volume_mount "$NEMOTRON_SERVICE_JSON" "$REPO_DIR/plugins" "/workspace/plugins" "Nemotron fragment mounts local plugins read-only"
+# Every model lane: no egress, no capabilities, no setuid gain, Hugging Face offline from a
+# read-only ./models.
+UNHARDENED_LANES="$(jq -r '.services | to_entries[]
+  | select((.value.container_name // "") | startswith("vllm-"))
+  | select(.key | test("^(waker|request-validator|api-gateway)$") | not)
+  | select(((.value.cap_drop // []) | join(",")) != "ALL"
+      or ((.value.security_opt // []) | index("no-new-privileges:true")) == null
+      or ((.value.networks // {}) | keys | join(",")) != "vllm_internal"
+      or (.value.environment.HF_HUB_OFFLINE // "") != "1"
+      or (.value.environment.HF_HUB_CACHE // "") != "/models"
+      or ([.value.volumes[]? | select(.target == "/models") | .read_only] | first) != true)
+  | .value.container_name' "$ACTIVE_JSON" | tr '\n' ' ')"
+assert_equals "${UNHARDENED_LANES% }" "" "every model lane drops capabilities, sets no-new-privileges, has no egress and runs Hugging Face offline from a read-only ./models"
+# Caches hold code a lane runs; a shared writable mount would let one lane plant code in another.
+SHARED_WRITABLE_MOUNTS="$(jq -r '[.services | to_entries[]
+  | select((.value.container_name // "") | startswith("vllm-"))
+  | select(.key | test("^(waker|request-validator|api-gateway)$") | not)
+  | .value.container_name as $c
+  | (.value.volumes // [])[] | select(.type == "bind" and (.read_only // false) != true)
+  | {s: .source, c: $c}]
+  | group_by(.s) | map(select(length > 1) | "\(.[0].s) (\(map(.c) | join(",")))") | .[]' "$ACTIVE_JSON" | tr '\n' ' ')"
+assert_equals "${SHARED_WRITABLE_MOUNTS% }" "" "no two lanes share a writable mount"
+# Every lane resolves to Hugging Face snapshots that tools/download-weights.sh can fetch.
+UNRESOLVED_LANES=""
+for model_id in $(jq -r 'keys[]' "$MODELS_FILE"); do
+  if ! service_json="$(resolve_service_json "$ACTIVE_JSON" "$model_id" 2>/dev/null)" ||
+    ! service_weight_targets "$service_json" >/dev/null; then
+    UNRESOLVED_LANES+="$model_id "
+  fi
+done
+assert_equals "${UNRESOLVED_LANES% }" "" "every lane's weights resolve to Hugging Face snapshots for tools/download-weights.sh"
+# vLLM writes a lock file into --download-dir, and lanes cannot write to ./models.
+LANES_WITH_DOWNLOAD_DIR="$(jq -r '.services[]
+  | select((.command // []) | index("--download-dir") != null)
+  | .container_name' "$ACTIVE_JSON" | tr '\n' ' ')"
+assert_equals "${LANES_WITH_DOWNLOAD_DIR% }" "" "no lane passes --download-dir, so vLLM never writes into ./models"
+# With no default route vLLM detects its IP as 0.0.0.0 and Ray never places the worker.
+RAY_LANES_WITHOUT_HOST_IP="$(jq -r '.services | to_entries[]
+  | select((.value.command // []) | index(["ray"]) != null)
+  | select((.value.environment.VLLM_HOST_IP // "") == "")
+  | .value.container_name' "$ACTIVE_JSON" | tr '\n' ' ')"
+assert_equals "${RAY_LANES_WITHOUT_HOST_IP% }" "" "every Ray-executor lane pins VLLM_HOST_IP for the internal network"
 
 if [[ "$FAILURES" -ne 0 ]]; then
   echo

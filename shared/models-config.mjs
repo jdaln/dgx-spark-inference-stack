@@ -1,13 +1,26 @@
+// Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
 import { readFileSync } from "node:fs";
 
 const ALLOWED_TOOL_SUPPORT = new Set(["full", "force-required", "none"]);
 const ALLOWED_LIFECYCLE = new Set(["normal", "utility", "exclusive"]);
+// Serving engine. It decides whether the validator can leave an omitted max_tokens to the
+// engine (see BACKEND_OWNS_TOKEN_BUDGET in request-validator).
+const ALLOWED_BACKENDS = new Set(["vllm", "sglang", "llamacpp"]);
+
 const ALLOWED_VALIDATOR_PROFILES = new Set([
   "default",
   "small-no-tools",
   "coder-force-tools",
-  "vl"
+  "vl",
+  "llama-tools"
 ]);
+
+// How the validator rewrites thinking controls. thinkingDefault "off" forces thinking off
+// unless the client sets it. reasoningEffort "binary" maps reasoning_effort onto
+// enable_thinking; "graded" maps it onto the levels Qwen3.8 templates accept.
+const ALLOWED_THINKING_DEFAULTS = new Set(["template", "off"]);
+const ALLOWED_REASONING_EFFORT = new Set(["passthrough", "binary", "graded"]);
+const ALLOWED_REASONING_EFFORT_DEFAULTS = new Set(["none", "low", "medium", "high"]);
 
 function formatPath(filePath) {
   return filePath || "<inline-models-config>";
@@ -62,9 +75,15 @@ export function normalizeModelsConfig(raw, filePath) {
     const maxModelLen = value.maxModelLen;
     const toolSupport = value.toolSupport ?? "full";
     const validatorProfile = value.validatorProfile ?? "default";
+    const thinkingDefault = value.thinkingDefault ?? "template";
+    const reasoningEffort = value.reasoningEffort ?? "passthrough";
+    const reasoningEffortDefault = value.reasoningEffortDefault ?? null;
+    const backend = value.backend ?? "vllm";
     const lifecycle = value.lifecycle ?? "normal";
     const multimodal = value.multimodal ?? false;
     const normalizeTextContent = value.normalizeTextContent ?? false;
+    const speculativeDecoding = value.speculativeDecoding ?? false;
+    const reasoningNeedsSpecialTokens = value.reasoningNeedsSpecialTokens ?? false;
     const experimental = value.experimental ?? false;
     const sourceRecipe = value.sourceRecipe ?? null;
     const notes = value.notes ?? null;
@@ -73,10 +92,25 @@ export function normalizeModelsConfig(raw, filePath) {
     assertPositiveInteger(filePath, modelId, "maxModelLen", maxModelLen);
     assertEnum(filePath, modelId, "toolSupport", toolSupport, ALLOWED_TOOL_SUPPORT);
     assertEnum(filePath, modelId, "validatorProfile", validatorProfile, ALLOWED_VALIDATOR_PROFILES);
+    assertEnum(filePath, modelId, "thinkingDefault", thinkingDefault, ALLOWED_THINKING_DEFAULTS);
+    assertEnum(filePath, modelId, "reasoningEffort", reasoningEffort, ALLOWED_REASONING_EFFORT);
+    if (reasoningEffortDefault !== null) {
+      assertEnum(filePath, modelId, "reasoningEffortDefault", reasoningEffortDefault, ALLOWED_REASONING_EFFORT_DEFAULTS);
+      if (reasoningEffort !== "graded") {
+        fail(filePath, `model '${modelId}' sets reasoningEffortDefault but reasoningEffort is '${reasoningEffort}', not 'graded'`);
+      }
+    }
+    assertEnum(filePath, modelId, "backend", backend, ALLOWED_BACKENDS);
     assertEnum(filePath, modelId, "lifecycle", lifecycle, ALLOWED_LIFECYCLE);
 
     if (typeof multimodal !== "boolean") {
       fail(filePath, `model '${modelId}' has invalid multimodal '${multimodal}' (must be true or false)`);
+    }
+    if (typeof speculativeDecoding !== "boolean") {
+      fail(filePath, `model '${modelId}' has invalid speculativeDecoding '${speculativeDecoding}' (must be true or false)`);
+    }
+    if (typeof reasoningNeedsSpecialTokens !== "boolean") {
+      fail(filePath, `model '${modelId}' has invalid reasoningNeedsSpecialTokens '${reasoningNeedsSpecialTokens}' (must be true or false)`);
     }
     if (typeof normalizeTextContent !== "boolean") {
       fail(filePath, `model '${modelId}' has invalid normalizeTextContent '${normalizeTextContent}' (must be true or false)`);
@@ -107,9 +141,15 @@ export function normalizeModelsConfig(raw, filePath) {
       maxModelLen,
       toolSupport,
       validatorProfile,
+      thinkingDefault,
+      reasoningEffort,
+      reasoningEffortDefault,
+      backend,
       lifecycle,
       multimodal,
       normalizeTextContent,
+      speculativeDecoding,
+      reasoningNeedsSpecialTokens,
       experimental,
       sourceRecipe,
       notes,

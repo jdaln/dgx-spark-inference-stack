@@ -1,146 +1,185 @@
-# DGX Spark Inference Stack - Hãy để nó thật sự phục vụ ngôi nhà của bạn!
+# DGX Spark Inference Stack
 
-🌍 **Đọc bằng các ngôn ngữ khác**:
+🌍 **Đọc bản này bằng ngôn ngữ khác**:
 [Deutsch](README_DE.md) | [Español](README_ES.md) | [Français](README_FR.md) | [Italiano](README_IT.md) | [日本語](README_JA.md) | [简体中文](README_ZH_CN.md) | [繁體中文](README_ZH_TW.md) | [Русский](README_RU.md) | [Українська](README_UK.md) | [Português](README_PT.md) | [한국어](README_KO.md) | [العربية](README_AR.md) | [Tiếng Việt](README_VI.md) | [Türkçe](README_TR.md)
 
-> **Ghi chú dịch bằng AI:** Tệp này được AI dịch từ [README.md](README.md). Nội dung có thể còn lỗi hoặc chậm cập nhật hơn bản tiếng Anh. Nếu có điểm nào không chắc chắn, hãy ưu tiên README tiếng Anh.
+> Tệp này do AI dịch từ [README.md](README.md). Khi có khác biệt, bản tiếng Anh là bản chuẩn.
 
-Nvidia DGX Spark của bạn không nên chỉ là một dự án phụ nữa. Hãy dùng nó thật sự. Đây là một stack suy luận dựa trên Docker để phục vụ các mô hình ngôn ngữ lớn (LLM) bằng NVIDIA vLLM cùng cơ chế quản lý tài nguyên thông minh. Stack này cung cấp khả năng nạp mô hình theo nhu cầu với tự động tắt khi rảnh, một làn lập lịch duy nhất cho mô hình chính cùng một helper tiện ích tùy chọn, và một cổng API hợp nhất.
+Phục vụ LLM từ một NVIDIA DGX Spark qua API tương thích OpenAI. Một mô hình khởi động ở yêu
+cầu đầu tiên gửi tới nó, dùng GPU một mình và dừng sau 20 phút không dùng. Một mô hình tiện
+ích nhỏ có thể được giữ nạp bên cạnh cho việc nhẹ như đặt tiêu đề phiên.
 
-Mục tiêu của dự án là cung cấp một máy chủ suy luận cho môi trường gia đình. Sau khi thử nghiệm trong một tháng và bổ sung thêm mô hình mới, tôi quyết định phát hành nó cho cộng đồng. Xin lưu ý đây là một dự án hobby, vì vậy mọi hỗ trợ cụ thể để cải thiện nó đều rất đáng quý. Nó được xây dựng dựa trên thông tin tôi tìm thấy trên Internet và trên các diễn đàn NVIDIA. Tôi thật sự hy vọng nó sẽ giúp đẩy các homelab đi xa hơn. Trọng tâm chính là một DGX Spark đơn lẻ và mặc định phải hoạt động tốt trên cấu hình đó, nhưng hỗ trợ cho 2 máy cũng rất được hoan nghênh.
+Đây là dự án cá nhân cho một DGX Spark. Cấu hình hai nút chưa được kiểm thử.
+
+## Cách hoạt động
+
+Một gateway nginx ở cổng `8009` nhận mọi yêu cầu. Bộ kiểm tra yêu cầu xác minh khóa API,
+chuẩn hóa phần thân và nhờ dịch vụ waker khởi động mô hình được yêu cầu. Waker khởi động
+container của mô hình và chờ đến khi nó khỏe. Nếu một mô hình chính khác đang giữ GPU, máy
+khách nhận HTTP 429 kèm các header cho biết mô hình nào đang giữ và khi nào GPU rảnh.
+Chi tiết: [docs/architecture.md](docs/architecture.md).
+
+## Yêu cầu
+
+- NVIDIA DGX Spark (GB10). Đã thử trên DGX OS 7 (Ubuntu 24.04).
+- Docker với Compose v2.20 trở lên và NVIDIA Container Toolkit.
+- `jq`, `curl` và Node.js 20 trở lên cho các script trong `tools/`.
+- Tài khoản NVIDIA NGC cho các image nền. Đăng ký tại
+  [NGC Catalog](https://catalog.ngc.nvidia.com/), sau đó chạy `docker login nvcr.io`.
+  NGC không khả dụng ở các quốc gia bị cấm vận.
+- Dung lượng đĩa cho trọng số trong `./models`: khoảng 2 GB đến 80 GB mỗi mô hình.
+- Chỉ cho `qwen3.8-flash-next-nvfp4`: io_uring được bật trên máy chủ
+  (`cat /proc/sys/kernel/io_uring_disabled` in ra `0`). Container của mô hình chạy với một
+  profile seccomp cho phép io_uring. Hãy cập nhật kernel thường xuyên: io_uring là nguồn
+  lỗ hổng kernel phổ biến. Xem [docs/security.md](docs/security.md#seccomp).
+
+## Cài đặt
+
+### 1. Clone kho mã và tạo các thư mục chạy
+
+```bash
+git clone <repository-url>
+cd dgx-spark-inference-stack
+mkdir -p models manual_download/openai_gpt-oss-encodings_fix
+```
+
+### 2. Tải các tệp tokenizer của GPT-OSS
+
+Bản build image GPT-OSS sao chép các tệp này vào và thất bại nếu thiếu chúng.
+
+```bash
+wget https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken \
+  -O manual_download/openai_gpt-oss-encodings_fix/cl100k_base.tiktoken
+wget https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken \
+  -O manual_download/openai_gpt-oss-encodings_fix/o200k_base.tiktoken
+```
+
+### 3. Build một image chạy
+
+Các mô hình chạy trên ba image. Một mô hình chỉ khởi động nếu image của nó đã được build cục
+bộ. Image GPT-OSS chỉ cần một lệnh và mất khoảng 20 phút:
+
+```bash
+docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dockerfile .
+```
+
+Mô hình mặc định `qwen3.8-27b-nvfp4-dflash2` và mô hình tiện ích cần `vllm-node-dflash2`;
+các mô hình Gemma và `qwen3.8-flash-next-nvfp4` cần `vllm-node-b12x`. Cách build cả hai nằm
+trong [docs/runtime-baseline.md](docs/runtime-baseline.md).
+
+### 4. Tải trọng số
+
+Container mô hình không có truy cập internet. Tải trọng số của mỗi mô hình trước yêu cầu đầu
+tiên tới nó. `--list` cho thấy từng mô hình, trọng số đã có chưa và image đã build chưa.
+Đặt `HF_TOKEN` cho các kho bị giới hạn truy cập.
+
+```bash
+bash tools/download-weights.sh --list
+bash tools/download-weights.sh gpt-oss-20b
+```
+
+### 5. Khởi động stack
+
+```bash
+# Gateway, validator and waker. Models stay down until requested.
+docker compose up -d
+
+# Create the containers of the models you built and downloaded, without starting them.
+docker compose --profile models up --no-start --no-build vllm-oss20b
+```
+
+Tên service là các giá trị `container` trong [models.json](models.json). Khi đã build đủ ba
+image, bỏ tên service để tạo container cho mọi mô hình.
+
+## Yêu cầu đầu tiên
+
+Gateway chỉ lắng nghe trên `127.0.0.1:8009`. Để truy cập từ xa, chuyển tiếp cổng qua SSH:
+xem [docs/security.md](docs/security.md#remote-access).
+
+```bash
+curl -X POST http://localhost:8009/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}" \
+  -d '{"model": "gpt-oss-20b", "messages": [{"role": "user", "content": "Hello!"}]}'
+```
+
+Yêu cầu đầu tiên khởi động mô hình và có thể mất vài phút. Trước khi chuyển tiếp cổng sang
+máy khác, đặt `VLLM_API_KEY` của riêng bạn trong tệp `.env` ở thư mục gốc của kho rồi chạy
+lại cả hai lệnh ở bước 5.
+
+Kiểm tra trò chuyện, streaming và gọi công cụ của một mô hình qua gateway:
+
+```bash
+bash tools/test-lane.sh gpt-oss-20b
+```
+
+## Mô hình
+
+| Mô hình | Vai trò | Ngữ cảnh | Image |
+|---|---|---:|---|
+| `qwen3.8-27b-nvfp4-dflash2` | mặc định, bật suy luận | 262144 | `vllm-node-dflash2` |
+| `qwen3.8-flash-next-nvfp4` | câu hỏi khó nhất, dùng GPU một mình | 262144 | `vllm-node-b12x` |
+| `gemma4-26b-a4b` | trò chuyện đa ngôn ngữ, hình ảnh | 262144 | `vllm-node-b12x` |
+| `gpt-oss-20b` | nhanh, nhỏ hơn | 131072 | `vllm-node-mxfp4` |
+| `lfm2.5-1.2b` | tiện ích, luôn được nạp | 32768 | `vllm-node-dflash2` |
+
+[docs/models.md](docs/models.md) liệt kê cả 10 mô hình và giới hạn của chúng.
 
 ## Tài liệu
 
-- **[Kiến trúc và cách hoạt động](docs/architecture.md)** - Hiểu stack, dịch vụ waker và luồng request.
-- **[Cấu hình](docs/configuration.md)** - Biến môi trường, thiết lập mạng và tinh chỉnh waker.
-- **[Hướng dẫn chọn mô hình](docs/models.md)** - Danh mục mô hình hiện tại, bộ chọn nhanh và trạng thái xác thực.
-- **[Tích hợp](docs/integrations.md)** - Hướng dẫn cho **Cline** (VS Code) và **OpenCode** (tác tử terminal).
-- **[Bảo mật và truy cập từ xa](docs/security.md)** - Gia cố SSH và thiết lập port forwarding có giới hạn.
-- **[Khắc phục sự cố và giám sát](docs/troubleshooting.md)** - Gỡ lỗi, log và cách xử lý lỗi phổ biến.
-- **[Sử dụng nâng cao](docs/advanced.md)** - Thêm mô hình mới, cấu hình tùy chỉnh và vận hành liên tục.
-- **[Baseline runtime](docs/runtime-baseline.md)** - Những image track cục bộ mà repo kỳ vọng và cách build lại chúng.
-- **[Công cụ và bộ harness kiểm thử](tools/README.md)** - Các script smoke, soak, inspection và probe thủ công được hỗ trợ.
-- **[Ghi chú TODO](TODO.md)** - Những ý tưởng tôi muốn làm tiếp theo.
-
-## Bắt đầu nhanh
-
-1. **Clone repository**
-   ```bash
-   git clone <repository-url>
-   cd dgx-spark-inference-stack
-   ```
-
-2. **Tạo các thư mục cần thiết**
-   ```bash
-   mkdir -p models vllm_cache_huggingface manual_download/openai_gpt-oss-encodings_fix
-   ```
-
-3. **Tải tokenizer cần thiết (RẤT QUAN TRỌNG)**
-   Stack này yêu cầu tải thủ công các tệp `tiktoken` cho các mô hình GPT-OSS.
-   ```bash
-   wget https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken -O manual_download/openai_gpt-oss-encodings_fix/cl100k_base.tiktoken
-   wget https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken -O manual_download/openai_gpt-oss-encodings_fix/o200k_base.tiktoken
-   ```
-
-4. **Build các image Docker tùy chỉnh (BẮT BUỘC)**
-   Stack dùng các image vLLM tối ưu hóa và nên được build cục bộ để đảm bảo hiệu năng tối đa.
-   *   **Thời gian:** Hãy dự trù khoảng 20 phút cho mỗi image.
-   *   **Xác thực:** Bạn phải đăng nhập NVIDIA NGC để pull các image nền.
-       1.  Tạo tài khoản nhà phát triển tại [NVIDIA NGC Catalog](https://catalog.ngc.nvidia.com/) (không được ở quốc gia bị cấm vận).
-       2.  Chạy `docker login nvcr.io` bằng thông tin đăng nhập của bạn.
-      **Lệnh build:**
-      ```bash
-      # Build Avarok image (General Purpose) - MUST use this tag to use local version over upstream.
-      # Build from the repo root so the manually downloaded tokenizer files are included.
-      docker build -t avarok/vllm-dgx-spark:v11 -f custom-docker-containers/avarok/Dockerfile .
-
-      # If you want compose services that default to the pinned upstream Avarok image
-      # to use your local rebuild instead, export this override for the current shell
-      # or place it in .env before running docker compose.
-      export VLLM_TRACK_AVAROK=avarok/vllm-dgx-spark:v11
-
-      # Build the repo MXFP4 track used by GPT-OSS.
-      # This bakes the manually downloaded tiktoken files into the image.
-      docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dockerfile .
-
-      # Build the refreshed TF5 track used by GLM 4.7.
-      docker build -t local/vllm-node-tf5:cu131 -f custom-docker-containers/vllm-node-tf5/Dockerfile .
-
-      # Build the upstream-style TF5 track used by Gemma 4 and newer TF5 recipe imports.
-      # The active Gemma compose services expect this exact local image tag.
-      git clone https://github.com/eugr/spark-vllm-docker tmp/spark-vllm-docker 2>/dev/null || git -C tmp/spark-vllm-docker pull --ff-only
-      (cd tmp/spark-vllm-docker && bash build-and-copy.sh --pre-tf)
-      ```
-   *   **Lưu ý:** `vllm-node-tf5` hiện không được build từ Dockerfile nội bộ của repo. Nếu bạn định chạy Gemma 4 hoặc các nhánh Qwen TF5 mới hơn, hãy build nó một cách tường minh bằng luồng upstream helper ở trên. Xem [docs/runtime-baseline.md](docs/runtime-baseline.md) để biết đúng các bước tái tạo và yêu cầu mạng khi build.
-
-5. **Khởi động stack**
-   ```bash
-   # Start gateway and waker only (models start on-demand)
-   docker compose up -d
-
-   # Pre-create all enabled model containers once the required local track images exist
-   docker compose --profile models up --no-start
-   ```
-
-6. **Kiểm tra API**
-   ```bash
-    # Request to the shipped utility helper
-    curl -X POST http://localhost:8009/v1/chat/completions\
-     -H "Content-Type: application/json" \
-     -H "Authorization: Bearer ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}" \
-     -d '{
-          "model": "qwen3.5-0.8b",
-       "messages": [{"role": "user", "content": "Xin chào!"}]
-     }'
-   ```
-
-7. **Sử dụng bộ harness xác thực được hỗ trợ**
-   Sau khi lệnh `curl` thủ công đầu tiên thành công, hãy chuyển sang luồng bring-up do repo duy trì thay vì dùng các script tạm thời:
-   ```bash
-   bash tools/validate-stack.sh
-   bash tools/smoke-gateway.sh
-   ```
-   Với các lệnh bring-up, smoke, soak và probe thủ công theo từng mô hình, hãy xem [tools/README.md](tools/README.md).
-
-## Nếu bạn là người mới, hãy bắt đầu từ đây
-
-- Đọc [docs/architecture.md](docs/architecture.md), rồi tới [tools/README.md](tools/README.md).
-- Xem [tools/README.md](tools/README.md) cùng với [models.json](models.json) là nguồn sự thật vận hành hiện tại.
-- Xem README này là điểm vào ngắn gọn, không phải danh mục mô hình đầy đủ. Hãy dùng [docs/models.md](docs/models.md) cho danh mục rộng hơn.
-
-## Điều kiện tiên quyết
-- Docker 20.10+ cùng Docker Compose
-- GPU NVIDIA hỗ trợ CUDA và NVIDIA Container Toolkit
-- Máy Linux (đã thử nghiệm trên Ubuntu)
+- [Kiến trúc](docs/architecture.md): thành phần, luồng yêu cầu, endpoint, vòng đời.
+- [Cấu hình](docs/configuration.md): biến môi trường và các trường của `models.json`.
+- [Mô hình](docs/models.md): danh mục và ràng buộc của từng mô hình.
+- [Nền tảng runtime](docs/runtime-baseline.md): ba image và cách build chúng.
+- [Tích hợp](docs/integrations.md): Cline, OpenCode và pi.
+- [Bảo mật](docs/security.md): gia cố container, seccomp, truy cập từ xa qua SSH.
+- [Xử lý sự cố](docs/troubleshooting.md): lỗi thường gặp và cách xử lý.
+- [Sử dụng nâng cao](docs/advanced.md): thêm mô hình, chính sách lập lịch, keep-alive.
+- [Hợp đồng lỗi](docs/error-contract.md): định dạng lỗi và mã lỗi.
+- [Chạy cùng ComfyUI](docs/comfyui-coexistence.md): dùng chung GPU với ComfyUI.
+- [Công cụ](tools/README.md): script kiểm tra, smoke, soak và benchmark.
 
 ## Đóng góp
 
-Pull request luôn được hoan nghênh. :)
-Tuy vậy, để giữ ổn định, tôi áp dụng **mẫu Pull Request nghiêm ngặt**.
+Hoan nghênh pull request. Hãy điền mẫu pull request. Đóng góp được chấp nhận theo
+AGPL-3.0-or-later.
 
-## Trạng thái hiện tại
+Renovate cập nhật hằng tháng digest của các image Docker nền và pin của GitHub Actions. Để
+nhận bản cập nhật sớm hơn, hãy duyệt nó trong issue Renovate Dependency Dashboard.
 
-README này hiện chỉ nêu bật các đường chạy mặc định đang được khuyến nghị của stack.
+## Ghi nhận
 
-- **Mô hình chính đã được xác thực:** `gpt-oss-20b`, `gpt-oss-120b` và `glm-4.7-flash-awq`
-- **Helper tiện ích đã được xác thực:** `qwen3.5-0.8b` cho tiêu đề và metadata phiên
-- **Mọi thứ còn lại:** Có trong repo, nhưng chưa phải lựa chọn mặc định của README này cho tới khi được xác thực lại bằng harness hiện tại
-
-Để xem danh mục mô hình rộng hơn, các đường chạy thử nghiệm và các trường hợp thủ công, hãy dùng [docs/models.md](docs/models.md) và [models.json](models.json).
-
-Để xem các lưu ý phía client, đặc điểm runtime và ghi chú troubleshooting, hãy dùng [docs/integrations.md](docs/integrations.md) và [docs/troubleshooting.md](docs/troubleshooting.md).
-
-## Ghi công
-
-Xin cảm ơn đặc biệt tới các thành viên cộng đồng mà những Docker image và công thức của họ đã góp phần định hình stack này:
-
-- **Thomas P. Braun từ Avarok**: Vì image vLLM đa dụng (`avarok/vllm-dgx-spark`) hỗ trợ non-gated activations (Nemotron), các mô hình hybrid và những bài viết như https://blog.avarok.net/dgx-spark-nemotron3-and-nvfp4-getting-to-65-tps-8c5569025eb6.
-- **Christopher Owen**: Vì image vLLM tối ưu cho MXFP4 (`christopherowen/vllm-dgx-spark`) giúp inference hiệu năng cao trên DGX Spark.
-- **eugr**: Vì kho cộng đồng vLLM cho DGX Spark ban đầu (`eugr/spark-vllm-docker`), các tùy biến của nó và những bài đăng rất hay trên diễn đàn NVIDIA.
-- **Patrick Yi / scitrera.ai**: Vì công thức utility-model SGLang đã góp phần định hình đường chạy helper `qwen3.5-0.8b` cục bộ.
-- **Raphael Amorim**: Vì hình thái công thức AutoRound của cộng đồng đã định hình đường chạy cục bộ thử nghiệm `qwen3.5-122b-a10b-int4-autoround`.
-- **Bjarke Bolding**: Vì hình thái công thức AutoRound cho ngữ cảnh dài đã định hình đường chạy cục bộ thử nghiệm `qwen3-coder-next-int4-autoround`.
+- **Christopher Owen**: fork MXFP4 của vLLM mà image GPT-OSS được build từ đó.
+- **eugr**: [`eugr/spark-vllm-docker`](https://github.com/eugr/spark-vllm-docker), nơi build
+  các image DFlash2 và B12X.
+- **[local-inference-lab](https://github.com/local-inference-lab)**: các fork của vLLM và FlashInfer có kernel cho GB10, nơi image
+  B12X được build từ đó, cùng checkpoint `qwen3.8-flash-next-nvfp4`.
+- **[z-lab](https://huggingface.co/z-lab)**: các mô hình nháp DFlash cho các mô hình Qwen3.8 27B và Gemma 4.
 
 ## Giấy phép
 
-Dự án này được cấp phép theo **Apache License 2.0**. Xem [LICENSE](LICENSE) để biết chi tiết.
+AGPL-3.0-or-later. Xem [LICENSE](LICENSE). Được phép dùng cho mục đích thương mại. Nếu bạn
+phân phối một phiên bản đã sửa đổi hoặc chạy nó như một dịch vụ mạng, bạn phải cung cấp mã
+nguồn của nó theo cùng giấy phép.
+
+Điều khoản bổ sung theo mục 7(b) của AGPL: mọi bản sao và mọi phiên bản sửa đổi phải giữ
+thông báo ghi nguồn trong [NOTICE](NOTICE).
+
+Nếu bạn fork hoặc sửa đổi dự án này, hãy công bố các thay đổi trên GitHub và thông báo chúng
+qua [thông báo fork hoặc sửa đổi](https://github.com/jdaln/dgx-spark-inference-stack/issues/new?template=fork-announcement.yml). Dự án đề nghị mọi người làm việc này,
+dù có dùng thương mại hay không. Các tác tử lập trình bắt buộc phải làm: xem
+[AGENTS.md](AGENTS.md).
+
+Các tệp sau giữ giấy phép riêng ([LICENSES/](LICENSES/)):
+
+- `custom-docker-containers/vllm-node-mxfp4/Dockerfile`,
+  `custom-docker-containers/vllm-node-b12x/b12x-build.patch`,
+  `custom-docker-containers/vllm-node-dflash2/vendor-tiktoken.patch`: MIT
+  (eugr/spark-vllm-docker).
+- `custom-docker-containers/vllm-node-mxfp4/fastsafetensors_mxfp4.patch`,
+  `shared/tool_chat_template_gemma4.jinja`: Apache-2.0 (vLLM).
+- `custom-docker-containers/vllm-node-b12x/seccomp-io-uring.json`: Apache-2.0 (moby/profiles).
+- `shared/gemma4-*-nvfp4-config/`: giấy phép mô hình của NVIDIA cho các checkpoint đó.
+
+Các phiên bản công bố trước 2026-10-11 được phát hành theo Apache-2.0 và vẫn dùng được theo
+giấy phép đó.

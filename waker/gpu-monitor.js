@@ -1,4 +1,5 @@
-// gpu-monitor.js - GPU memory usage tracker
+// Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
+// Records memory use per main-model session to a CSV file, served by /debug/gpu-stats.
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
@@ -9,7 +10,6 @@ const execAsync = promisify(exec);
 const STATS_FILE = process.env.STATS_FILE || '/stats/gpu_memory_stats.csv';
 const MONITOR_INTERVAL_MS = Number(process.env.MONITOR_INTERVAL_MS || 5000);
 
-// Ensure stats directory exists
 async function ensureStatsDir() {
   const dir = path.dirname(STATS_FILE);
   try {
@@ -19,12 +19,11 @@ async function ensureStatsDir() {
   }
 }
 
-// On DGX Spark, shared GPU memory pressure is reflected in system RAM usage.
-// Sample `free -m` instead of relying on discrete VRAM counters.
+// GPU and system RAM are one pool on DGX Spark, so `free -m` measures GPU memory use.
 async function getGPUMemory() {
   try {
     const { stdout } = await execAsync('free -m');
-    // Parse output: second line, second column is used memory in MB.
+    // Second line, second column: used MB.
     const lines = stdout.trim().split('\n');
     const memLine = lines[1]; // Mem: line
     const values = memLine.split(/\s+/);
@@ -37,22 +36,16 @@ async function getGPUMemory() {
   }
 }
 
-// Get running container and its model
-async function getRunningModel(dockerode) {
+// The running main model, judged by the waker's own predicate so the always-on utility
+// helper is never credited with the main lane's memory.
+async function getRunningModel(dockerode, isMainModel) {
   try {
     const containers = await dockerode.listContainers({ all: false });
-    const vllmContainers = containers.filter(c =>
-      c.Names.some(n =>
-        n.includes('vllm-') &&
-        !n.includes('vllm-waker') &&
-        !n.includes('vllm-gateway') &&
-        !n.includes('vllm-request-validator')
-      )
-    );
-
-    if (vllmContainers.length > 0) {
-      const name = vllmContainers[0].Names[0].replace(/^\//, '');
-      return name;
+    for (const container of containers) {
+      for (const raw of container.Names || []) {
+        const name = raw.replace(/^\//, '');
+        if (isMainModel(name, container)) return name;
+      }
     }
   } catch (err) {
     console.error('[gpu-monitor] Error listing containers:', err.message);
@@ -60,14 +53,12 @@ async function getRunningModel(dockerode) {
   return null;
 }
 
-// Session tracking
-const sessions = new Map(); // model -> { start, samples: [], min, max, sum, count }
+const sessions = new Map(); // model -> { start, min, max, sum, count }
 
 function startSession(model) {
   if (!sessions.has(model)) {
     sessions.set(model, {
       start: Date.now(),
-      samples: [],
       min: Infinity,
       max: 0,
       sum: 0,
@@ -81,7 +72,6 @@ function addSample(model, memoryMB) {
   const session = sessions.get(model);
   if (!session) return;
 
-  session.samples.push(memoryMB);
   session.min = Math.min(session.min, memoryMB);
   session.max = Math.max(session.max, memoryMB);
   session.sum += memoryMB;
@@ -99,7 +89,6 @@ async function endSession(model) {
   const duration = Date.now() - session.start;
   const minMB = session.min === Infinity ? 0 : session.min;
 
-  // Write to CSV
   await appendStats({
     timestamp: new Date(session.start).toISOString(),
     model,
@@ -117,7 +106,6 @@ async function endSession(model) {
 async function appendStats(stats) {
   await ensureStatsDir();
 
-  // Check if file exists to write header
   let needsHeader = false;
   try {
     await fs.access(STATS_FILE);
@@ -134,20 +122,18 @@ async function appendStats(stats) {
   await fs.appendFile(STATS_FILE, csvLine + row);
 }
 
-// Main monitoring loop
-export async function startMonitoring(dockerode) {
+export async function startMonitoring(dockerode, { isMainModel }) {
   console.log(`[gpu-monitor] Starting GPU memory monitoring (interval: ${MONITOR_INTERVAL_MS}ms)`);
   console.log(`[gpu-monitor] Stats file: ${STATS_FILE}`);
 
   let lastModel = null;
 
   setInterval(async () => {
-    const currentModel = await getRunningModel(dockerode);
+    const currentModel = await getRunningModel(dockerode, isMainModel);
     const gpuMem = await getGPUMemory();
 
     if (!gpuMem) return;
 
-    // Model changed
     if (currentModel !== lastModel) {
       if (lastModel) {
         await endSession(lastModel);
@@ -158,14 +144,12 @@ export async function startMonitoring(dockerode) {
       lastModel = currentModel;
     }
 
-    // Add sample if model is running
     if (currentModel && sessions.has(currentModel)) {
       addSample(currentModel, gpuMem.used);
     }
   }, MONITOR_INTERVAL_MS);
 }
 
-// Read stats for a model
 export async function getModelStats(model) {
   try {
     const content = await fs.readFile(STATS_FILE, 'utf-8');
@@ -181,7 +165,6 @@ export async function getModelStats(model) {
 
     if (modelStats.length === 0) return null;
 
-    // Aggregate all sessions
     const mins = modelStats.map(s => parseInt(s.min_mb || 0)).filter(v => v > 0);
     const maxs = modelStats.map(s => parseInt(s.max_mb || 0)).filter(v => v > 0);
     const means = modelStats.map(s => parseInt(s.mean_mb || 0)).filter(v => v > 0);
@@ -202,7 +185,6 @@ export async function getModelStats(model) {
   }
 }
 
-// Get all stats
 export async function getAllStats() {
   try {
     const content = await fs.readFile(STATS_FILE, 'utf-8');
@@ -215,7 +197,6 @@ export async function getAllStats() {
       return Object.fromEntries(header.map((h, i) => [h, values[i]]));
     });
 
-    // Group by model
     const byModel = {};
     for (const row of rows) {
       if (!byModel[row.model]) {
@@ -224,7 +205,6 @@ export async function getAllStats() {
       byModel[row.model].push(row);
     }
 
-    // Aggregate per model
     const result = {};
     for (const [model, sessions] of Object.entries(byModel)) {
       const mins = sessions.map(s => parseInt(s.min_mb || 0)).filter(v => v > 0);

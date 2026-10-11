@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
 
 set -euo pipefail
 shopt -s nullglob globstar

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
 
 import { readFileSync } from "node:fs";
 
@@ -100,6 +101,13 @@ function makeResult(entry, explicitModelId = null) {
     servedModelName: entry.servedModelName,
     image: entry.service.image ?? null,
     build: entry.service.build ?? null,
+    ipc: entry.service.ipc ?? null,
+    shm_size: entry.service.shm_size ?? null,
+    privileged: entry.service.privileged ?? false,
+    security_opt: entry.service.security_opt ?? [],
+    cap_drop: entry.service.cap_drop ?? [],
+    cap_add: entry.service.cap_add ?? [],
+    networks: Object.keys(entry.service.networks ?? {}),
     command: entry.command,
     commandLine: entry.command.map(quoteShell).join(" "),
     environment: entry.environment,

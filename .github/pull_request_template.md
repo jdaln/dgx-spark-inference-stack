@@ -1,26 +1,17 @@
-# Pull Request
+## Change
 
-## Type of Change
-- [ ] 🤖 New Model / Model Update
-- [ ] 🐛 Bug Fix
-- [ ] ✨ New Feature
-- [ ] 📚 Documentation Update
-- [ ] 🛡️ Security Fix
+What changes and why. Link the issue if there is one.
 
-## Description
-Please include a summary of the change and which issue is fixed.
+## Checks
 
-## Validation & Testing Criteria (CRITICAL)
+- [ ] `bash tools/validate-stack.sh` and `bash tools/check-models.sh` pass.
+- [ ] Validator or waker changes: their tests pass (see `skills/stack-checks/SKILL.md`).
 
-**If adding or modifying a model, you must check the following:**
+For a new or changed model:
 
-- [ ] **Tool Calling Verification**: I have verified that the model correctly handles tool calls (if enabled) and does not output raw XML/JSON thinking tokens to the user unexpectedly.
-- [ ] **Hardware Compatibility**: I have tested this on the target hardware (DGX Spark / GB10) and confirmed it does not OOM or crash vLLM.
-- [ ] **Production Proven**: I have run this specific configuration in a production-like environment for **at least a few days** without stability issues.
-- [ ] **No-Log Compliance**: I have verified that any new container or service adheres to the strict "No-Log Policy" (disabled request logging).
-
-## Checklist
-- [ ] My code follows the style guidelines of this project.
-- [ ] I have performed a self-review of my own code.
-- [ ] I have commented my code, particularly in hard-to-understand areas.
-- [ ] I have made corresponding changes to the documentation.
+- [ ] Tested on a DGX Spark (GB10): the model starts and does not run out of memory.
+- [ ] `bash tools/test-lane.sh <model-id>` passes through the gateway, tool calls included
+      if the model claims them.
+- [ ] Context soak with `tools/soak-context.mjs`; the result is in the model's `notes`.
+- [ ] Request, access and stats logs are off in the compose service.
+- [ ] `docs/models.md` is updated.

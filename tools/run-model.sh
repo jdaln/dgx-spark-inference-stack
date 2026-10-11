@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
 
 set -euo pipefail
 
@@ -58,6 +59,13 @@ SERVICE_JSON="$(resolve_service_json "$COMPOSE_JSON" "$TARGET")"
 MODEL_ID="$(jq -r '.modelId // ""' <<<"$SERVICE_JSON")"
 SERVICE_NAME="$(jq -r '.serviceName' <<<"$SERVICE_JSON")"
 CONTAINER_NAME="$(jq -r '.containerName' <<<"$SERVICE_JSON")"
+
+# Lanes run offline, so a missing snapshot would only surface as a start failure.
+if ! model_weights_present "$SERVICE_JSON"; then
+  echo "No complete snapshot for $TARGET in ./models (lanes run offline). Download it first:" >&2
+  echo "  bash tools/download-weights.sh ${MODEL_ID:-$TARGET}" >&2
+  exit 1
+fi
 MODEL_LIFECYCLE=""
 UTILITY_CONTAINER=""
 
@@ -127,7 +135,8 @@ if [[ "$BUILD_ENABLED" -eq 1 ]]; then
 fi
 COMPOSE_ARGS+=("$SERVICE_NAME")
 
-"${COMPOSE_ARGS[@]}"
+# From the repo root: Docker resolves seccomp profile paths against the working directory.
+(cd "$REPO_DIR" && "${COMPOSE_ARGS[@]}")
 
 wait_for_container_health "$CONTAINER_NAME" "$TIMEOUT_SECONDS"
 

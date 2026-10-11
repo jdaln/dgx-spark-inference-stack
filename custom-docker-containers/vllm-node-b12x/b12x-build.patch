@@ -1,0 +1,72 @@
+diff --git a/Dockerfile b/Dockerfile
+index 6cbd633..12e7b2e 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -275,11 +275,10 @@ ENV PROTOC_INCLUDE=/usr/include
+ 
+ RUN apt update && \
+     apt install -y --no-install-recommends ca-certificates pkg-config protobuf-compiler libprotobuf-dev && \
+-    rm -rf /var/lib/apt/lists/* && \
+-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+-      sh -s -- -y --profile minimal --default-toolchain ${RUSTUP_TOOLCHAIN} --no-modify-path && \
+-    rustc --version && \
+-    cargo --version
++    rm -rf /var/lib/apt/lists/*
++# No Rust toolchain: static.rust-lang.org is unreachable from this build network. The
++# fork builds its Rust frontend and PyO3 tool parser only when VLLM_REQUIRE_RUST_FRONTEND
++# is set, and the lanes here use neither.
+ 
+ ARG TORCH_CUDA_ARCH_LIST="12.1a"
+ ENV TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST}
+@@ -696,7 +695,7 @@ RUN --mount=type=cache,id=ccache,target=/root/.ccache \
+     --mount=type=cache,id=cargo-registry,target=/opt/cargo/registry \
+     --mount=type=cache,id=cargo-git,target=/opt/cargo/git \
+     --mount=type=cache,id=vllm-rust-target,target=/workspace/vllm/vllm/target \
+-    VLLM_REQUIRE_RUST_FRONTEND=1 CARGO_BUILD_JOBS=${MAX_JOBS} \
++    VLLM_REQUIRE_RUST_FRONTEND=0 CARGO_BUILD_JOBS=${MAX_JOBS} \
+     uv build --no-build-isolation --wheel . --out-dir=/workspace/wheels -v
+ 
+ # Keep this optional example with the selected source build for the runner.
+@@ -766,10 +765,8 @@ RUN --mount=type=bind,from=base,source=/workspace/vllm/nccl/build/pkg/deb,target
+ # Set final working directory
+ WORKDIR $VLLM_BASE_DIR
+ 
+-# Download Tiktoken files
+-RUN mkdir -p tiktoken_encodings && \
+-    wget -O tiktoken_encodings/o200k_base.tiktoken "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken" && \
+-    wget -O tiktoken_encodings/cl100k_base.tiktoken "https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken"
++# Use vendored Tiktoken files so the build does not depend on external fetches.
++COPY tiktoken_encodings ./tiktoken_encodings
+ 
+ ARG PRE_TRANSFORMERS=0
+ 
+diff --git a/Dockerfile.mxfp4 b/Dockerfile.mxfp4
+index afb61e1..ac53548 100644
+--- a/Dockerfile.mxfp4
++++ b/Dockerfile.mxfp4
+@@ -252,10 +252,8 @@ RUN apt update && \
+ # Set final working directory
+ WORKDIR $VLLM_BASE_DIR
+ 
+-# Download Tiktoken files
+-RUN mkdir -p tiktoken_encodings && \
+-    wget -O tiktoken_encodings/o200k_base.tiktoken "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken" && \
+-    wget -O tiktoken_encodings/cl100k_base.tiktoken "https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken"
++# Use vendored Tiktoken files so the build does not depend on external fetches.
++COPY tiktoken_encodings ./tiktoken_encodings
+ 
+ # Copy artifacts from Builder Stage
+ # FastAPI 0.137.0 adds _IncludedRouter entries that currently break
+diff --git a/build-and-copy.sh b/build-and-copy.sh
+index 5ff85ff..e18e8f2 100755
+--- a/build-and-copy.sh
++++ b/build-and-copy.sh
+@@ -34,7 +34,7 @@ VLLM_SOURCE_STAGING_DIR=""
+ VLLM_SOURCE_CONTEXT=""
+ EXP_B12X=false
+ EXP_B12X_VLLM_REPO="https://github.com/local-inference-lab/vllm"
+-EXP_B12X_VLLM_REF="dev/karmic-kraken"
++EXP_B12X_VLLM_REF="740e3776b4d645733fe4f8b90809fddea2f82b96"
+ EXP_B12X_FLASHINFER_REPO="https://github.com/local-inference-lab/flashinfer.git"
+ EXP_B12X_TORCH_VERSION="2.13.0"
+ EXP_B12X_TORCHVISION_VERSION="0.28.0"

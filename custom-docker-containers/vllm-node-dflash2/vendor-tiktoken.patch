@@ -1,0 +1,34 @@
+diff --git a/Dockerfile b/Dockerfile
+index 2c0b4cd..173ff11 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -701,10 +701,8 @@ RUN --mount=type=bind,from=base,source=/workspace/vllm/nccl/build/pkg/deb,target
+ # Set final working directory
+ WORKDIR $VLLM_BASE_DIR
+ 
+-# Download Tiktoken files
+-RUN mkdir -p tiktoken_encodings && \
+-    wget -O tiktoken_encodings/o200k_base.tiktoken "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken" && \
+-    wget -O tiktoken_encodings/cl100k_base.tiktoken "https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken"
++# Use vendored Tiktoken files so the build does not depend on external fetches.
++COPY tiktoken_encodings ./tiktoken_encodings
+ 
+ ARG PRE_TRANSFORMERS=0
+ 
+diff --git a/Dockerfile.mxfp4 b/Dockerfile.mxfp4
+index d49ff2b..f634780 100644
+--- a/Dockerfile.mxfp4
++++ b/Dockerfile.mxfp4
+@@ -251,10 +251,8 @@ RUN apt update && \
+ # Set final working directory
+ WORKDIR $VLLM_BASE_DIR
+ 
+-# Download Tiktoken files
+-RUN mkdir -p tiktoken_encodings && \
+-    wget -O tiktoken_encodings/o200k_base.tiktoken "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken" && \
+-    wget -O tiktoken_encodings/cl100k_base.tiktoken "https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken"
++# Use vendored Tiktoken files so the build does not depend on external fetches.
++COPY tiktoken_encodings ./tiktoken_encodings
+ 
+ # Copy artifacts from Builder Stage
+ # FastAPI 0.137.0 adds _IncludedRouter entries that currently break

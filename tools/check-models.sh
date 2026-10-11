@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
 
 set -euo pipefail
 
@@ -131,5 +132,54 @@ if [[ -s "$ONLY_IN_COMPOSE" || -s "$ONLY_IN_MODELS" ]]; then
   exit 1
 fi
 
+# Beyond names: served name, context length, models profile, waker prefix and
+# speculativeDecoding must match too.
+COMPOSE_JSON="$TMP_DIR/compose.json"
+compose_cmd --profile models -f "$COMPOSE_FILE" config --format json > "$COMPOSE_JSON"
+
+node --input-type=module - "$MODELS_FILE" "$COMPOSE_JSON" <<'EOF'
+import { readFileSync } from "node:fs";
+
+const [modelsPath, composePath] = process.argv.slice(2);
+const models = JSON.parse(readFileSync(modelsPath, "utf8"));
+const services = Object.values(JSON.parse(readFileSync(composePath, "utf8")).services ?? {});
+const flag = (command, name) => {
+  const index = command.indexOf(name);
+  return index === -1 ? null : command[index + 1] ?? null;
+};
+
+const problems = [];
+for (const [modelId, entry] of Object.entries(models)) {
+  const service = services.find((candidate) => candidate.container_name === entry.container);
+  if (!service) continue;
+  const command = (service.command ?? []).map(String);
+  const served = flag(command, "--served-model-name");
+  if (served !== null && served !== modelId) {
+    problems.push(`${modelId}: --served-model-name is '${served}'`);
+  }
+  const maxLen = flag(command, "--max-model-len") ?? flag(command, "--context-length");
+  if (maxLen !== null && /^\d+$/.test(maxLen) && Number(maxLen) !== entry.maxModelLen) {
+    problems.push(`${modelId}: serves ${maxLen} tokens, models.json says ${entry.maxModelLen}`);
+  }
+  if (!(service.profiles ?? []).includes("models")) {
+    problems.push(`${modelId}: service lacks the 'models' profile`);
+  }
+  if (!entry.container.startsWith("vllm-")) {
+    problems.push(`${modelId}: container '${entry.container}' lacks the vllm- prefix the waker manages`);
+  }
+  // The validator rejects min_p/logit_bias on speculative lanes, so the flag must track compose.
+  const speculative = command.includes("--speculative-config");
+  if (speculative !== (entry.speculativeDecoding === true)) {
+    problems.push(`${modelId}: ${speculative ? "runs" : "does not run"} speculative decoding, models.json speculativeDecoding is ${entry.speculativeDecoding === true}`);
+  }
+}
+
+if (problems.length > 0) {
+  console.error("models.json and compose disagree:");
+  for (const problem of problems) console.error(`- ${problem}`);
+  process.exit(1);
+}
+EOF
+
 echo
-echo "OK: compose container names match models.json"
+echo "OK: compose and models.json agree"

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
 
 set -euo pipefail
 
@@ -10,6 +11,10 @@ usage() {
 usage: reload-control-plane.sh [--timeout SECONDS] [--stop-stale-utility]
 
 Recreate waker and request-validator so they reload models.json.
+
+This recreates containers from the CURRENT IMAGES; it does not rebuild them. If you edited
+waker/ or request-validator/ source, run "docker compose build waker request-validator"
+first -- otherwise the containers come up healthy still running the previous build.
 
 Options:
   --timeout SECONDS       Max wait per control-plane container health check (default: 300)

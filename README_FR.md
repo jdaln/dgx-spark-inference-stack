@@ -127,7 +127,7 @@ bash tools/test-lane.sh gpt-oss-20b
 | `gpt-oss-20b` | rapide, plus petit | 131072 | `vllm-node-mxfp4` |
 | `lfm2.5-1.2b` | utilitaire, reste chargé | 32768 | `vllm-node-dflash2` |
 
-[docs/models.md](docs/models.md) liste les 10 modèles et leurs limites.
+[docs/models.md](docs/models.md) liste les 11 modèles et leurs limites.
 
 ## Documentation
 

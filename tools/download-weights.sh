@@ -95,6 +95,15 @@ for model_id in "${MODEL_IDS[@]}"; do
     [[ -n "${HF_TOKEN:-}" ]] && env_args+=(-e HF_TOKEN)
     # A failed download shows up in the snapshot check below.
     docker run --rm "${env_args[@]}" -v "$MODELS_DIR:/models" --entrypoint hf "$IMAGE" "${args[@]}" || true
+    # hf 1.x writes each attempt to its own <etag>.<id>.incomplete and never resumes one, so an
+    # interrupted run leaves dead partials behind. Drop those whose blob is now complete.
+    docker run --rm --network none -v "$MODELS_DIR:/models" --entrypoint sh "$IMAGE" -c '
+      for f in "$1"/*.incomplete; do
+        [ -e "$f" ] || continue
+        blob="${f%.incomplete}"
+        [ -e "$blob" ] || [ -e "${blob%.*}" ] || continue
+        rm -f "$f" && echo "removed dead partial download ${f##*/}"
+      done' sh "/models/models--${repo//\//--}/blobs" || true
   done
 
   [[ "$DRY_RUN" -eq 1 ]] && continue

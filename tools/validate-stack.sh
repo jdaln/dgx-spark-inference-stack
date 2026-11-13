@@ -195,6 +195,7 @@ QWEN38_27B_NVFP4_DFLASH2_JSON="$(resolve_service_json "$ACTIVE_JSON" "qwen3.8-27
 HUIHUI_QWEN38_27B_JSON="$(resolve_service_json "$ACTIVE_JSON" "huihui-qwen3.8-27b-abliterated")"
 HUIHUI_QWEN38_27B_NVFP4_JSON="$(resolve_service_json "$ACTIVE_JSON" "huihui-qwen3.8-27b-abliterated-nvfp4")"
 QWEN38_FLASH_NEXT_JSON="$(resolve_service_json "$ACTIVE_JSON" "qwen3.8-flash-next-nvfp4")"
+ORNITH_15_122B_JSON="$(resolve_service_json "$ACTIVE_JSON" "ornith-1.5-122b-nvfp4")"
 GEMMA4_26B_JSON="$(resolve_service_json "$ACTIVE_JSON" "gemma4-26b-a4b")"
 GEMMA4_31B_JSON="$(resolve_service_json "$ACTIVE_JSON" "gemma4-31b")"
 
@@ -240,6 +241,24 @@ assert_command_has_flag "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--async-scheduling" "q
 assert_command_has_flag "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--disable-uvicorn-access-log" "qwen3.8-27b-nvfp4-dflash2 suppresses uvicorn access logs"
 assert_command_has_flag "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--disable-log-stats" "qwen3.8-27b-nvfp4-dflash2 suppresses periodic stats logs"
 assert_command_lacks_flag "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--disable-log-requests" "qwen3.8-27b-nvfp4-dflash2 avoids the stale request log flag"
+
+assert_equals "$(jq -r '.image // ""' <<<"$ORNITH_15_122B_JSON")" "$EXPECTED_DFLASH2_IMAGE" "ornith-1.5-122b-nvfp4 uses the DFlash2 track image, which loads the modelopt mixed FP8/NVFP4 layout"
+assert_flag_value "$ORNITH_15_122B_JSON" "--model" "ornith-ai/Ornith-1.5-122B-NVFP4" "ornith-1.5-122b-nvfp4 serves the upstream NVFP4 checkpoint"
+assert_flag_value "$ORNITH_15_122B_JSON" "--revision" "f049036f794622db10bb69855bf9819207334626" "ornith-1.5-122b-nvfp4 pins the validated snapshot"
+assert_flag_value "$ORNITH_15_122B_JSON" "--tokenizer-revision" "f049036f794622db10bb69855bf9819207334626" "ornith-1.5-122b-nvfp4 pins the tokenizer to the same snapshot"
+assert_flag_value "$ORNITH_15_122B_JSON" "--served-model-name" "ornith-1.5-122b-nvfp4" "ornith-1.5-122b-nvfp4 keeps the local served model id"
+assert_flag_value "$ORNITH_15_122B_JSON" "--max-model-len" "262144" "ornith-1.5-122b-nvfp4 serves the native context"
+assert_flag_value "$ORNITH_15_122B_JSON" "--gpu-memory-utilization" "0.75" "ornith-1.5-122b-nvfp4 keeps the 0.75 share (~10 GiB host memory available under load; below ~0.71 a 262K window does not fit)"
+assert_equals "$(jq -r '."ornith-1.5-122b-nvfp4".lifecycle' "$MODELS_FILE")" "exclusive" "ornith-1.5-122b-nvfp4 is exclusive: the utility helper does not fit next to it"
+assert_flag_value "$ORNITH_15_122B_JSON" "--kv-cache-dtype" "fp8" "ornith-1.5-122b-nvfp4 runs fp8 KV"
+assert_flag_value "$ORNITH_15_122B_JSON" "--speculative-config" '{"method":"mtp","num_speculative_tokens":2}' "ornith-1.5-122b-nvfp4 drafts with the checkpoint's own MTP layer at depth 2 (41.1 vs 36.8 tok/s at depth 3)"
+assert_flag_value "$ORNITH_15_122B_JSON" "--tool-call-parser" "qwen3_xml" "ornith-1.5-122b-nvfp4 keeps the Qwen XML tool parser its template emits"
+assert_flag_value "$ORNITH_15_122B_JSON" "--reasoning-parser" "qwen3" "ornith-1.5-122b-nvfp4 keeps the Qwen reasoning parser"
+assert_flag_value "$ORNITH_15_122B_JSON" "--distributed-executor-backend" "mp" "ornith-1.5-122b-nvfp4 uses the mp executor"
+for _flag in --enable-auto-tool-choice --enable-prefix-caching --disable-uvicorn-access-log --disable-log-stats; do
+    assert_command_has_flag "$ORNITH_15_122B_JSON" "$_flag" "ornith-1.5-122b-nvfp4 keeps $_flag"
+done
+assert_command_lacks_flag "$ORNITH_15_122B_JSON" "--trust-remote-code" "ornith-1.5-122b-nvfp4 runs vLLM's own qwen3_5_moe code, not checkpoint code"
 
 assert_equals "$(jq -r '.image // ""' <<<"$QWEN38_FLASH_NEXT_JSON")" "$EXPECTED_FLASHNEXT_IMAGE" "qwen3.8-flash-next-nvfp4 runs the B12X image built by the vendored helper delta"
 assert_json_value "$QWEN38_FLASH_NEXT_JSON" '.build // "none" | tostring' "none" "qwen3.8-flash-next-nvfp4 has no compose build; the image comes from custom-docker-containers/vllm-node-b12x"

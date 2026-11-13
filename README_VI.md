@@ -123,7 +123,7 @@ bash tools/test-lane.sh gpt-oss-20b
 | `gpt-oss-20b` | nhanh, nhỏ hơn | 131072 | `vllm-node-mxfp4` |
 | `lfm2.5-1.2b` | tiện ích, luôn được nạp | 32768 | `vllm-node-dflash2` |
 
-[docs/models.md](docs/models.md) liệt kê cả 10 mô hình và giới hạn của chúng.
+[docs/models.md](docs/models.md) liệt kê cả 11 mô hình và giới hạn của chúng.
 
 ## Tài liệu
 

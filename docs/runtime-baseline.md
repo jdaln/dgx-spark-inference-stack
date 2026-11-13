@@ -6,7 +6,7 @@ locally. `bash tools/download-weights.sh --list` shows which images are built.
 | Image | Override | Models | Build |
 |---|---|---|---|
 | `vllm-node-mxfp4` | `VLLM_TRACK_IMAGE_MXFP4` | The three GPT-OSS models | One Dockerfile, about 20 minutes |
-| `vllm-node-dflash2` | `VLLM_TRACK_IMAGE_DFLASH2` | `qwen3.8-27b-nvfp4-dflash2`, both abliterated Qwen3.8 models, `lfm2.5-1.2b` | Upstream helper, compiles vLLM, over 40 minutes |
+| `vllm-node-dflash2` | `VLLM_TRACK_IMAGE_DFLASH2` | `qwen3.8-27b-nvfp4-dflash2`, `ornith-1.5-122b-nvfp4`, both abliterated Qwen3.8 models, `lfm2.5-1.2b` | Upstream helper, compiles vLLM, over 40 minutes |
 | `vllm-node-b12x` | `VLLM_TRACK_IMAGE_B12X` | `qwen3.8-flash-next-nvfp4`, `gemma4-26b-a4b`, `gemma4-31b` | Upstream helper, about 25 minutes with a cached FlashInfer wheel |
 
 The upstream helper is [eugr/spark-vllm-docker](https://github.com/eugr/spark-vllm-docker),

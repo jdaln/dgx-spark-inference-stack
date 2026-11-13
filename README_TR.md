@@ -124,7 +124,7 @@ bash tools/test-lane.sh gpt-oss-20b
 | `gpt-oss-20b` | hızlı, daha küçük | 131072 | `vllm-node-mxfp4` |
 | `lfm2.5-1.2b` | yardımcı, yüklü kalır | 32768 | `vllm-node-dflash2` |
 
-[docs/models.md](docs/models.md) 10 modelin tamamını ve sınırlarını listeler.
+[docs/models.md](docs/models.md) 11 modelin tamamını ve sınırlarını listeler.
 
 ## Belgeler
 

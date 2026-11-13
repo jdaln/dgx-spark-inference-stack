@@ -57,6 +57,15 @@
             "output": 8192
           }
         },
+        "ornith-1.5-122b-nvfp4": {
+          "name": "Ornith 1.5 122B NVFP4",
+          "reasoning": true,
+          "tool_call": true,
+          "limit": {
+            "context": 262144,
+            "output": 32768
+          }
+        },
         "qwen3.8-27b-nvfp4-dflash2": {
           "name": "Qwen 3.8 27B NVFP4 DFlash2",
           "reasoning": true,

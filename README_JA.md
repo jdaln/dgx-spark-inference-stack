@@ -122,7 +122,7 @@ bash tools/test-lane.sh gpt-oss-20b
 | `gpt-oss-20b` | 高速、小型 | 131072 | `vllm-node-mxfp4` |
 | `lfm2.5-1.2b` | ユーティリティ、常駐 | 32768 | `vllm-node-dflash2` |
 
-[docs/models.md](docs/models.md) に全 10 モデルとその制限があります。
+[docs/models.md](docs/models.md) に全 11 モデルとその制限があります。
 
 ## ドキュメント
 

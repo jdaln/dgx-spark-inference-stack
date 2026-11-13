@@ -222,6 +222,71 @@ services:
       <<: *healthcheck-default
       start_period: 2400s
 
+  # Ornith-1.5: a Qwen3.5-MoE fine-tune (qwen3_5_moe), modelopt FP8 attention plus W4A16 NVFP4 experts.
+  vllm-ornith-1.5-122b-nvfp4:
+    <<: *model-profiled
+    image: ${VLLM_TRACK_IMAGE_DFLASH2:-vllm-node-dflash2}
+    container_name: vllm-ornith-1.5-122b-nvfp4
+    command:
+      - vllm
+      - serve
+      - --model
+      - ornith-ai/Ornith-1.5-122B-NVFP4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --served-model-name
+      - ornith-1.5-122b-nvfp4
+      - --kv-cache-dtype
+      - fp8
+      # 72 GiB of weights. Under load the engine holds ~96 GiB, ~5 GiB past this share, and the
+      # host keeps ~10 GiB available. Lower shares cannot hold one 262K window.
+      - --gpu-memory-utilization
+      - "${ORNITH_15_122B_NVFP4_GPU_MEMORY_UTILIZATION:-0.75}"
+      - --max-model-len
+      - "${ORNITH_15_122B_NVFP4_MAX_MODEL_LEN:-262144}"
+      - --max-num-seqs
+      - "${ORNITH_15_122B_NVFP4_MAX_NUM_SEQS:-8}"
+      - --max-num-batched-tokens
+      - "16384"
+      - --enable-chunked-prefill
+      - --async-scheduling
+      - --enable-prefix-caching
+      # The checkpoint's own BF16 MTP layer drafts. Depth 2 beat 3: the single MTP layer
+      # rarely gets a third token accepted.
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":2}'
+      - --load-format
+      - instanttensor
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_xml
+      - --enable-auto-tool-choice
+      - --tensor-parallel-size
+      - "1"
+      - --distributed-executor-backend
+      - mp
+      - --disable-uvicorn-access-log
+      - --disable-log-stats
+      # Validated snapshot. Re-validate before changing it.
+      - --revision
+      - f049036f794622db10bb69855bf9819207334626
+      - --tokenizer-revision
+      - f049036f794622db10bb69855bf9819207334626
+    volumes:
+      - ../cache/vllm-ornith-1.5-122b-nvfp4/huggingface:/root/.cache/huggingface
+      - ../models:/models:ro
+      - ../cache/vllm-ornith-1.5-122b-nvfp4/flashinfer:/root/.cache/flashinfer
+      - ../cache/vllm-ornith-1.5-122b-nvfp4/torch_extensions:/root/.cache/torch_extensions
+      - ../cache/vllm-ornith-1.5-122b-nvfp4/torchinductor:/tmp/torchinductor_root
+    environment:
+      <<: *env-common
+    healthcheck:
+      <<: *healthcheck-default
+      start_period: 2700s
+
   vllm-qwen3.8-flash-next-nvfp4:
     <<: *model-profiled
     # The upstream helper's solo recipe flags.

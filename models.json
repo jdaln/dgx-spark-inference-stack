@@ -94,6 +94,19 @@
     "speculativeDecoding": true,
     "notes": "Needs io_uring on the host and the seccomp profile in docs/security.md. Soak clean at 240k prompt tokens, 63-65 s per request at 2-way."
   },
+  "ornith-1.5-122b-nvfp4": {
+    "container": "vllm-ornith-1.5-122b-nvfp4",
+    "port": 8000,
+    "maxModelLen": 262144,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "reasoningEffort": "binary",
+    "lifecycle": "exclusive",
+    "multimodal": true,
+    "sourceRecipe": "ornith-ai/Ornith-1.5-122B-NVFP4 (Qwen3.5-MoE fine-tune) with its own MTP draft on vllm-node-dflash2",
+    "speculativeDecoding": true,
+    "notes": "Thinking is on unless reasoning_effort is none; there is no shorter level. Under 8-way load, hard problems reach 12288 tokens after ~1140 s, near the 1200 s gateway timeout for requests that do not stream. Leaves ~10 GiB of host memory under load. Soak clean at 239953 prompt tokens with thinking on, 316-355 s per request at 2-way."
+  },
   "huihui-qwen3.8-27b-abliterated": {
     "container": "vllm-huihui-qwen3.8-27b-abliterated",
     "port": 8000,
@@ -102,7 +115,7 @@
     "validatorProfile": "default",
     "reasoningEffort": "graded",
     "lifecycle": "normal",
-    "sourceRecipe": "huihui-ai/Huihui-Qwen3.8-27B-abliterated (mirrors the qwen3.8-27b-nvfp4-dflash2 runtime shape, minus speculation)",
+    "sourceRecipe": "huihui-ai/Huihui-Qwen3.8-27B-abliterated (mirrors the qwen3.8-27b-nvfp4-dflash2 runtime shape)",
     "multimodal": true,
     "speculativeDecoding": true,
     "notes": "BF16 reference for the NVFP4 lane, not for serving. Start it by hand to re-check the requant."

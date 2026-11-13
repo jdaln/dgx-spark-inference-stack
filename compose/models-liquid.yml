@@ -36,6 +36,11 @@ services:
       - ../cache/vllm-lfm2.5-1.2b/flashinfer:/root/.cache/flashinfer
       - ../cache/vllm-lfm2.5-1.2b/torch_extensions:/root/.cache/torch_extensions
       - ../cache/vllm-lfm2.5-1.2b/torchinductor:/tmp/torchinductor_root
+      # Compile and JIT caches outlive container recreates: kernels only.
+      - ../cache/vllm-lfm2.5-1.2b/vllm:/root/.cache/vllm
+      - ../cache/vllm-lfm2.5-1.2b/triton:/root/.triton
+      - ../cache/vllm-lfm2.5-1.2b/nv:/root/.nv
+      - ../cache/vllm-lfm2.5-1.2b/tilelang:/root/.tilelang
     environment:
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"

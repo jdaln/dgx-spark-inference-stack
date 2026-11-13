@@ -228,7 +228,8 @@ assert_equals "$(jq -r '.image // ""' <<<"$QWEN38_27B_NVFP4_DFLASH2_JSON")" "$EX
 assert_json_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" '.command[3] // ""' "RadixArk/Qwen3.8-27B-NVFP4" "qwen3.8-27b-nvfp4-dflash2 points at the upstream NVFP4 checkpoint"
 assert_flag_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--served-model-name" "qwen3.8-27b-nvfp4-dflash2" "qwen3.8-27b-nvfp4-dflash2 keeps the local served model id"
 assert_flag_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--max-model-len" "262144" "qwen3.8-27b-nvfp4-dflash2 keeps the upstream max model length"
-assert_flag_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--gpu-memory-utilization" "0.80" "qwen3.8-27b-nvfp4-dflash2 uses the tuned solo-host memory envelope (upstream 0.7 is a TP=2 cluster default; 0.85 exceeds free memory on this host)"
+assert_flag_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--gpu-memory-utilization" "0.70" "qwen3.8-27b-nvfp4-dflash2 keeps the 0.70 share: at 0.80 next to the utility lane the host fell to ~2 GiB available, at 0.72 to ~7 GiB (KV still holds 4.5 full windows)"
+assert_flag_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--mm-processor-cache-gb" "1" "qwen3.8-27b-nvfp4-dflash2 caps the image-processor cache, which otherwise grows to 4 GiB in each of two processes"
 assert_flag_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--tensor-parallel-size" "1" "qwen3.8-27b-nvfp4-dflash2 runs single-GPU on this solo host"
 assert_flag_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--kv-cache-dtype" "fp8" "qwen3.8-27b-nvfp4-dflash2 keeps the upstream fp8 KV cache"
 assert_flag_value "$QWEN38_27B_NVFP4_DFLASH2_JSON" "--tool-call-parser" "qwen3_xml" "qwen3.8-27b-nvfp4-dflash2 keeps the upstream XML tool parser"
@@ -251,6 +252,7 @@ assert_flag_value "$ORNITH_15_122B_JSON" "--max-model-len" "262144" "ornith-1.5-
 assert_flag_value "$ORNITH_15_122B_JSON" "--gpu-memory-utilization" "0.75" "ornith-1.5-122b-nvfp4 keeps the 0.75 share (~10 GiB host memory available under load; below ~0.71 a 262K window does not fit)"
 assert_equals "$(jq -r '."ornith-1.5-122b-nvfp4".lifecycle' "$MODELS_FILE")" "exclusive" "ornith-1.5-122b-nvfp4 is exclusive: the utility helper does not fit next to it"
 assert_flag_value "$ORNITH_15_122B_JSON" "--kv-cache-dtype" "fp8" "ornith-1.5-122b-nvfp4 runs fp8 KV"
+assert_flag_value "$ORNITH_15_122B_JSON" "--mm-processor-cache-gb" "1" "ornith-1.5-122b-nvfp4 caps the image-processor cache, which otherwise grows to 4 GiB in each of two processes"
 assert_flag_value "$ORNITH_15_122B_JSON" "--speculative-config" '{"method":"mtp","num_speculative_tokens":2}' "ornith-1.5-122b-nvfp4 drafts with the checkpoint's own MTP layer at depth 2 (41.1 vs 36.8 tok/s at depth 3)"
 assert_flag_value "$ORNITH_15_122B_JSON" "--tool-call-parser" "qwen3_xml" "ornith-1.5-122b-nvfp4 keeps the Qwen XML tool parser its template emits"
 assert_flag_value "$ORNITH_15_122B_JSON" "--reasoning-parser" "qwen3" "ornith-1.5-122b-nvfp4 keeps the Qwen reasoning parser"
@@ -300,7 +302,7 @@ assert_flag_value "$HUIHUI_QWEN38_27B_JSON" "--model" "huihui-ai/Huihui-Qwen3.8-
 assert_flag_value "$HUIHUI_QWEN38_27B_JSON" "--served-model-name" "huihui-qwen3.8-27b-abliterated" "huihui-qwen3.8-27b-abliterated keeps the local served model id"
 assert_flag_value "$HUIHUI_QWEN38_27B_JSON" "--max-model-len" "262144" "huihui-qwen3.8-27b-abliterated serves the native context"
 assert_flag_value "$HUIHUI_QWEN38_27B_JSON" "--kv-cache-dtype" "fp8" "huihui-qwen3.8-27b-abliterated uses fp8 KV, which is what makes a 51 GiB BF16 checkpoint fit at full context"
-assert_flag_value "$HUIHUI_QWEN38_27B_JSON" "--gpu-memory-utilization" "0.80" "huihui-qwen3.8-27b-abliterated keeps the envelope its heavier weights were sized against"
+assert_flag_value "$HUIHUI_QWEN38_27B_JSON" "--gpu-memory-utilization" "0.70" "huihui-qwen3.8-27b-abliterated keeps the 27B lanes' 0.70 share"
 assert_flag_value "$HUIHUI_QWEN38_27B_JSON" "--tool-call-parser" "qwen3_xml" "huihui-qwen3.8-27b-abliterated keeps the Qwen XML tool parser used by the Qwen3.8 family"
 assert_flag_value "$HUIHUI_QWEN38_27B_JSON" "--reasoning-parser" "qwen3" "huihui-qwen3.8-27b-abliterated keeps the Qwen reasoning parser"
 # The stock DFlash2 draft keeps its acceptance on the abliterated weights.
@@ -425,6 +427,14 @@ SHARED_WRITABLE_MOUNTS="$(jq -r '[.services | to_entries[]
   | {s: .source, c: $c}]
   | group_by(.s) | map(select(length > 1) | "\(.[0].s) (\(map(.c) | join(",")))") | .[]' "$ACTIVE_JSON" | tr '\n' ' ')"
 assert_equals "${SHARED_WRITABLE_MOUNTS% }" "" "no two lanes share a writable mount"
+# Compile and autotune results outlive a container recreate, so a recreated lane starts as
+# fast as a restarted one. They hold kernels and tuning tables, never request data.
+LANES_WITHOUT_COMPILE_CACHE="$(jq -r '.services | to_entries[]
+  | select((.value.container_name // "") | startswith("vllm-"))
+  | select(.key | test("^(waker|request-validator|api-gateway)$") | not)
+  | select([.value.volumes[]? | select(.target == "/root/.cache/vllm")] | length == 0)
+  | .value.container_name' "$ACTIVE_JSON" | tr '\n' ' ')"
+assert_equals "${LANES_WITHOUT_COMPILE_CACHE% }" "" "every model lane keeps its vLLM compile and autotune cache on a per-lane volume"
 # Every lane resolves to Hugging Face snapshots that tools/download-weights.sh can fetch.
 UNRESOLVED_LANES=""
 for model_id in $(jq -r 'keys[]' "$MODELS_FILE"); do

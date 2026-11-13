@@ -63,8 +63,11 @@ services:
       - --trust-remote-code
       - --kv-cache-dtype
       - fp8
+      # At 0.80, next to the utility lane, the host fell to ~2 GiB available at startup and
+      # would run out under load; 0.72 still dipped to ~7 GiB. 0.70 keeps ~1.17M tokens of KV
+      # (4.5 full windows).
       - --gpu-memory-utilization
-      - "${QWEN38_27B_NVFP4_DFLASH2_GPU_MEMORY_UTILIZATION:-0.80}"
+      - "${QWEN38_27B_NVFP4_DFLASH2_GPU_MEMORY_UTILIZATION:-0.70}"
       - --max-model-len
       - "${QWEN38_27B_NVFP4_DFLASH2_MAX_MODEL_LEN:-262144}"
       - --max-num-seqs
@@ -74,6 +77,9 @@ services:
       - --enable-chunked-prefill
       - --async-scheduling
       - --enable-prefix-caching
+      # The image-processor cache defaults to 4 GiB in each of two processes.
+      - --mm-processor-cache-gb
+      - "1"
       # Draft depth by batch size (8/6/4) is faster under load than a flat 8.
       - --speculative-config
       - '{"method":"dflash","model":"z-lab/Qwen3.8-27B-DFlash2","revision":"50307d4c4cde6860d4eee73e2547cd786fe8e8a4","num_speculative_tokens":8,"draft_tensor_parallel_size":1,"num_speculative_tokens_per_batch_size":[[1,2,8],[3,4,6],[5,8,4]]}'
@@ -99,6 +105,11 @@ services:
       - ../cache/vllm-qwen3.8-27b-nvfp4-dflash2/flashinfer:/root/.cache/flashinfer
       - ../cache/vllm-qwen3.8-27b-nvfp4-dflash2/torch_extensions:/root/.cache/torch_extensions
       - ../cache/vllm-qwen3.8-27b-nvfp4-dflash2/torchinductor:/tmp/torchinductor_root
+      # Compile, autotune and JIT caches outlive container recreates: kernels and tuning only.
+      - ../cache/vllm-qwen3.8-27b-nvfp4-dflash2/vllm:/root/.cache/vllm
+      - ../cache/vllm-qwen3.8-27b-nvfp4-dflash2/triton:/root/.triton
+      - ../cache/vllm-qwen3.8-27b-nvfp4-dflash2/nv:/root/.nv
+      - ../cache/vllm-qwen3.8-27b-nvfp4-dflash2/tilelang:/root/.tilelang
     environment:
       <<: *env-common
     healthcheck:
@@ -125,7 +136,7 @@ services:
       - --kv-cache-dtype
       - fp8
       - --gpu-memory-utilization
-      - "${HUIHUI_QWEN38_27B_GPU_MEMORY_UTILIZATION:-0.80}"
+      - "${HUIHUI_QWEN38_27B_GPU_MEMORY_UTILIZATION:-0.70}"
       - --max-model-len
       - "${HUIHUI_QWEN38_27B_MAX_MODEL_LEN:-262144}"
       - --max-num-seqs
@@ -135,6 +146,10 @@ services:
       - --enable-chunked-prefill
       - --async-scheduling
       - --enable-prefix-caching
+      - --mm-processor-cache-gb
+      - "1"
+      - --load-format
+      - instanttensor
       - --speculative-config
       - '{"method":"dflash","model":"z-lab/Qwen3.8-27B-DFlash2","revision":"50307d4c4cde6860d4eee73e2547cd786fe8e8a4","num_speculative_tokens":8,"draft_tensor_parallel_size":1,"num_speculative_tokens_per_batch_size":[[1,2,8],[3,4,6],[5,8,4]]}'
       - --reasoning-parser
@@ -157,6 +172,10 @@ services:
       - ../cache/vllm-huihui-qwen3.8-27b-abliterated/flashinfer:/root/.cache/flashinfer
       - ../cache/vllm-huihui-qwen3.8-27b-abliterated/torch_extensions:/root/.cache/torch_extensions
       - ../cache/vllm-huihui-qwen3.8-27b-abliterated/torchinductor:/tmp/torchinductor_root
+      - ../cache/vllm-huihui-qwen3.8-27b-abliterated/vllm:/root/.cache/vllm
+      - ../cache/vllm-huihui-qwen3.8-27b-abliterated/triton:/root/.triton
+      - ../cache/vllm-huihui-qwen3.8-27b-abliterated/nv:/root/.nv
+      - ../cache/vllm-huihui-qwen3.8-27b-abliterated/tilelang:/root/.tilelang
     environment:
       <<: *env-common
     healthcheck:
@@ -183,7 +202,7 @@ services:
       - --kv-cache-dtype
       - fp8
       - --gpu-memory-utilization
-      - "${HUIHUI_QWEN38_27B_NVFP4_GPU_MEMORY_UTILIZATION:-0.80}"
+      - "${HUIHUI_QWEN38_27B_NVFP4_GPU_MEMORY_UTILIZATION:-0.70}"
       - --max-model-len
       - "${HUIHUI_QWEN38_27B_NVFP4_MAX_MODEL_LEN:-262144}"
       - --max-num-seqs
@@ -193,6 +212,10 @@ services:
       - --enable-chunked-prefill
       - --async-scheduling
       - --enable-prefix-caching
+      - --mm-processor-cache-gb
+      - "1"
+      - --load-format
+      - instanttensor
       # Same speculative config as the BF16 lane.
       - --speculative-config
       - '{"method":"dflash","model":"z-lab/Qwen3.8-27B-DFlash2","revision":"50307d4c4cde6860d4eee73e2547cd786fe8e8a4","num_speculative_tokens":8,"draft_tensor_parallel_size":1,"num_speculative_tokens_per_batch_size":[[1,2,8],[3,4,6],[5,8,4]]}'
@@ -216,6 +239,10 @@ services:
       - ../cache/vllm-huihui-qwen3.8-27b-abliterated-nvfp4/flashinfer:/root/.cache/flashinfer
       - ../cache/vllm-huihui-qwen3.8-27b-abliterated-nvfp4/torch_extensions:/root/.cache/torch_extensions
       - ../cache/vllm-huihui-qwen3.8-27b-abliterated-nvfp4/torchinductor:/tmp/torchinductor_root
+      - ../cache/vllm-huihui-qwen3.8-27b-abliterated-nvfp4/vllm:/root/.cache/vllm
+      - ../cache/vllm-huihui-qwen3.8-27b-abliterated-nvfp4/triton:/root/.triton
+      - ../cache/vllm-huihui-qwen3.8-27b-abliterated-nvfp4/nv:/root/.nv
+      - ../cache/vllm-huihui-qwen3.8-27b-abliterated-nvfp4/tilelang:/root/.tilelang
     environment:
       <<: *env-common
     healthcheck:
@@ -253,6 +280,9 @@ services:
       - --enable-chunked-prefill
       - --async-scheduling
       - --enable-prefix-caching
+      # The image-processor cache defaults to 4 GiB in each of two processes.
+      - --mm-processor-cache-gb
+      - "1"
       # The checkpoint's own BF16 MTP layer drafts. Depth 2 beat 3: the single MTP layer
       # rarely gets a third token accepted.
       - --speculative-config
@@ -281,6 +311,10 @@ services:
       - ../cache/vllm-ornith-1.5-122b-nvfp4/flashinfer:/root/.cache/flashinfer
       - ../cache/vllm-ornith-1.5-122b-nvfp4/torch_extensions:/root/.cache/torch_extensions
       - ../cache/vllm-ornith-1.5-122b-nvfp4/torchinductor:/tmp/torchinductor_root
+      - ../cache/vllm-ornith-1.5-122b-nvfp4/vllm:/root/.cache/vllm
+      - ../cache/vllm-ornith-1.5-122b-nvfp4/triton:/root/.triton
+      - ../cache/vllm-ornith-1.5-122b-nvfp4/nv:/root/.nv
+      - ../cache/vllm-ornith-1.5-122b-nvfp4/tilelang:/root/.tilelang
     environment:
       <<: *env-common
     healthcheck:
@@ -364,6 +398,12 @@ services:
       - ../cache/vllm-qwen3.8-flash-next-nvfp4/flashinfer:/root/.cache/flashinfer
       - ../cache/vllm-qwen3.8-flash-next-nvfp4/torch_extensions:/root/.cache/torch_extensions
       - ../cache/vllm-qwen3.8-flash-next-nvfp4/torchinductor:/tmp/torchinductor_root
+      # b12x keeps its compiled kernels and tuning choices here: ~9 min of tuning per recreate.
+      - ../cache/vllm-qwen3.8-flash-next-nvfp4/vllm:/root/.cache/vllm
+      - ../cache/vllm-qwen3.8-flash-next-nvfp4/b12x:/root/.cache/b12x
+      - ../cache/vllm-qwen3.8-flash-next-nvfp4/triton:/root/.triton
+      - ../cache/vllm-qwen3.8-flash-next-nvfp4/nv:/root/.nv
+      - ../cache/vllm-qwen3.8-flash-next-nvfp4/tilelang:/root/.tilelang
     environment:
       <<: *env-common
       HF_HUB_OFFLINE: "1"

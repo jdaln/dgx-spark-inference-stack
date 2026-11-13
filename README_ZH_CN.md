@@ -118,7 +118,7 @@ bash tools/test-lane.sh gpt-oss-20b
 | `gpt-oss-20b` | 快速，较小 | 131072 | `vllm-node-mxfp4` |
 | `lfm2.5-1.2b` | 辅助模型，常驻 | 32768 | `vllm-node-dflash2` |
 
-[docs/models.md](docs/models.md) 列出全部 10 个模型及其限制。
+[docs/models.md](docs/models.md) 列出全部 11 个模型及其限制。
 
 ## 文档
 

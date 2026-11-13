@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const WEIGHT_FILE = /\.(safetensors|gguf|bin)$/;
+const SHARD_INDEX = "model.safetensors.index.json";
 
 function flagValue(command, flag) {
   const i = command.indexOf(flag);
@@ -30,10 +31,16 @@ export function weightTargets(command) {
   return targets;
 }
 
-// config.json plus a weight file; symlinks into blobs/ must resolve.
+// config.json plus a weight file; symlinks into blobs/ must resolve. A sharded checkpoint
+// needs every shard its index names: an interrupted download leaves some.
 function snapshotComplete(dir) {
   try {
     if (!fs.existsSync(path.join(dir, "config.json"))) return false;
+    const index = path.join(dir, SHARD_INDEX);
+    if (fs.existsSync(index)) {
+      const shards = new Set(Object.values(JSON.parse(fs.readFileSync(index, "utf8")).weight_map || {}));
+      return shards.size > 0 && [...shards].every((f) => fs.existsSync(path.join(dir, f)));
+    }
     return fs.readdirSync(dir).some((f) => WEIGHT_FILE.test(f) && fs.existsSync(path.join(dir, f)));
   } catch {
     return false;

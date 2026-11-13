@@ -119,7 +119,7 @@ bash tools/test-lane.sh gpt-oss-20b
 | `gpt-oss-20b` | سريع، أصغر | 131072 | `vllm-node-mxfp4` |
 | `lfm2.5-1.2b` | مساعد، يبقى محمّلًا | 32768 | `vllm-node-dflash2` |
 
-يسرد [docs/models.md](docs/models.md) النماذج العشرة كلها وحدودها.
+يسرد [docs/models.md](docs/models.md) النماذج الأحد عشر كلها وحدودها.
 
 ## التوثيق
 

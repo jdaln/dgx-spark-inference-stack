@@ -10,6 +10,7 @@ Model containers run offline. Download a model's weights before its first reques
 |---|---|---:|---|---|---|
 | `qwen3.8-27b-nvfp4-dflash2` | DFlash2 | 262144 | yes | | Default. Thinking on. ~30 tok/s. |
 | `qwen3.8-flash-next-nvfp4` | B12X | 262144 | yes | exclusive | Hardest questions. ~49 tok/s. |
+| `ornith-1.5-122b-nvfp4` | DFlash2 | 262144 | yes | exclusive | Qwen3.5 MoE fine-tune. Thinking on. ~41 tok/s. |
 | `gemma4-26b-a4b` | B12X | 262144 | yes | | Multilingual. ~76 tok/s. |
 | `gemma4-31b` | B12X | 180224 | yes | exclusive | Dense 31B. ~24 tok/s. |
 | `gpt-oss-20b` | MXFP4 | 131072 | | | Fast, smaller. |
@@ -44,6 +45,15 @@ Reads part of its weights from disk with io_uring. The host must allow io_uring
 (`/proc/sys/kernel/io_uring_disabled` = 0), and the container runs a custom seccomp profile.
 Create the container from the repo root (`tools/run-model.sh` does). See
 [security.md](security.md#seccomp).
+
+### `ornith-1.5-122b-nvfp4`
+
+- Thinking is on by default. `reasoning_effort: "none"` turns it off; any other value keeps
+  it on, with no shorter level. The thinking text is in `message.reasoning`.
+- Hard problems can think past 12288 tokens. With 8 requests at once, 12288 tokens take
+  about 1140 s, near the 1200 s gateway timeout for requests that do not stream.
+- `min_p` and `logit_bias` are rejected: speculative decoding ignores them.
+- Under load it holds about 96 GiB, leaving about 10 GiB of host memory.
 
 ### Gemma 4 models
 

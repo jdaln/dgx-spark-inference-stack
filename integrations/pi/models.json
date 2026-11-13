@@ -89,6 +89,23 @@
           }
         },
         {
+          "id": "ornith-1.5-122b-nvfp4",
+          "name": "Ornith 1.5 122B NVFP4",
+          "reasoning": true,
+          "input": [
+            "text",
+            "image"
+          ],
+          "contextWindow": 262144,
+          "maxTokens": 32768,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        },
+        {
           "id": "lfm2.5-1.2b",
           "name": "LFM2.5 1.2B Instruct",
           "reasoning": false,

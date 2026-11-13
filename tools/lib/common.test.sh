@@ -66,6 +66,17 @@ expect "present: metadata only" "no" "$(status model_weights_present "$(svc vllm
 expect "present: missing repo" "no" "$(status model_weights_present "$(svc vllm serve org/absent)")"
 expect "present: snapshot served by path" "yes" "$(status model_weights_present "$(svc vllm serve /models/models--org--model/snapshots/aaa)")"
 expect "present: incomplete path" "no" "$(status model_weights_present "$(svc vllm serve /models/models--org--model/snapshots/bbb)")"
+# A sharded snapshot whose index names two shards, one not yet downloaded.
+make_snapshot org--sharded sss no
+SHARDED="$MODELS_DIR/models--org--sharded"
+echo '{"weight_map":{"a":"model-00001-of-00002.safetensors","b":"model-00002-of-00002.safetensors"}}' \
+  > "$SHARDED/snapshots/sss/model.safetensors.index.json"
+: > "$SHARDED/blobs/shard-1"
+ln -s ../../blobs/shard-1 "$SHARDED/snapshots/sss/model-00001-of-00002.safetensors"
+expect "present: sharded, one shard missing" "no" "$(status model_weights_present "$(svc vllm serve org/sharded --revision sss)")"
+: > "$SHARDED/blobs/shard-2"
+ln -s ../../blobs/shard-2 "$SHARDED/snapshots/sss/model-00002-of-00002.safetensors"
+expect "present: sharded, all shards" "yes" "$(status model_weights_present "$(svc vllm serve org/sharded --revision sss)")"
 make_snapshot org--draft ddd yes
 expect "present: with its draft" "yes" \
   "$(status model_weights_present "$(svc vllm serve org/model --revision aaa --speculative-config '{"model":"org/draft","revision":"ddd"}')")"

@@ -46,7 +46,8 @@ Replace the shipped `apiKey` with `"$VLLM_API_KEY"` to read it from the environm
 ## Client notes
 
 - Roster context limits are the measured client ceilings, at most the served context.
-  Output is capped at 8192 tokens, less on small models.
+  Output is capped at 8192 tokens, less on small models. `ornith-1.5-122b-nvfp4` gets 32768:
+  its thinking has no shorter effort level.
 - `reasoning: true` in a roster marks models where the validator maps `reasoning_effort`
   onto the model's thinking switch.
 - The Qwen3.8 models default to `medium` effort. Send `reasoning_effort: "xhigh"` (or

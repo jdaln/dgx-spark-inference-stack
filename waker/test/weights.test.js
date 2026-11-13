@@ -53,6 +53,16 @@ test("missing weights are reported per target", async () => {
     // A weight symlink whose blob is gone does not count.
     await fs.rm(path.join(modelsDir, "models--org--m", "blobs", "w-aaa"));
     assert.deepEqual(missingWeights(["vllm", "serve", "org/m", "--revision", "aaa"], modelsDir), ["org/m@aaa"]);
+    // A sharded snapshot needs every shard its index names.
+    await snapshot(modelsDir, "models--org--s", "sss", true);
+    const sharded = path.join(modelsDir, "models--org--s", "snapshots", "sss");
+    await fs.writeFile(
+      path.join(sharded, "model.safetensors.index.json"),
+      JSON.stringify({ weight_map: { a: "model.safetensors", b: "model-00002-of-00002.safetensors" } })
+    );
+    assert.deepEqual(missingWeights(["vllm", "serve", "org/s", "--revision", "sss"], modelsDir), ["org/s@sss"]);
+    await fs.writeFile(path.join(sharded, "model-00002-of-00002.safetensors"), "");
+    assert.deepEqual(missingWeights(["vllm", "serve", "org/s", "--revision", "sss"], modelsDir), []);
   } finally {
     await fs.rm(modelsDir, { recursive: true, force: true });
   }

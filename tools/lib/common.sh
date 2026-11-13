@@ -376,8 +376,17 @@ draft_weights_present() {
 }
 
 snapshot_complete() {
-  local dir="$1" hit
+  local dir="$1" hit shards shard
   [[ -e "$dir/config.json" ]] || return 1
+  # A sharded checkpoint needs every shard its index names: an interrupted download leaves some.
+  if [[ -e "$dir/model.safetensors.index.json" ]]; then
+    shards="$(jq -r '.weight_map // {} | [.[]] | unique[]' "$dir/model.safetensors.index.json" 2>/dev/null)" || return 1
+    [[ -n "$shards" ]] || return 1
+    while IFS= read -r shard; do
+      [[ -e "$dir/$shard" ]] || return 1
+    done <<<"$shards"
+    return 0
+  fi
   # `-print -quit`, not `| head -1`: under pipefail, find's SIGPIPE would read as "no weights".
   hit="$(find -L "$dir" -maxdepth 1 \( -name '*.safetensors' -o -name '*.gguf' -o -name '*.bin' \) -print -quit 2>/dev/null || true)"
   [[ -n "$hit" ]]

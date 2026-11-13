@@ -13,6 +13,10 @@ leaves a result file in `tmp/` (see [Results](#results)). Run `mkdir -p tmp/chec
    the hardening `validate-stack` requires (no capabilities, `no-new-privileges`, internal
    network only, Hugging Face offline from `/models`). Pin `--revision`. Use
    `--distributed-executor-backend mp`; Ray cannot place workers without a default route.
+   Copy the lane's cache mounts too, renamed for the new container: `../cache/<container>/`
+   `vllm`, `triton`, `nv` and `tilelang`, plus `b12x` on the b12x image. They keep compile and
+   autotune results across container recreates and hold no request data. `validate-stack`
+   fails if a lane lacks the vLLM cache or can write outside `./cache/<container>/`.
    Check the effective image, command, environment and mounts:
 
    ```bash
@@ -47,6 +51,13 @@ leaves a result file in `tmp/` (see [Results](#results)). Run `mkdir -p tmp/chec
    bash tools/run-variant.sh --restore <model-id>
    bash tools/run-model.sh --timeout 7200 --no-build <model-id> 2>&1 | tee tmp/checks/<model-id>-start.log
    ```
+
+   `--gpu-memory-utilization` is not a hard cap here: engine process memory, attention
+   workspaces and warmup sit on top of it, and `--mem-limit` counts only CPU-side memory.
+   Size the share by the lowest `MemAvailable` during the start and under the 8-way benchmark
+   (step 10); each 0.01 of share is about 1.22 GiB. A non-exclusive lane runs next to the
+   utility lane, about 10 GiB more, so measure with it running. Keep the floor near 10 GiB.
+   The first start in a new container builds the caches and takes longer.
 
    `Operation not permitted` in the lane's logs means seccomp: see
    [docs/security.md](../../docs/security.md#seccomp).

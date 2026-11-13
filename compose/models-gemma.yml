@@ -80,6 +80,10 @@ services:
       - gemma4
       - --kv-cache-dtype
       - auto
+      # The default loader page-faults the checkpoint in at ~0.17 GB/s from a cold cache;
+      # page-cache prefetch did not help. fastsafetensors reads it straight to the GPU.
+      - --load-format
+      - fastsafetensors
       - --max-num-batched-tokens
       - "${GEMMA4_26B_A4B_MAX_NUM_BATCHED_TOKENS:-8192}"
       - --tensor-parallel-size
@@ -101,6 +105,12 @@ services:
       - ../cache/vllm-gemma4-26b-a4b/flashinfer:/root/.cache/flashinfer
       - ../cache/vllm-gemma4-26b-a4b/torch_extensions:/root/.cache/torch_extensions
       - ../cache/vllm-gemma4-26b-a4b/torchinductor:/tmp/torchinductor_root
+      # Compile, autotune and JIT caches outlive container recreates: kernels and tuning only.
+      - ../cache/vllm-gemma4-26b-a4b/vllm:/root/.cache/vllm
+      - ../cache/vllm-gemma4-26b-a4b/b12x:/root/.cache/b12x
+      - ../cache/vllm-gemma4-26b-a4b/triton:/root/.triton
+      - ../cache/vllm-gemma4-26b-a4b/nv:/root/.nv
+      - ../cache/vllm-gemma4-26b-a4b/tilelang:/root/.tilelang
       - ../shared/tool_chat_template_gemma4.jinja:/workspace/tool_chat_template_gemma4.jinja:ro
       - ../shared/gemma4-26b-nvfp4-config:/workspace/gemma4-26b-nvfp4-config:ro
     environment:
@@ -148,6 +158,9 @@ services:
       - /workspace/gemma4-31b-nvfp4-config
       - --kv-cache-dtype
       - auto
+      # fastsafetensors, as on vllm-gemma4-26b-a4b.
+      - --load-format
+      - fastsafetensors
       - --max-num-batched-tokens
       - "${GEMMA4_31B_MAX_NUM_BATCHED_TOKENS:-8192}"
       - --tensor-parallel-size
@@ -168,6 +181,11 @@ services:
       - ../cache/vllm-gemma4-31b/flashinfer:/root/.cache/flashinfer
       - ../cache/vllm-gemma4-31b/torch_extensions:/root/.cache/torch_extensions
       - ../cache/vllm-gemma4-31b/torchinductor:/tmp/torchinductor_root
+      - ../cache/vllm-gemma4-31b/vllm:/root/.cache/vllm
+      - ../cache/vllm-gemma4-31b/b12x:/root/.cache/b12x
+      - ../cache/vllm-gemma4-31b/triton:/root/.triton
+      - ../cache/vllm-gemma4-31b/nv:/root/.nv
+      - ../cache/vllm-gemma4-31b/tilelang:/root/.tilelang
       - ../shared/tool_chat_template_gemma4.jinja:/workspace/tool_chat_template_gemma4.jinja:ro
       - ../shared/gemma4-31b-nvfp4-config:/workspace/gemma4-31b-nvfp4-config:ro
     environment:

@@ -8,5 +8,5 @@ RUN mkdir -p /shared
 COPY shared/error-response.mjs /shared/error-response.mjs
 COPY shared/models-config.mjs /shared/models-config.mjs
 COPY shared/workloads-config.mjs /shared/workloads-config.mjs
-COPY waker/index.js waker/gpu-monitor.js waker/external-workloads.js waker/weights.js ./
+COPY waker/index.js waker/gpu-monitor.js waker/external-workloads.js waker/weights.js waker/caches.js ./
 CMD ["node","index.js"]

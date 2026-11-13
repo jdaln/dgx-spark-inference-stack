@@ -73,6 +73,10 @@ Two timeouts apply:
 
 A first load of a large model can need more than the 1800 s most lanes set.
 
+The first start after a container is recreated (a compose or image change) or after its caches
+expire rebuilds the compile and tuning caches. It takes about a minute longer on most lanes and
+about 9 minutes longer on `qwen3.8-flash-next-nvfp4`. Later starts reuse them.
+
 ## Host RAM pressure during startup
 
 GPU and system RAM are one pool on DGX Spark. Large models can fail during weight loading,

@@ -26,6 +26,22 @@ Without capabilities, root in a lane cannot write to a host directory it does no
 `./cache/<lane>/` as root. A cache directory owned by your user makes the lane fail with
 `Permission denied`; fix it with `sudo chown -R root:root cache/<lane>`.
 
+### Lane caches
+
+The caches under `./cache/<lane>/` hold compiled kernels and tuning tables, never request
+data. They survive container recreates, so a recreated lane starts as fast as a restarted one.
+An entry that was corrupted or planted would keep running inside its lane, so the waker clears
+a lane's caches just before a start once they are older than `CACHE_MAX_AGE_DAYS` (default 14
+days; `0` turns this off). To clear them now, for example after a suspected compromise:
+
+```bash
+bash tools/clean-caches.sh <model-id>   # or --all; running lanes are skipped
+```
+
+The next start rebuilds them: about a minute longer on most lanes, about 9 minutes on
+`qwen3.8-flash-next-nvfp4`. `tools/validate-stack.sh` fails if a lane can write anywhere
+else.
+
 When you add a lane:
 
 - Use the fragment anchors.

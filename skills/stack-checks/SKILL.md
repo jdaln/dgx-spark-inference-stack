@@ -24,7 +24,7 @@ If you changed a file the soak bundle embeds (`request-validator/index.js`,
 `bash tools/build-soak-bundle.sh`.
 
 ```bash
-bash tools/validate-stack.sh 2>&1 | tee tmp/checks/validate-stack.log            # compose, lane hardening, models.json, soak bundle
+bash tools/validate-stack.sh 2>&1 | tee tmp/checks/validate-stack.log            # compose, lane hardening, cache mounts, models.json, soak bundle
 bash tools/check-supply-chain-pinning.sh 2>&1 | tee tmp/checks/pinning.log       # image digests, action pins
 bash tools/lib/common.test.sh 2>&1 | tee tmp/checks/common-test.log              # weight helpers
 docker run --rm -v "$PWD":/workspace:ro -w /workspace node:20-alpine \

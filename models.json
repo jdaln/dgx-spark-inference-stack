@@ -132,6 +132,6 @@
     "multimodal": true,
     "sourceRecipe": "sakamakismile/Huihui-Qwen3.8-27B-abliterated-NVFP4 (third-party requant of the huihui-ai abliterated checkpoint; mirrors the BF16 lane config for A/B)",
     "speculativeDecoding": true,
-    "notes": "Third-party requant, checked against the BF16 lane by behaviour. Sometimes follows instructions injected into tool output and invents missing tool arguments. Soak clean at 239906 prompt tokens with thinking on."
+    "notes": "Third-party requant, checked against the BF16 lane by behaviour. Sometimes follows instructions injected into tool output and invents missing tool arguments. Soak clean at 239906 prompt tokens with thinking on. Starts take ~6 min: vLLM's config hash for this checkpoint differs between processes, so the ~3.5 min FlashInfer autotune never hits its cache."
   }
 }

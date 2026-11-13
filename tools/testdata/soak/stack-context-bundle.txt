@@ -867,6 +867,7 @@ import {
 } from "./external-workloads.js";
 import { startMonitoring, getModelStats, getAllStats } from "./gpu-monitor.js";
 import { missingWeights } from "./weights.js";
+import { expireLaneCaches } from "./caches.js";
 
 // -------- config --------
 const PORT = Number(process.env.PORT || 18080);
@@ -881,6 +882,10 @@ const BUSY_STATUS_CODE = Number(process.env.BUSY_STATUS_CODE || 429);
 const MODELS_CONFIG_PATH = process.env.MODELS_CONFIG_PATH || "/config/models.json";
 // The ./models mount, read-only. Without it the weights check is skipped.
 const MODELS_DIR = process.env.MODELS_DIR || "/models";
+// ./cache, where each lane keeps its compile, autotune and JIT caches. A lane's caches are
+// cleared before a start once they are older than this many days; 0 never clears them.
+const CACHE_DIR = process.env.CACHE_DIR || "/cache";
+const CACHE_MAX_AGE_DAYS = Number(process.env.CACHE_MAX_AGE_DAYS ?? 14);
 const MODEL_HEALTH_URL_TEMPLATE = process.env.MODEL_HEALTH_URL_TEMPLATE || "http://{name}:8000/health";
 const EXTERNAL_GPU_POLICY = parseExternalGpuPolicy(process.env.EXTERNAL_GPU_POLICY || "observe");
 const EXTERNAL_GPU_CONTAINER_NAMES = parseNameSet(process.env.EXTERNAL_GPU_CONTAINER_NAMES || "");
@@ -989,7 +994,25 @@ function dockerRequest(method, path, body) {
 const d = (p) => (DOCKER_API_VERSION ? `/${DOCKER_API_VERSION}${p}` : p);
 const listContainers = (all = true) => dockerRequest("GET", d(`/containers/json?all=${all ? 1 : 0}`));
 const inspectContainer = (name) => dockerRequest("GET", d(`/containers/${encodeURIComponent(name)}/json`));
-const startContainer = (name) => dockerRequest("POST", d(`/containers/${encodeURIComponent(name)}/start`));
+const dockerStart = (name) => dockerRequest("POST", d(`/containers/${encodeURIComponent(name)}/start`));
+// Every start clears expired caches first, while the lane is confirmed stopped.
+const startContainer = async (name) => {
+  await expireCachesBeforeStart(name);
+  return dockerStart(name);
+};
+
+async function expireCachesBeforeStart(name) {
+  if (!(CACHE_MAX_AGE_DAYS > 0)) return;
+  try {
+    const insp = await inspectContainer(name);
+    if (insp?.State?.Running) return;
+    if (expireLaneCaches(CACHE_DIR, name, CACHE_MAX_AGE_DAYS) === "wiped") {
+      console.log(`[waker] cleared the caches of ${name} (older than ${CACHE_MAX_AGE_DAYS} days); this start rebuilds them`);
+    }
+  } catch (e) {
+    warn(`[waker] cache expiry skipped for ${name}:`, e.message || e);
+  }
+}
 const stopContainer = (name, t) => dockerRequest("POST", d(`/containers/${encodeURIComponent(name)}/stop?t=${t}`));
 
 // Tail of a container's logs, with Docker's 8-byte stream frame headers stripped.

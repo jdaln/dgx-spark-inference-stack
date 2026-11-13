@@ -26,6 +26,8 @@ services:
       NO_STOP_BEFORE_SECONDS: "30"
       HEALTH_TIMEOUT_MS: "900000"
       DOCKER_STOP_TIMEOUT_SECONDS: "5"
+      # Clear a lane's compile and JIT caches before a start once they are this many days old.
+      CACHE_MAX_AGE_DAYS: ${CACHE_MAX_AGE_DAYS:-14}
       MODEL_HEALTH_URL_TEMPLATE: "http://{name}:8000/health"
       TICK_MS: "1000"
       BUSY_STATUS_CODE: "429"
@@ -41,6 +43,9 @@ services:
       - ./models.json:/config/models.json:ro
       # Read-only, to refuse a lane whose weights are missing before starting it.
       - ./models:/models:ro
+      # Lane caches, cleared on schedule (CACHE_MAX_AGE_DAYS). The waker already holds the
+      # Docker socket, so this grants nothing it could not reach before.
+      - ./cache:/cache
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:18080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]

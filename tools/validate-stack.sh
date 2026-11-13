@@ -435,6 +435,17 @@ LANES_WITHOUT_COMPILE_CACHE="$(jq -r '.services | to_entries[]
   | select([.value.volumes[]? | select(.target == "/root/.cache/vllm")] | length == 0)
   | .value.container_name' "$ACTIVE_JSON" | tr '\n' ' ')"
 assert_equals "${LANES_WITHOUT_COMPILE_CACHE% }" "" "every model lane keeps its vLLM compile and autotune cache on a per-lane volume"
+# The waker's cache expiry and tools/clean-caches.sh clear ./cache/<container>/ only, so a lane
+# writes nowhere else.
+STRAY_WRITABLE_MOUNTS="$(jq -r --arg cache "$REPO_DIR/cache/" '[.services | to_entries[]
+  | select((.value.container_name // "") | startswith("vllm-"))
+  | select(.key | test("^(waker|request-validator|api-gateway)$") | not)
+  | .value.container_name as $c
+  | (.value.volumes // [])[] | select(.type == "bind" and (.read_only // false) != true)
+  | select(.source | startswith($cache + $c + "/") | not)
+  | "\($c):\(.source)"] | .[]' "$ACTIVE_JSON" | tr '\n' ' ')"
+assert_equals "${STRAY_WRITABLE_MOUNTS% }" "" "every lane's writable mounts live under ./cache/<container>/, which cache expiry clears"
+assert_json_value "$(jq '.services.waker' "$ACTIVE_JSON")" '[.volumes[] | select(.target == "/cache")] | length' "1" "the waker mounts ./cache to expire lane caches"
 # Every lane resolves to Hugging Face snapshots that tools/download-weights.sh can fetch.
 UNRESOLVED_LANES=""
 for model_id in $(jq -r 'keys[]' "$MODELS_FILE"); do

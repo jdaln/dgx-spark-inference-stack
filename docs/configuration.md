@@ -12,6 +12,7 @@ Set these in a `.env` file at the repo root, or in the shell before `docker comp
 | `VLLM_LOGGING` | `0` | `1` turns on vLLM's normal log output. `0` logs warnings and tracebacks only. |
 | `WAKER_VERBOSE` | `0` | `1` logs every request in the waker and the validator. |
 | `DOCKER_LOG_DRIVER` | `json-file` | `none` turns Docker logging off. |
+| `CACHE_MAX_AGE_DAYS` | `14` | Age at which the waker clears a lane's compile and JIT caches, just before its next start. `0` never clears them. See [security.md](security.md#lane-caches). |
 
 Image overrides (`VLLM_TRACK_IMAGE_MXFP4`, `VLLM_TRACK_IMAGE_DFLASH2`, `VLLM_TRACK_IMAGE_B12X`):
 [runtime-baseline.md](runtime-baseline.md).
@@ -36,6 +37,7 @@ Set on the `waker` service in `docker-compose.yml`. Defaults are the values in e
 | `MAX_STARTUP_SECONDS` | `3600` | How long a never-healthy container may keep loading before it is idle-stopped. |
 | `MODEL_HEALTH_URL_TEMPLATE` | `http://{name}:8000/health` | Health URL pattern. |
 | `MODELS_DIR` | `/models` | Read-only mount of `./models`. A lane whose weights are missing gets `model_weights_missing` before anything starts. Without the mount the check is skipped. |
+| `CACHE_DIR` | `/cache` | Mount of `./cache`, where `CACHE_MAX_AGE_DAYS` applies. Without the mount nothing is cleared. |
 | `EXTERNAL_GPU_POLICY` | `observe` | ComfyUI and other external GPU workloads. See [comfyui-coexistence.md](comfyui-coexistence.md). |
 
 ## Request validator

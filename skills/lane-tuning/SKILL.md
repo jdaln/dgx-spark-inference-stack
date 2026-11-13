@@ -32,7 +32,10 @@ Benchmark with the GPU otherwise idle: stop other main lanes first.
    GPU and system RAM are one pool here; a runaway start once took the whole host down. The
    script refuses to start next to another main lane and kills the variant when available
    memory drops under `VARIANT_MIN_FREE_GIB` (10). For an untried engine or kernel path, also
-   pass `--mem-limit 100g` and start with a lower `--gpu-memory-utilization`.
+   pass `--mem-limit 100g` and start with a lower `--gpu-memory-utilization`. Neither is a
+   hard cap: `--mem-limit` counts only CPU-side memory, and the engine grows past its share.
+   Judge memory by the lowest `MemAvailable` during the start and the benchmark, with the
+   utility lane running for a non-exclusive lane; each 0.01 of share is about 1.22 GiB.
 3. Read results with care:
    - At temperature 1.0 a single speed run swings by about 30%. Use `--speed-repeats 3`, and
      `--sampling greedy` as a control.
@@ -40,6 +43,14 @@ Benchmark with the GPU otherwise idle: stop other main lanes first.
      helps one stream can hurt eight; scale it with load (`num_speculative_tokens_per_batch_size`).
    - Quality: compare pass counts per category. Truncations and gateway timeouts under load
      are failures, and long default reasoning is a common cause.
+   - Startup changes (load format, caches): time a cold start. Evict the lane's weights from
+     the page cache (`dd if=<file> iflag=nocache count=0` on each file under its
+     `models/models--*/blobs/`), recreate the container, and read the time from its start to
+     `Application startup complete` in its log. A loader must not change outputs. On a lane
+     that is deterministic at temperature 0 (the Qwen3.8 27B lanes), compare greedy
+     completions of fixed prompts before and after, on the same persisted autotune cache: a
+     cold FlashInfer autotune can pick other kernels and change greedy text. The Gemma lanes
+     are not deterministic; compare their quality benchmark instead.
 4. Adopt: edit the compose fragment, then rerun the checks from the `model-bring-up` skill,
    steps 3 and 7 to 9: offline checks, `test-lane.sh`, `smoke-errors.sh` with
    `SPEC_MODEL=<model-id>` if the speculative config changed, and the context soak in a

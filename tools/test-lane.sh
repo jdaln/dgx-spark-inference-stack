@@ -94,7 +94,8 @@ test_lane() {
   effort="$(jq -r --arg m "$m" '.[$m].reasoningEffort // ""' "$MODELS_FILE")"
   backend="$(jq -r --arg m "$m" '.[$m].backend // "vllm"' "$MODELS_FILE")"
   extra='{}'
-  [[ "$effort" == graded ]] && extra='{"reasoning_effort":"low"}'
+  # Keep the basic checks short on lanes that think long by default.
+  [[ "$effort" == graded || "$backend" == maya ]] && extra='{"reasoning_effort":"low"}'
 
   # Cold start. When the waker gives up first, wait for the container and retry once.
   body="$(jq -nc --arg m "$m" --argjson x "$extra" '{model: $m, messages: [{role: "user", content: "Reply with exactly the word: ok"}], max_tokens: 1024} + $x')"
@@ -123,7 +124,7 @@ test_lane() {
   body="$(jq -nc --arg m "$m" --argjson x "$extra" '{model: $m, stream: true, messages: [{role: "user", content: "Count from 1 to 5."}], max_tokens: 512} + $x')"
   f="$out/stream.txt"
   st="$(post /v1/chat/completions "$body" "$f")"
-  if [[ "$st" == 200 ]] && grep -qF 'data: [DONE]' "$f" && grep -qE '"(content|reasoning|reasoning_content)":"[^"]' "$f"; then
+  if [[ "$st" == 200 ]] && grep -qF 'data: [DONE]' "$f" && grep -qE '"(content|reasoning|reasoning_content)": ?"[^"]' "$f"; then
     pass "$m stream"
   else
     fail "$m stream: status $st, [DONE] $(grep -cF 'data: [DONE]' "$f")"
@@ -186,9 +187,10 @@ test_lane() {
 
   if [[ -n "$effort" ]]; then
     # "high" must reach the lane in a form its template accepts and turn thinking on; "none"
-    # must turn it off.
+    # must turn it off. A question with a few steps: a model that chooses whether to think
+    # (GLM at its own high) answers a trivial one unthought.
     f="$out/effort-high.json"
-    st="$(post /v1/chat/completions "$(jq -nc --arg m "$m" '{model: $m, messages: [{role: "user", content: "What is 2+2?"}], max_tokens: 256, reasoning_effort: "high"}')" "$f")"
+    st="$(post /v1/chat/completions "$(jq -nc --arg m "$m" '{model: $m, messages: [{role: "user", content: "A train leaves at 09:47 and arrives at 13:05, after a 25-minute stop on the way. How many minutes was it moving?"}], max_tokens: 256, reasoning_effort: "high"}')" "$f")"
     if [[ "$st" == 200 ]] && jq -e '((.choices[0].message.reasoning // .choices[0].message.reasoning_content // "") | length) > 0' "$f" >/dev/null 2>&1; then
       pass "$m reasoning_effort=high turns thinking on"
     else
@@ -203,8 +205,8 @@ test_lane() {
     fi
   fi
 
-  # Default thinking state, where models.json defines it: off with thinkingDefault "off", on
-  # for graded lanes unless their default effort is "none".
+  # Default thinking state, where it is defined: off with thinkingDefault "off", on for graded
+  # lanes unless their default effort is "none". A Maya lane names its default in its command.
   local think_default effort_default expect=""
   think_default="$(jq -r --arg m "$m" '.[$m].thinkingDefault // "template"' "$MODELS_FILE")"
   effort_default="$(jq -r --arg m "$m" '.[$m].reasoningEffortDefault // ""' "$MODELS_FILE")"
@@ -212,10 +214,17 @@ test_lane() {
     expect=off
   elif [[ "$effort" == graded && "$effort_default" != none ]]; then
     expect=on
+  elif [[ "$backend" == maya ]]; then
+    case "$(docker inspect -f '{{json .Config.Cmd}}' "$container" 2>/dev/null |
+      jq -r '. as $c | ($c | index("--reasoning-effort")) as $i | if $i == null then "" else $c[$i + 1] end')" in
+      none) expect=off ;;
+      low | high | max) expect=on ;;
+    esac
   fi
   if [[ -n "$expect" ]]; then
     f="$out/thinking-default.json"
-    st="$(post /v1/chat/completions "$(jq -nc --arg m "$m" '{model: $m, messages: [{role: "user", content: "What is 2+2?"}], max_tokens: 1024}')" "$f")"
+    # A question with a few steps: at its lowest level a model may answer a trivial one unthought.
+    st="$(post /v1/chat/completions "$(jq -nc --arg m "$m" '{model: $m, messages: [{role: "user", content: "A train leaves at 09:47 and arrives at 13:05, after a 25-minute stop on the way. How many minutes was it moving?"}], max_tokens: 2048}')" "$f")"
     local got=off
     jq -e '((.choices[0].message.reasoning // .choices[0].message.reasoning_content // "") | length) > 0' "$f" >/dev/null 2>&1 && got=on
     if [[ "$st" == 200 && "$got" == "$expect" ]]; then

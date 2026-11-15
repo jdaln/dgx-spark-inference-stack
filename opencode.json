@@ -66,6 +66,24 @@
             "output": 32768
           }
         },
+        "glm-5.3-flash-maya-s": {
+          "name": "GLM 5.3 Flash Maya-S",
+          "reasoning": true,
+          "tool_call": true,
+          "limit": {
+            "context": 131072,
+            "output": 40960
+          }
+        },
+        "glm-5.3-flash-maya-s-ablated": {
+          "name": "GLM 5.3 Flash Maya-S Ablated",
+          "reasoning": true,
+          "tool_call": true,
+          "limit": {
+            "context": 131072,
+            "output": 40960
+          }
+        },
         "qwen3.8-27b-nvfp4-dflash2": {
           "name": "Qwen 3.8 27B NVFP4 DFlash2",
           "reasoning": true,

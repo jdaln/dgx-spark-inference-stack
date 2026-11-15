@@ -63,6 +63,31 @@ test("missing weights are reported per target", async () => {
     assert.deepEqual(missingWeights(["vllm", "serve", "org/s", "--revision", "sss"], modelsDir), ["org/s@sss"]);
     await fs.writeFile(path.join(sharded, "model-00002-of-00002.safetensors"), "");
     assert.deepEqual(missingWeights(["vllm", "serve", "org/s", "--revision", "sss"], modelsDir), []);
+
+    // A GGUF repository: no config.json, one folder of split files per variant, served by path.
+    const tierPath = "/models/models--org--g/snapshots/ggg/Tier-S";
+    const tier = path.join(modelsDir, tierPath.slice("/models/".length));
+    const blobs = path.join(modelsDir, "models--org--g", "blobs");
+    await fs.mkdir(tier, { recursive: true });
+    await fs.mkdir(blobs, { recursive: true });
+    const addPart = async (n) => {
+      await fs.writeFile(path.join(blobs, `part-${n}`), "");
+      await fs.symlink(`../../../blobs/part-${n}`, path.join(tier, `m-0000${n}-of-00003.gguf`));
+    };
+    const gguf = ["engine", "--model-path", tierPath];
+    await addPart(1);
+    await addPart(2);
+    assert.deepEqual(missingWeights(gguf, modelsDir), [tierPath]);
+    await addPart(3);
+    assert.deepEqual(missingWeights(gguf, modelsDir), []);
+    await fs.symlink("../../../blobs/absent", path.join(tier, "other.gguf"));
+    assert.deepEqual(missingWeights(gguf, modelsDir), [tierPath]);
+    await fs.rm(path.join(tier, "other.gguf"));
+    // Any other /models path the command names must exist: here a pack built beside the weights.
+    const withPack = [...gguf, "--pack", `${tierPath}/pack`];
+    assert.deepEqual(missingWeights(withPack, modelsDir), [`${tierPath}/pack`]);
+    await fs.mkdir(path.join(tier, "pack"));
+    assert.deepEqual(missingWeights(withPack, modelsDir), []);
   } finally {
     await fs.rm(modelsDir, { recursive: true, force: true });
   }

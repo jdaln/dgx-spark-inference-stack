@@ -94,6 +94,36 @@
     "speculativeDecoding": true,
     "notes": "Needs io_uring on the host and the seccomp profile in docs/security.md. Soak clean at 240k prompt tokens, 63-65 s per request at 2-way."
   },
+  "glm-5.3-flash-maya-s": {
+    "container": "vllm-glm-5.3-flash-maya-s",
+    "port": 8000,
+    "maxModelLen": 131072,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "backend": "maya",
+    "reasoningEffort": "passthrough",
+    "requestTimeoutSeconds": 3600,
+    "lifecycle": "exclusive",
+    "multimodal": false,
+    "sourceRecipe": "peasantsmith/GLM-5.3-Flash-Maya-GGUF (Maya-S) on Project Maya v1.1.61, patched and contained (custom-docker-containers/vllm-node-maya)",
+    "speculativeDecoding": false,
+    "notes": "Project Maya's engine, not vLLM; text only. 4 requests at once, more wait; a long prompt pauses the others while it is read (~750 tok/s). reasoning_effort is passed as sent: GLM's low, high (the default) and max; thinking stops at 32768 tokens. At max a coding task can think 38 minutes, hence requestTimeoutSeconds 3600. Quality set at 8-way: 88-89/92 at low, 83/92 at max; high not benchmarked. Leaves ~18 GiB of host memory; file cache it cannot drop shrinks its expert pool (docs/troubleshooting.md). Soak clean at 119991 prompt tokens, 2-way, default effort: 332-354 s per request. At max the thinking filled the 11K tokens left of the window and no answer came (1213 s): leave room for it."
+  },
+  "glm-5.3-flash-maya-s-ablated": {
+    "container": "vllm-glm-5.3-flash-maya-s-ablated",
+    "port": 8000,
+    "maxModelLen": 131072,
+    "toolSupport": "full",
+    "validatorProfile": "default",
+    "backend": "maya",
+    "reasoningEffort": "passthrough",
+    "requestTimeoutSeconds": 3600,
+    "lifecycle": "exclusive",
+    "multimodal": false,
+    "sourceRecipe": "glm-5.3-flash-maya-s with the refusal direction from peasantsmith/GLM-5.3-Flash-Maya-GGUF projected out at run time (Project Maya's --ablate)",
+    "speculativeDecoding": false,
+    "notes": "The weights, shape and limits of glm-5.3-flash-maya-s; Maya projects the model's refusal direction out of every answer unless the request sends \"ablate\": false. One of the two runs at a time. Soak clean at 119991 prompt tokens, 2-way, default effort: 348-370 s per request. Answers not benchmarked against the plain lane."
+  },
   "ornith-1.5-122b-nvfp4": {
     "container": "vllm-ornith-1.5-122b-nvfp4",
     "port": 8000,

@@ -85,6 +85,42 @@ expect "present: draft missing" "no" \
 expect "present: path-served model, draft missing" "no" \
   "$(status model_weights_present "$(svc vllm serve /models/models--org--model/snapshots/aaa --speculative-config '{"model":"org/absent"}')")"
 
+# A GGUF repository: no config.json, one folder of split files per variant, served by path.
+GGUF="$MODELS_DIR/models--org--gguf"
+TIER="$GGUF/snapshots/ggg/Tier-S"
+mkdir -p "$TIER" "$GGUF/blobs"
+for part in 1 2; do
+  : > "$GGUF/blobs/part-$part"
+  ln -s "../../../blobs/part-$part" "$TIER/m-0000$part-of-00003.gguf"
+done
+TIER_PATH=/models/models--org--gguf/snapshots/ggg/Tier-S
+GGUF_SVC="$(svc engine --model-path "$TIER_PATH")"
+expect "targets: folder of a snapshot" "org/gguf@ggg" "$(service_weight_targets "$GGUF_SVC")"
+expect "subdir: folder of a snapshot" "Tier-S" "$(service_weight_subdir "$GGUF_SVC")"
+expect "subdir: snapshot root" "" "$(service_weight_subdir "$(svc vllm serve /models/models--org--model/snapshots/aaa)")"
+expect "subdir: repo id" "" "$(service_weight_subdir "$SERVE")"
+expect "includes: the served folder only" "Tier-S/*" "$(service_weight_includes "$GGUF_SVC")"
+expect "includes: whole repository when served from the snapshot root" "" \
+  "$(service_weight_includes "$(svc vllm serve /models/models--org--model/snapshots/aaa)")"
+# A pack inside the served folder is built there, not downloaded; another file of the snapshot is.
+expect "includes: plus other files of the snapshot the command names" $'Tier-S/*\nextras/direction.gguf' \
+  "$(service_weight_includes "$(svc engine --model-path "$TIER_PATH" --pack "$TIER_PATH/pack" --direction /models/models--org--gguf/snapshots/ggg/extras/direction.gguf --other /models/models--org--else/snapshots/eee/x.gguf)")"
+expect "present: GGUF folder, a part missing" "no" "$(status model_weights_present "$GGUF_SVC")"
+: > "$GGUF/blobs/part-3"
+ln -s ../../../blobs/part-3 "$TIER/m-00003-of-00003.gguf"
+expect "present: GGUF folder, all parts" "yes" "$(status model_weights_present "$GGUF_SVC")"
+ln -s ../../../blobs/absent "$TIER/other.gguf"
+expect "present: GGUF folder, dangling link" "no" "$(status model_weights_present "$GGUF_SVC")"
+rm "$TIER/other.gguf"
+mkdir -p "$GGUF/snapshots/ggg/Empty"
+expect "present: folder without GGUF files" "no" \
+  "$(status model_weights_present "$(svc engine --model-path /models/models--org--gguf/snapshots/ggg/Empty)")"
+# Any other /models path the command names must exist: here a pack built beside the weights.
+PACK_SVC="$(svc engine --model-path "$TIER_PATH" --pack "$TIER_PATH/pack")"
+expect "present: named pack missing" "no" "$(status model_weights_present "$PACK_SVC")"
+mkdir "$TIER/pack"
+expect "present: named pack built" "yes" "$(status model_weights_present "$PACK_SVC")"
+
 echo
 if [[ "$FAILURES" -ne 0 ]]; then
   echo "FAILED: $FAILURES of $CHECKS weight-helper checks" >&2

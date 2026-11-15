@@ -1,0 +1,28 @@
+name: Maya Lane Tests
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/maya-lane-tests.yml
+      - custom-docker-containers/vllm-node-maya/**
+  workflow_dispatch:
+
+jobs:
+  maya-lane-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Run the Maya lane entrypoint tests in container
+        run: |
+          # renovate: datasource=docker depName=python
+          MAYA_LANE_TEST_IMAGE=python:3.12-slim@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704
+
+          docker run --rm --network none \
+            -v "$GITHUB_WORKSPACE":/workspace:ro \
+            -w /workspace/custom-docker-containers/vllm-node-maya \
+            "$MAYA_LANE_TEST_IMAGE" \
+            python -B -m unittest test_maya_lane

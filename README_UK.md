@@ -57,7 +57,7 @@ wget https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken \
 
 ### 3. Зібрати образ
 
-Моделі працюють на трьох образах. Модель запускається, лише якщо її образ зібрано локально.
+Моделі працюють на чотирьох образах. Модель запускається, лише якщо її образ зібрано локально.
 Образ GPT-OSS збирається однією командою приблизно за 20 хвилин:
 
 ```bash
@@ -65,8 +65,9 @@ docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dock
 ```
 
 Моделі за замовчуванням `qwen3.8-27b-nvfp4-dflash2` і службовій моделі потрібен
-`vllm-node-dflash2`; моделям Gemma і `qwen3.8-flash-next-nvfp4` потрібен `vllm-node-b12x`.
-Обидві збірки описані в [docs/runtime-baseline.md](docs/runtime-baseline.md).
+`vllm-node-dflash2`; моделям Gemma і `qwen3.8-flash-next-nvfp4` потрібен `vllm-node-b12x`;
+моделі `glm-5.3-flash-maya-s` потрібен `vllm-node-maya`. Ці збірки описані в
+[docs/runtime-baseline.md](docs/runtime-baseline.md).
 
 ### 4. Завантажити ваги
 
@@ -90,7 +91,7 @@ docker compose --profile models up --no-start --no-build vllm-oss20b
 ```
 
 Імена сервісів збігаються зі значеннями `container` у [models.json](models.json). Коли всі
-три образи зібрано, приберіть ім'я сервісу, щоб створити контейнери всіх моделей.
+чотири образи зібрано, приберіть ім'я сервісу, щоб створити контейнери всіх моделей.
 
 ## Перший запит
 
@@ -124,14 +125,14 @@ bash tools/test-lane.sh gpt-oss-20b
 | `gpt-oss-20b` | швидка, менша | 131072 | `vllm-node-mxfp4` |
 | `lfm2.5-1.2b` | службова, лишається завантаженою | 32768 | `vllm-node-dflash2` |
 
-[docs/models.md](docs/models.md) перелічує всі 11 моделей та їхні обмеження.
+[docs/models.md](docs/models.md) перелічує всі 13 моделей та їхні обмеження.
 
 ## Документація
 
 - [Архітектура](docs/architecture.md): компоненти, шлях запиту, ендпоінти, життєвий цикл.
 - [Конфігурація](docs/configuration.md): змінні середовища та поля `models.json`.
 - [Моделі](docs/models.md): каталог і обмеження кожної моделі.
-- [Базові образи](docs/runtime-baseline.md): три образи та їхня збірка.
+- [Базові образи](docs/runtime-baseline.md): чотири образи та їхня збірка.
 - [Інтеграції](docs/integrations.md): Cline, OpenCode і pi.
 - [Безпека](docs/security.md): захист контейнерів, seccomp, віддалений доступ через SSH.
 - [Усунення несправностей](docs/troubleshooting.md): типові збої та що робити.
@@ -156,6 +157,7 @@ Renovate щомісяця оновлює дайджести базових об�
 - **[local-inference-lab](https://github.com/local-inference-lab)**: форки vLLM і FlashInfer з ядрами для GB10, з яких
   збирається образ B12X, і чекпоінт `qwen3.8-flash-next-nvfp4`.
 - **[z-lab](https://huggingface.co/z-lab)**: чернеткові моделі DFlash для моделей Qwen3.8 27B і Gemma 4.
+- **[Project Maya](https://github.com/mw00/project-maya)**: рушій і ваги Maya-S, на яких GLM-5.3-Flash працює на одному Spark.
 
 ## Ліцензія
 
@@ -180,6 +182,7 @@ AGPL-3.0-or-later. Див. [LICENSE](LICENSE). Комерційне викори
 - `custom-docker-containers/vllm-node-mxfp4/fastsafetensors_mxfp4.patch`,
   `shared/tool_chat_template_gemma4.jinja`: Apache-2.0 (vLLM).
 - `custom-docker-containers/vllm-node-b12x/seccomp-io-uring.json`: Apache-2.0 (moby/profiles).
+- `custom-docker-containers/vllm-node-maya/patches/`: MIT (Project Maya, `LICENSES/MIT-project-maya.txt`).
 - `shared/gemma4-*-nvfp4-config/`: ліцензії NVIDIA на відповідні моделі.
 
 Версії, опубліковані до 2026-10-11, вийшли під Apache-2.0 і лишаються доступними під нею.

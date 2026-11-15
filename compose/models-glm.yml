@@ -1,0 +1,134 @@
+# Licensed under AGPL-3.0-or-later with additional terms: see LICENSE and NOTICE.
+x-model-common: &model-common
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: "all"
+            capabilities: ["gpu"]
+  ulimits:
+    memlock: -1
+    stack: 67108864
+  restart: "no"
+  logging:
+    driver: ${DOCKER_LOG_DRIVER:-json-file}
+    options:
+      max-size: "10m"
+      max-file: "3"
+  # No egress, no capabilities, no setuid gain; weights come from ./models (docs/security.md).
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  networks:
+    - vllm_internal
+
+x-model-profiled: &model-profiled
+  <<: *model-common
+  profiles: ["models"]
+
+x-maya-build: &maya-build
+  context: ../custom-docker-containers
+  dockerfile: vllm-node-maya/Dockerfile
+
+# GLM-5.3-Flash (320B, 18B active) is too large for vLLM on one Spark. Project Maya serves a
+# low-bit GGUF tier of it: Maya-S, 96.5 GB, every expert in memory. Two lanes serve the same
+# weights and differ in one flag: with --ablate on, Maya projects the model's refusal direction
+# out of its answers. They take the same GLM53_FLASH_MAYA_S_* settings.
+x-glm-maya-lane: &glm-maya-lane
+  <<: *model-profiled
+  image: ${VLLM_TRACK_IMAGE_MAYA:-vllm-node-maya}
+  build: *maya-build
+  # Only RAM is writable, so no request data can reach the disk. Maya compiles nothing at
+  # start: there is no cache to keep.
+  read_only: true
+  tmpfs:
+    - /tmp:noexec,nosuid,size=64m
+    - /run/maya:noexec,nosuid,size=64m
+  # Maya ignores cgroup memory limits. If the host runs out, the kernel takes this lane first.
+  oom_score_adj: 1000
+  volumes:
+    - ../models:/models:ro
+  environment:
+    HF_HUB_OFFLINE: "1"
+    TRANSFORMERS_OFFLINE: "1"
+    HF_HUB_CACHE: /models
+    VLLM_API_KEY: ${VLLM_API_KEY:-63TestTOKEN0REPLACEME}
+    MAYA_LANE_LOGGING: ${VLLM_LOGGING:-0}
+  healthcheck:
+    test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+    interval: 30s
+    timeout: 5s
+    retries: 5
+    start_period: 900s
+
+services:
+  # The model as published: the refusal direction is not loaded, and a request cannot ask for it.
+  vllm-glm-5.3-flash-maya-s:
+    <<: *glm-maya-lane
+    container_name: vllm-glm-5.3-flash-maya-s
+    command:
+      - maya-lane
+      # Pinned snapshot, served by path: one tier folder of the repository, and the pack
+      # tools/download-weights.sh builds beside it.
+      - --model-path
+      - /models/models--peasantsmith--GLM-5.3-Flash-Maya-GGUF/snapshots/5ca1df1d2436bd1ab270b169c5ea6c47aad23641/Maya-S-v2-IQ2_XXS
+      - --glm-pack
+      - /models/models--peasantsmith--GLM-5.3-Flash-Maya-GGUF/snapshots/5ca1df1d2436bd1ab270b169c5ea6c47aad23641/Maya-S-v2-IQ2_XXS/pack
+      - --served-model-name
+      - glm-5.3-flash-maya-s
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --context-length
+      - "${GLM53_FLASH_MAYA_S_MAX_MODEL_LEN:-131072}"
+      - --parallel
+      - "${GLM53_FLASH_MAYA_S_PARALLEL:-4}"
+      # A request that names no reasoning_effort thinks at GLM's high. Requests name GLM's own
+      # levels: low, high, max (one step above high, up to the cap below), or none.
+      - --reasoning-effort
+      - high
+      - --thinking-budget
+      - "32768"
+      # Memory Maya leaves free when it sizes its expert pool: the lane's real memory bound.
+      # The lane asks for more by itself when file cache it cannot drop is in the way.
+      - --ram-headroom-gb
+      - "${GLM53_FLASH_MAYA_S_RAM_HEADROOM_GB:-18}"
+      - --ablate-direction
+      - /models/models--peasantsmith--GLM-5.3-Flash-Maya-GGUF/snapshots/5ca1df1d2436bd1ab270b169c5ea6c47aad23641/refusal-directions/GLM-5.3-Flash-refusal-direction.gguf
+      - --ablate
+      - "off"
+
+  # The same weights with the refusal direction projected out of every answer that does not send
+  # "ablate": false. The direction is a 17 KB file in the same pinned snapshot.
+  vllm-glm-5.3-flash-maya-s-ablated:
+    <<: *glm-maya-lane
+    container_name: vllm-glm-5.3-flash-maya-s-ablated
+    command:
+      - maya-lane
+      - --model-path
+      - /models/models--peasantsmith--GLM-5.3-Flash-Maya-GGUF/snapshots/5ca1df1d2436bd1ab270b169c5ea6c47aad23641/Maya-S-v2-IQ2_XXS
+      - --glm-pack
+      - /models/models--peasantsmith--GLM-5.3-Flash-Maya-GGUF/snapshots/5ca1df1d2436bd1ab270b169c5ea6c47aad23641/Maya-S-v2-IQ2_XXS/pack
+      - --served-model-name
+      - glm-5.3-flash-maya-s-ablated
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --context-length
+      - "${GLM53_FLASH_MAYA_S_MAX_MODEL_LEN:-131072}"
+      - --parallel
+      - "${GLM53_FLASH_MAYA_S_PARALLEL:-4}"
+      - --reasoning-effort
+      - high
+      - --thinking-budget
+      - "32768"
+      - --ram-headroom-gb
+      - "${GLM53_FLASH_MAYA_S_RAM_HEADROOM_GB:-18}"
+      - --ablate-direction
+      - /models/models--peasantsmith--GLM-5.3-Flash-Maya-GGUF/snapshots/5ca1df1d2436bd1ab270b169c5ea6c47aad23641/refusal-directions/GLM-5.3-Flash-refusal-direction.gguf
+      - --ablate
+      - "on"

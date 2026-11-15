@@ -343,6 +343,7 @@ for model_id in $(jq -r 'keys[]' "$MODELS_FILE"); do
 
     actual="vllm"
     case "$command_line" in
+        *maya-lane*) actual="maya" ;;
         *sglang*) actual="sglang" ;;
         *llama-server*|*llama_cpp*) actual="llamacpp" ;;
     esac
@@ -405,6 +406,58 @@ assert_equals "$(jq -r '.quantization_config | (.quant_algo + "/" + ((.kv_cache_
 assert_repo_file "shared/gemma4-31b-nvfp4-config/generation_config.json" "gemma4-31b config copy keeps the checkpoint's sampling defaults"
 assert_command_has_flag "$GEMMA4_31B_JSON" "--no-scheduler-reserve-full-isl" "gemma4-31b turns off the full-prompt admission gate that stalls long prompts"
 
+# The two GLM lanes run Project Maya, the one engine here that is not vLLM. Upstream is not
+# trusted, so the lanes' shape and the build recipe are pinned. Both serve the same weights and
+# differ in one flag: with --ablate on, Maya projects the refusal direction out of the answers.
+EXPECTED_MAYA_IMAGE="${VLLM_TRACK_IMAGE_MAYA:-vllm-node-maya}"
+GLM53_MAYA_DIR="/models/models--peasantsmith--GLM-5.3-Flash-Maya-GGUF/snapshots/5ca1df1d2436bd1ab270b169c5ea6c47aad23641/Maya-S-v2-IQ2_XXS"
+MAYA_RECIPE="custom-docker-containers/vllm-node-maya"
+for _lane in "glm-5.3-flash-maya-s off" "glm-5.3-flash-maya-s-ablated on"; do
+    _id="${_lane% *}"
+    _ablate="${_lane#* }"
+    GLM53_MAYA_JSON="$(resolve_service_json "$ACTIVE_JSON" "$_id")"
+    GLM53_MAYA_RAW="$(jq --arg s "vllm-$_id" '.services[$s]' "$ACTIVE_JSON")"
+    assert_equals "$(jq -r '.image // ""' <<<"$GLM53_MAYA_JSON")" "$EXPECTED_MAYA_IMAGE" "$_id uses the Maya image"
+    assert_json_value "$GLM53_MAYA_JSON" '.build.dockerfile // ""' "vllm-node-maya/Dockerfile" "$_id builds from the repo's Maya Dockerfile"
+    assert_json_value "$GLM53_MAYA_JSON" '.build.context // ""' "$REPO_DIR/custom-docker-containers" "the Maya build of $_id sees only custom-docker-containers/"
+    assert_json_value "$GLM53_MAYA_JSON" '.command[0]' "maya-lane" "$_id starts through the hardened entrypoint, not Maya's own launcher"
+    assert_flag_value "$GLM53_MAYA_JSON" "--model-path" "$GLM53_MAYA_DIR" "$_id serves the pinned Maya-S snapshot by path"
+    assert_flag_value "$GLM53_MAYA_JSON" "--glm-pack" "$GLM53_MAYA_DIR/pack" "$_id names the pack beside its GGUF files, so the weight checks require it"
+    assert_flag_value "$GLM53_MAYA_JSON" "--served-model-name" "$_id" "$_id keeps the local served model id"
+    assert_flag_value "$GLM53_MAYA_JSON" "--port" "8000" "$_id listens where the healthcheck and the tools look"
+    assert_flag_value "$GLM53_MAYA_JSON" "--context-length" "131072" "$_id serves the context upstream measured on a Spark"
+    assert_flag_value "$GLM53_MAYA_JSON" "--parallel" "4" "$_id answers 4 requests at once"
+    assert_flag_value "$GLM53_MAYA_JSON" "--thinking-budget" "32768" "$_id keeps Maya's own cap on thinking"
+    assert_flag_value "$GLM53_MAYA_JSON" "--reasoning-effort" "high" "$_id thinks at GLM's high unless a request names another level"
+    assert_equals "$(jq -r --arg m "$_id" '.[$m] | "\(.reasoningEffort) \(.reasoningEffortDefault // "unset")"' "$MODELS_FILE")" "passthrough unset" "$_id gets reasoning_effort as the client sent it: Maya reads low, high and max as GLM's own levels"
+    assert_equals "$(jq -r --arg m "$_id" '.[$m].requestTimeoutSeconds' "$MODELS_FILE")" "3600" "$_id may take an hour for a response that does not stream: at max it thinks for tens of minutes"
+    assert_flag_value "$GLM53_MAYA_JSON" "--ram-headroom-gb" "18" "$_id leaves 18 GB when Maya sizes its pool (Maya ignores cgroup limits; every expert then fits)"
+    assert_flag_value "$GLM53_MAYA_JSON" "--ablate" "$_ablate" "$_id has refusal ablation $_ablate: the model id says which, no setting switches it"
+    assert_flag_value "$GLM53_MAYA_JSON" "--ablate-direction" "${GLM53_MAYA_DIR%/*}/refusal-directions/GLM-5.3-Flash-refusal-direction.gguf" "$_id names the pinned refusal direction file, so the weight checks require it"
+    assert_json_value "$GLM53_MAYA_RAW" '.read_only' "true" "$_id has a read-only root filesystem"
+    assert_json_value "$GLM53_MAYA_RAW" '.tmpfs | sort | join(" ")' "/run/maya:noexec,nosuid,size=64m /tmp:noexec,nosuid,size=64m" "$_id writes to two small RAM-backed folders only"
+    assert_json_value "$GLM53_MAYA_RAW" '[.volumes[] | select((.read_only // false) != true)] | length' "0" "$_id has no writable mount: no request data can reach the disk"
+    assert_json_value "$GLM53_MAYA_RAW" '.oom_score_adj' "1000" "$_id is the first the kernel takes when memory runs out"
+    assert_json_value "$GLM53_MAYA_JSON" '.security_opt | join(",")' "no-new-privileges:true" "$_id runs under Docker's default seccomp profile"
+    assert_json_value "$GLM53_MAYA_JSON" '[.environment | keys[] | select(test("^(MAYA|STRATA)_.*(DEBUG|TRACE|DUMP)"))] | length' "0" "$_id sets no Maya debug or trace variable"
+    assert_equals "$(jq -r --arg m "$_id" '.[$m] | "\(.backend) \(.lifecycle) \(.multimodal) \(.speculativeDecoding)"' "$MODELS_FILE")" "maya exclusive false false" "$_id is declared as an exclusive, text-only Maya lane without speculative decoding"
+done
+# The validator enforces each lane's own limit; the gateway's read timeout is the backstop.
+GATEWAY_READ_TIMEOUT="$(sed -n 's/^ *proxy_read_timeout \([0-9][0-9]*\)s;.*/\1/p' "$REPO_DIR/gateway.conf" | head -n 1)"
+LONGEST_LANE_TIMEOUT="$(jq '[.[] | .requestTimeoutSeconds // 1200] | max' "$MODELS_FILE")"
+assert_equals "$([[ "${GATEWAY_READ_TIMEOUT:-0}" -gt "$LONGEST_LANE_TIMEOUT" ]] && echo above || echo "not above")" "above" "the gateway's read timeout (${GATEWAY_READ_TIMEOUT:-unset} s) is above the longest lane limit ($LONGEST_LANE_TIMEOUT s)"
+for _file in Dockerfile maya_lane.py test_maya_lane.py selftest.py audit.py audit-allow.txt requirements.lock build-metadata.yaml README.md \
+    patches/0001-serve-only-the-lane-routes.patch patches/0002-leave-origin-policy-to-the-gateway.patch \
+    patches/0003-ignore-the-web-app-request-fields.patch patches/0004-load-images-from-data-urls-only.patch \
+    stubs/update.py stubs/model_pull.py stubs/mcp.py; do
+    assert_repo_file "$MAYA_RECIPE/$_file" "the Maya recipe keeps $_file in the repo"
+done
+assert_equals "$(sed -n 's/^ARG MAYA_SHA=//p' "$REPO_DIR/$MAYA_RECIPE/Dockerfile")" "$(sed -n 's/^upstream_commit: //p' "$REPO_DIR/$MAYA_RECIPE/build-metadata.yaml")" "the Maya Dockerfile and its metadata name the same upstream commit"
+assert_equals "$(grep -cE '^ARG (MAYA|LLAMA_CPP)_SHA=[0-9a-f]{40}$' "$REPO_DIR/$MAYA_RECIPE/Dockerfile")" "2" "the Maya Dockerfile pins Maya and llama.cpp by full commit"
+assert_equals "$(grep -c -- '^RUN --network=none' "$REPO_DIR/$MAYA_RECIPE/Dockerfile")" "4" "the Maya Dockerfile patches, compiles, assembles and tests with no network"
+assert_repo_file_contains "$MAYA_RECIPE/Dockerfile" 'require-hashes --only-binary :all: --no-deps' "the Maya image installs Python packages from hashed wheels only"
+assert_equals "$(grep -E '^[A-Za-z0-9_.-]+==' "$REPO_DIR/$MAYA_RECIPE/requirements.lock" | grep -vc '\\$')" "0" "every package in the Maya lock carries hashes"
+
 # Every model lane: no egress, no capabilities, no setuid gain, Hugging Face offline from a
 # read-only ./models.
 UNHARDENED_LANES="$(jq -r '.services | to_entries[]
@@ -428,13 +481,17 @@ SHARED_WRITABLE_MOUNTS="$(jq -r '[.services | to_entries[]
   | group_by(.s) | map(select(length > 1) | "\(.[0].s) (\(map(.c) | join(",")))") | .[]' "$ACTIVE_JSON" | tr '\n' ' ')"
 assert_equals "${SHARED_WRITABLE_MOUNTS% }" "" "no two lanes share a writable mount"
 # Compile and autotune results outlive a container recreate, so a recreated lane starts as
-# fast as a restarted one. They hold kernels and tuning tables, never request data.
-LANES_WITHOUT_COMPILE_CACHE="$(jq -r '.services | to_entries[]
+# fast as a restarted one. They hold kernels and tuning tables, never request data. Lanes on
+# another engine are pinned by their own block above.
+LANES_WITHOUT_COMPILE_CACHE="$(jq -r --slurpfile models "$MODELS_FILE" '
+  ($models[0] | [.[] | select((.backend // "vllm") != "vllm") | .container]) as $other_engines
+  | .services | to_entries[]
   | select((.value.container_name // "") | startswith("vllm-"))
   | select(.key | test("^(waker|request-validator|api-gateway)$") | not)
+  | select(.value.container_name as $c | $other_engines | index($c) | not)
   | select([.value.volumes[]? | select(.target == "/root/.cache/vllm")] | length == 0)
   | .value.container_name' "$ACTIVE_JSON" | tr '\n' ' ')"
-assert_equals "${LANES_WITHOUT_COMPILE_CACHE% }" "" "every model lane keeps its vLLM compile and autotune cache on a per-lane volume"
+assert_equals "${LANES_WITHOUT_COMPILE_CACHE% }" "" "every vLLM lane keeps its compile and autotune cache on a per-lane volume"
 # The waker's cache expiry and tools/clean-caches.sh clear ./cache/<container>/ only, so a lane
 # writes nowhere else.
 STRAY_WRITABLE_MOUNTS="$(jq -r --arg cache "$REPO_DIR/cache/" '[.services | to_entries[]

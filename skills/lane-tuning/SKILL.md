@@ -43,6 +43,12 @@ Benchmark with the GPU otherwise idle: stop other main lanes first.
      helps one stream can hurt eight; scale it with load (`num_speculative_tokens_per_batch_size`).
    - Quality: compare pass counts per category. Truncations and gateway timeouts under load
      are failures, and long default reasoning is a common cause.
+   - Maya lanes: check the start before trusting a run.
+     `docker logs <container> 2>&1 | grep "maya-lane:"` must show `memory at ready` with 3.5 GB
+     or more free, and no line about cache the lane cannot drop. A start short of free memory
+     reads long prompts about six times slower; one that shrank its pool writes slower.
+     Neither compares with a clean start. Maya ignores `--mem-limit` and the vLLM share: its
+     bound is `--ram-headroom-gb`.
    - Startup changes (load format, caches): time a cold start. Evict the lane's weights from
      the page cache (`dd if=<file> iflag=nocache count=0` on each file under its
      `models/models--*/blobs/`), recreate the container, and read the time from its start to

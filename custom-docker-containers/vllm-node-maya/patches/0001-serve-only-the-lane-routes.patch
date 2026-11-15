@@ -1,0 +1,61 @@
+diff --git a/serve/server.py b/serve/server.py
+index d96dd51..672992e 100644
+--- a/serve/server.py
++++ b/serve/server.py
+@@ -5368,6 +5368,10 @@ def parse_cors_origins(value) -> list[str]:
+     return [o.strip().rstrip("/") for o in value]
+ 
+ 
++# The only routes this image answers (Handler._lane_route).
++LANE_ROUTES = {"GET": ("/health",), "POST": ("/v1/chat/completions", "/tokenize", "/detokenize")}
++
++
+ def make_handler(svc: Service):
+     class Handler(BaseHTTPRequestHandler):
+         protocol_version = "HTTP/1.0"                       # SSE ends by closing the connection
+@@ -5764,7 +5768,18 @@ def make_handler(svc: Service):
+                     self.send_header("Vary", "Origin")
+             super().end_headers()
+ 
++        def _lane_route(self, method) -> bool:
++            """This image serves one hardened lane: only the routes in LANE_ROUTES exist.  Every other one (the
++            dashboard, settings, model management, updates, MCP, the Ollama, Responses and Anthropic APIs) is a 404,
++            before any key is read."""
++            if self.path.split("?")[0].rstrip("/") in LANE_ROUTES.get(method, ()):
++                return True
++            self._json(404, {"error": {"type": "not_found_error", "message": "not found"}})
++            return False
++
+         def do_OPTIONS(self):
++            if not self._lane_route("OPTIONS"):
++                return
+             # a CORS preflight: no credentials come with it, so no API key; granted only for cors_origins
+             allow = self._cors_allow()
+             self.send_response(204 if allow else 403)
+@@ -5889,6 +5904,8 @@ def make_handler(svc: Service):
+             self._json(200, out)
+ 
+         def do_DELETE(self):
++            if not self._lane_route("DELETE"):
++                return
+             if self._foreign_page():
+                 return
+             if self.path.split("?")[0].startswith("/v1/responses/"):
+@@ -5900,6 +5917,8 @@ def make_handler(svc: Service):
+                 self._json(404, {"error": {"message": "not found"}})
+ 
+         def do_GET(self):
++            if not self._lane_route("GET"):
++                return
+             path = self.path.split("?")[0].rstrip("/")
+             if path == "/models/sse":
+                 self._models_sse()
+@@ -6126,6 +6145,8 @@ def make_handler(svc: Service):
+             self._json(code, {"error": {"type": kind, "message": message}})
+ 
+         def do_POST(self):
++            if not self._lane_route("POST"):
++                return
+             TURN.clear() if TURN_TRACE else None
+             turn_mark("http")
+             if not self._authorized() or self._foreign_page():

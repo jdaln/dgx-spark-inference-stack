@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 process.env.MODELS_CONFIG_PATH = path.resolve(__dirname, "../models.json");
 process.env.VERBOSE = "0";
 
-const { processBody, unsupportedSamplingParam, MODEL_CONFIG } = await import("./index.js");
+const { processBody, proxyRequest, unsupportedSamplingParam, MODEL_CONFIG } = await import("./index.js");
 
 // A lane shape the stack supports but no current model uses.
 function syntheticLane(overrides) {
@@ -401,6 +401,7 @@ test("backend defaults to vllm", () => {
 test("a known non-vLLM backend is accepted", () => {
   assert.equal(normalizeOne({ backend: "sglang" }).backend, "sglang");
   assert.equal(normalizeOne({ backend: "llamacpp" }).backend, "llamacpp");
+  assert.equal(normalizeOne({ backend: "maya" }).backend, "maya");
 });
 
 test("an unknown backend is rejected rather than silently inheriting vLLM semantics", () => {
@@ -408,6 +409,79 @@ test("an unknown backend is rejected rather than silently inheriting vLLM semant
     () => normalizeOne({ backend: "tensorrt-llm" }),
     /invalid backend 'tensorrt-llm'/
   );
+});
+
+// --- A lane's own request time limit ------------------------------------------------------
+//
+// A lane that thinks long by default needs more than the usual 1200 s for a response that
+// does not stream. The validator enforces each lane's limit; the gateway's sits above them.
+
+test("requestTimeoutSeconds defaults to 1200 and takes 60 to 3600", () => {
+  assert.equal(normalizeOne().requestTimeoutSeconds, 1200);
+  assert.equal(normalizeOne({ requestTimeoutSeconds: 3600 }).requestTimeoutSeconds, 3600);
+  for (const bad of [59, 3601, 1200.5, "1200"]) {
+    assert.throws(() => normalizeOne({ requestTimeoutSeconds: bad }), /invalid requestTimeoutSeconds/);
+  }
+  assert.equal(MODEL_CONFIG["glm-5.3-flash-maya-s"].requestTimeoutSeconds, 3600);
+  assert.equal(MODEL_CONFIG["qwen3.8-27b-nvfp4-dflash2"].requestTimeoutSeconds, 1200);
+});
+
+// A stand-in for the validator in front of a model that goes silent.
+async function throughProxy(target, upstreamHandler) {
+  const http = await import("node:http");
+  const upstream = http.createServer(upstreamHandler);
+  await new Promise((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  const front = http.createServer((req, res) => {
+    proxyRequest(req, res, "{}", { ...target, host: "127.0.0.1", port: upstream.address().port });
+  });
+  await new Promise((resolve) => front.listen(0, "127.0.0.1", resolve));
+  const started = Date.now();
+  try {
+    return await new Promise((resolve) => {
+      const req = http.request({ host: "127.0.0.1", port: front.address().port, path: "/v1/chat/completions", method: "POST" }, (res) => {
+        let text = "";
+        res.on("data", (chunk) => { text += chunk; });
+        res.on("end", () => resolve({ status: res.statusCode, text, ended: true, ms: Date.now() - started }));
+        res.on("error", () => resolve({ status: res.statusCode, text, ended: false, ms: Date.now() - started }));
+        res.on("aborted", () => resolve({ status: res.statusCode, text, ended: false, ms: Date.now() - started }));
+      });
+      req.on("error", (err) => resolve({ status: 0, text: String(err.message), ended: false, ms: Date.now() - started }));
+      req.end();
+    });
+  } finally {
+    front.closeAllConnections();
+    upstream.closeAllConnections();
+    front.close();
+    upstream.close();
+  }
+}
+
+test("a model silent past its lane's limit ends the request with the gateway's 504", async () => {
+  // lifecycle utility: no idle-timer keep-alive to the waker in this test.
+  const lane = syntheticLane({ lifecycle: "utility", requestTimeoutSeconds: 1 });
+  const silent = await throughProxy(lane, () => {});   // accepts the request, never answers
+  assert.equal(silent.status, 504);
+  assert.deepEqual(JSON.parse(silent.text), {
+    error: { message: "Upstream service timed out.", type: "api_error", param: null, code: "gateway_timeout" }
+  });
+  assert.ok(silent.ms >= 900 && silent.ms < 4000, `took ${silent.ms} ms`);
+
+  // A stream that stalls is cut after the same gap; what it sent before stays sent.
+  const stalled = await throughProxy(lane, (req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.write("data: first\n\n");
+  });
+  assert.equal(stalled.status, 200);
+  assert.equal(stalled.ended, false);
+  assert.match(stalled.text, /data: first/);
+
+  // A lane with a longer limit is still waiting when a shorter one has given up.
+  const patient = syntheticLane({ lifecycle: "utility", requestTimeoutSeconds: 3 });
+  const answered = await throughProxy(patient, (req, res) => {
+    setTimeout(() => { res.writeHead(200, { "content-type": "application/json" }); res.end('{"ok":true}'); }, 1500);
+  });
+  assert.equal(answered.status, 200);
+  assert.equal(answered.text, '{"ok":true}');
 });
 
 // --- Qwen3.8 graded reasoning effort, abliterated lane ------------------------------------
@@ -474,6 +548,31 @@ test("graded lane default reasoning effort applies only when the caller states n
   assert.equal(explicit.chat_template_kwargs.enable_thinking, true);
   const noDefault = { ...lane, reasoningEffortDefault: undefined };
   assert.equal(runProcess({ model: "qwen3.8-27b-nvfp4-dflash2", messages: [{ role: "user", content: "hi" }] }, noDefault).reasoning_effort, undefined);
+});
+
+// GLM-5.3-Flash on Maya knows low, high and max. Maya's server turns "medium" into high and
+// "xhigh" into max, so the graded table gives clients' low / medium / high the three levels.
+test("the Maya GLM lanes get reasoning_effort as the client sent it", () => {
+  for (const model of ["glm-5.3-flash-maya-s", "glm-5.3-flash-maya-s-ablated"]) {
+    const lane = MODEL_CONFIG[model];
+    assert.equal(lane.backend, "maya");
+    // Maya reads the words itself: low, high and max are GLM's own levels, none is off. "high"
+    // must not become a higher level on the way.
+    assert.equal(lane.reasoningEffort, "passthrough");
+    const run = (payload) => runProcess({ model, messages: [{ role: "user", content: "hi" }], ...payload }, lane);
+    for (const sent of ["none", "low", "medium", "high", "xhigh", "max"]) {
+      const out = run({ reasoning_effort: sent });
+      assert.equal(out.reasoning_effort, sent, `reasoning_effort ${sent}`);
+      assert.equal(out.chat_template_kwargs, undefined, `reasoning_effort ${sent} adds no template flag`);
+    }
+    // No effort stated: none is added, so the lane's own default applies (--reasoning-effort).
+    assert.equal(run({}).reasoning_effort, undefined);
+    // Maya's own per-request switch for the refusal direction passes untouched.
+    assert.equal(run({ ablate: false }).ablate, false);
+    // The lane has no speculative decoding, so the sampling parameters vLLM lanes reject pass.
+    assert.equal(unsupportedSamplingParam(JSON.stringify({ model, min_p: 0.05 }), lane), null);
+    assert.equal(lane.requestTimeoutSeconds, 3600);
+  }
 });
 
 test("Gemma lanes map reasoning_effort onto the template's thinking switch", () => {

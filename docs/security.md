@@ -13,13 +13,16 @@ Every model lane runs with:
 | `networks: [vllm_internal]` | No egress. The network is `internal: true`; its other members are the gateway, validator and waker. |
 | `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`, `HF_HUB_CACHE=/models` | Nothing downloads at runtime. Weights come from `./models`, fetched with `bash tools/download-weights.sh <model-id>`. |
 | `../models:/models:ro` | A lane cannot change any weights. Lanes run as root, so only the read-only mount stops them, and without capabilities they cannot remount it. |
-| `../cache/<lane>/...` | Each lane has its own Hugging Face home and kernel, extension and compile caches. These hold code the lane runs, so one lane cannot plant code in another's. |
+| `../cache/<lane>/...` | Each vLLM lane has its own Hugging Face home and kernel, extension and compile caches. These hold code the lane runs, so one lane cannot plant code in another's. |
 
 The settings come from the `x-model-common` and `x-env-common` anchors at the top of each
 `compose/models-*.yml` (set per service in `models-liquid.yml`).
 `tools/validate-stack.sh`, which CI runs, fails if a lane misses one or if two lanes share
 a writable cache mount. Keep relaxations in an uncommitted override file
 ([below](#relaxing-a-lane-temporarily)).
+
+The two GLM lanes run Project Maya instead of vLLM. Information about Maya is available at
+ [custom-docker-containers/vllm-node-maya/README.md](../custom-docker-containers/vllm-node-maya/README.md).
 
 Without capabilities, root in a lane cannot write to a host directory it does not own.
 `./models` is only read, so it can belong to you. Docker creates the caches under
@@ -30,6 +33,7 @@ Without capabilities, root in a lane cannot write to a host directory it does no
 
 The caches under `./cache/<lane>/` hold compiled kernels and tuning tables, never request
 data. They survive container recreates, so a recreated lane starts as fast as a restarted one.
+The Maya lane keeps none: it compiles nothing at start.
 An entry that was corrupted or planted would keep running inside its lane, so the waker clears
 a lane's caches just before a start once they are older than `CACHE_MAX_AGE_DAYS` (default 14
 days; `0` turns this off). To clear them now, for example after a suspected compromise:

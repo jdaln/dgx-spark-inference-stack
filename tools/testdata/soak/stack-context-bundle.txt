@@ -18,7 +18,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import http from "node:http";
 import { pathToFileURL } from "node:url";
 import { isOpenAIErrorEnvelope, makeOpenAIError, writeOpenAIError } from "../shared/error-response.mjs";
-import { loadModelsConfig } from "../shared/models-config.mjs";
+import { DEFAULT_REQUEST_TIMEOUT_SECONDS, loadModelsConfig } from "../shared/models-config.mjs";
 
 const PORT = Number(process.env.PORT || 18081);
 // Matches the gateway's client_max_body_size 64m; direct callers get the same cap.
@@ -51,7 +51,8 @@ const MODEL_CONFIG = Object.fromEntries(
       multimodal: entry.multimodal,
       normalizeTextContent: entry.normalizeTextContent,
       speculativeDecoding: entry.speculativeDecoding,
-      reasoningNeedsSpecialTokens: entry.reasoningNeedsSpecialTokens
+      reasoningNeedsSpecialTokens: entry.reasoningNeedsSpecialTokens,
+      requestTimeoutSeconds: entry.requestTimeoutSeconds
     }
   ])
 );
@@ -102,8 +103,8 @@ function unsupportedSamplingParam(body, targetConfig) {
 }
 
 // Engines measured to answer at full length when the client omits max_tokens. Add a backend
-// only after measuring it.
-const BACKEND_OWNS_TOKEN_BUDGET = new Set(["vllm", "sglang"]);
+// only after measuring it (maya: tools/test-maya-lane.sh --token-budget).
+const BACKEND_OWNS_TOKEN_BUDGET = new Set(["vllm", "sglang", "maya"]);
 
 const RECOGNIZED_REASONING_EFFORTS = new Set([
   "none",
@@ -623,7 +624,28 @@ function proxyRequest(req, res, body, target) {
     res.writeHead(proxyRes.statusCode, proxyRes.headers);
     proxyRes.pipe(res);
   });
+  // The lane's limit on silence from the model (models.json requestTimeoutSeconds): the whole
+  // wait for a response that does not stream, a gap inside one that does. The gateway's own
+  // read timeout sits above the largest lane's, so this answer is the one clients get.
+  const limitSeconds = target.requestTimeoutSeconds ?? DEFAULT_REQUEST_TIMEOUT_SECONDS;
+  let timedOut = false;
+  proxyReq.setTimeout(limitSeconds * 1000, () => {
+    timedOut = true;
+    warn(`No data from ${target.host} for ${limitSeconds} s; ending the request`);
+    if (res.headersSent) {
+      res.destroy();
+    } else {
+      writeOpenAIError(res, 504, {
+        message: "Upstream service timed out.",
+        type: "api_error",
+        param: null,
+        code: "gateway_timeout"
+      });
+    }
+    proxyReq.destroy();
+  });
   proxyReq.on("error", (err) => {
+    if (timedOut) return;
     warn(`Proxy error to ${target.host}:`, err.message);
     if (res.headersSent) {
       // Response already streaming; too late for an error envelope.
@@ -833,7 +855,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-export { processBody, unsupportedSamplingParam, MODEL_CONFIG };
+export { processBody, proxyRequest, unsupportedSamplingParam, MODEL_CONFIG };
 
 if (isMainModule()) {
   server.setTimeout(0);
@@ -2009,7 +2031,7 @@ const ALLOWED_TOOL_SUPPORT = new Set(["full", "force-required", "none"]);
 const ALLOWED_LIFECYCLE = new Set(["normal", "utility", "exclusive"]);
 // Serving engine. It decides whether the validator can leave an omitted max_tokens to the
 // engine (see BACKEND_OWNS_TOKEN_BUDGET in request-validator).
-const ALLOWED_BACKENDS = new Set(["vllm", "sglang", "llamacpp"]);
+const ALLOWED_BACKENDS = new Set(["vllm", "sglang", "llamacpp", "maya"]);
 
 const ALLOWED_VALIDATOR_PROFILES = new Set([
   "default",
@@ -2025,6 +2047,13 @@ const ALLOWED_VALIDATOR_PROFILES = new Set([
 const ALLOWED_THINKING_DEFAULTS = new Set(["template", "off"]);
 const ALLOWED_REASONING_EFFORT = new Set(["passthrough", "binary", "graded"]);
 const ALLOWED_REASONING_EFFORT_DEFAULTS = new Set(["none", "low", "medium", "high"]);
+
+// How long a lane may send nothing before its request ends with a 504: the whole wait for a
+// response that does not stream, a gap inside one that does. The validator enforces it per
+// lane; the gateway's own proxy_read_timeout must stay above the largest.
+export const DEFAULT_REQUEST_TIMEOUT_SECONDS = 1200;
+export const MAX_REQUEST_TIMEOUT_SECONDS = 3600;
+const MIN_REQUEST_TIMEOUT_SECONDS = 60;
 
 function formatPath(filePath) {
   return filePath || "<inline-models-config>";
@@ -2091,9 +2120,15 @@ export function normalizeModelsConfig(raw, filePath) {
     const experimental = value.experimental ?? false;
     const sourceRecipe = value.sourceRecipe ?? null;
     const notes = value.notes ?? null;
+    const requestTimeoutSeconds = value.requestTimeoutSeconds ?? DEFAULT_REQUEST_TIMEOUT_SECONDS;
 
     assertPositiveInteger(filePath, modelId, "port", port);
     assertPositiveInteger(filePath, modelId, "maxModelLen", maxModelLen);
+    if (!Number.isInteger(requestTimeoutSeconds) || requestTimeoutSeconds < MIN_REQUEST_TIMEOUT_SECONDS ||
+        requestTimeoutSeconds > MAX_REQUEST_TIMEOUT_SECONDS) {
+      fail(filePath, `model '${modelId}' has invalid requestTimeoutSeconds '${requestTimeoutSeconds}' ` +
+        `(an integer from ${MIN_REQUEST_TIMEOUT_SECONDS} to ${MAX_REQUEST_TIMEOUT_SECONDS})`);
+    }
     assertEnum(filePath, modelId, "toolSupport", toolSupport, ALLOWED_TOOL_SUPPORT);
     assertEnum(filePath, modelId, "validatorProfile", validatorProfile, ALLOWED_VALIDATOR_PROFILES);
     assertEnum(filePath, modelId, "thinkingDefault", thinkingDefault, ALLOWED_THINKING_DEFAULTS);
@@ -2157,6 +2192,7 @@ export function normalizeModelsConfig(raw, filePath) {
       experimental,
       sourceRecipe,
       notes,
+      requestTimeoutSeconds,
       upstream,
       health
     };
@@ -2259,11 +2295,13 @@ server {
   # DNS for Docker internal hostnames
   resolver 127.0.0.11 ipv6=off valid=30s;
 
-  # 1200 s covers long thinking answers at full context.
+  # The validator ends a request when its model has sent nothing for the lane's own limit
+  # (models.json requestTimeoutSeconds: 1200 s unless set, 3600 at most). This read timeout
+  # is the backstop above the largest.
   proxy_http_version 1.1;
   proxy_buffering off;
   proxy_request_buffering off;
-  proxy_read_timeout 1200s;
+  proxy_read_timeout 3660s;
   proxy_send_timeout 1200s;
   proxy_set_header Host $host;
   proxy_set_header X-Real-IP $remote_addr;

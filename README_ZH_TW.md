@@ -53,7 +53,7 @@ wget https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken \
 
 ### 3. 建置一個執行映像
 
-模型執行在三個映像上。只有本機已建置對應映像的模型才能啟動。GPT-OSS 映像只需一條指令，
+模型執行在四個映像上。只有本機已建置對應映像的模型才能啟動。GPT-OSS 映像只需一條指令，
 約 20 分鐘：
 
 ```bash
@@ -61,7 +61,8 @@ docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dock
 ```
 
 預設模型 `qwen3.8-27b-nvfp4-dflash2` 和輔助模型需要 `vllm-node-dflash2`；Gemma 模型和
-`qwen3.8-flash-next-nvfp4` 需要 `vllm-node-b12x`。兩者的建置見
+`qwen3.8-flash-next-nvfp4` 需要 `vllm-node-b12x`；`glm-5.3-flash-maya-s` 需要
+`vllm-node-maya`。這些映像的建置見
 [docs/runtime-baseline.md](docs/runtime-baseline.md)。
 
 ### 4. 下載權重
@@ -84,7 +85,7 @@ docker compose up -d
 docker compose --profile models up --no-start --no-build vllm-oss20b
 ```
 
-服務名稱就是 [models.json](models.json) 中的 `container` 值。三個映像都建置好後，去掉服務
+服務名稱就是 [models.json](models.json) 中的 `container` 值。四個映像都建置好後，去掉服務
 名稱即可建立所有模型容器。
 
 ## 第一個請求
@@ -118,14 +119,14 @@ bash tools/test-lane.sh gpt-oss-20b
 | `gpt-oss-20b` | 快速，較小 | 131072 | `vllm-node-mxfp4` |
 | `lfm2.5-1.2b` | 輔助模型，常駐 | 32768 | `vllm-node-dflash2` |
 
-[docs/models.md](docs/models.md) 列出全部 11 個模型及其限制。
+[docs/models.md](docs/models.md) 列出全部 13 個模型及其限制。
 
 ## 文件
 
 - [架構](docs/architecture.md)：元件、請求流程、端點、生命週期。
 - [設定](docs/configuration.md)：環境變數和 `models.json` 欄位。
 - [模型](docs/models.md)：目錄和各模型的限制。
-- [執行基線](docs/runtime-baseline.md)：三個映像及其建置方法。
+- [執行基線](docs/runtime-baseline.md)：四個映像及其建置方法。
 - [整合](docs/integrations.md)：Cline、OpenCode 和 pi。
 - [安全](docs/security.md)：容器強化、seccomp、SSH 遠端存取。
 - [疑難排解](docs/troubleshooting.md)：常見故障及處理方法。
@@ -150,6 +151,7 @@ Renovate Dependency Dashboard issue 中核准它。
 - **[local-inference-lab](https://github.com/local-inference-lab)**：B12X 映像所基於的、帶 GB10 核心的 vLLM 和 FlashInfer
   分支，以及 `qwen3.8-flash-next-nvfp4` 檢查點。
 - **[z-lab](https://huggingface.co/z-lab)**：Qwen3.8 27B 和 Gemma 4 模型使用的 DFlash 草稿模型。
+- **[Project Maya](https://github.com/mw00/project-maya)**：讓 GLM-5.3-Flash 在單台 Spark 上執行的引擎和 Maya-S 權重。
 
 ## 授權
 
@@ -171,6 +173,7 @@ AGPL-3.0-or-later。見 [LICENSE](LICENSE)。允許商業使用。如果你散�
 - `custom-docker-containers/vllm-node-mxfp4/fastsafetensors_mxfp4.patch`,
   `shared/tool_chat_template_gemma4.jinja`: Apache-2.0 (vLLM).
 - `custom-docker-containers/vllm-node-b12x/seccomp-io-uring.json`: Apache-2.0 (moby/profiles).
+- `custom-docker-containers/vllm-node-maya/patches/`: MIT (Project Maya, `LICENSES/MIT-project-maya.txt`).
 - `shared/gemma4-*-nvfp4-config/`: NVIDIA 對這些檢查點的模型授權。
 
 2026-10-11 之前發布的版本以 Apache-2.0 發布，並繼續在該授權下可用。

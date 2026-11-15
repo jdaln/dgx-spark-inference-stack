@@ -1,0 +1,13 @@
+diff --git a/serve/server.py b/serve/server.py
+index a4620e6..8916b3e 100644
+--- a/serve/server.py
++++ b/serve/server.py
+@@ -6557,6 +6557,8 @@ def make_handler(svc: Service):
+ 
+         def _openai(self, req):
+             req = svc.with_shared(req, "openai")
++            for key in ("strata_resume", "strata_mcp"):      # the web app's fields (an answer kept on disk, MCP tools):
++                req.pop(key, None)                             # not part of this lane
+             req["_api"] = "web" if req.get("strata_resume") is True else "openai"   # the Monitor's request table
+             svc.check_request(req)                             # a bad sampling field or logit_bias: a 400, now
+             messages, tools, kw = openai_to_messages(req, deepseek=getattr(svc.template, "deepseek", False), glm_dsa=getattr(svc.template, "glm_dsa", False))

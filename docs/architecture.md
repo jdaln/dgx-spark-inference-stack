@@ -7,7 +7,7 @@ Components, endpoints, request flow and model lifecycle.
 | API gateway (nginx) | 8009 | Single entry point. Routes `/v1/` traffic to the validator. |
 | Request validator | 18081 | Checks the key, reads `model`, normalizes the request, asks the waker for the model, proxies to it. |
 | Waker | 18080 | Starts and stops model containers, tracks health and idle time, allows one main model at a time. |
-| Model containers | 8000 | vLLM, one model each, Compose profile `models`. |
+| Model containers | 8000 | vLLM, one model each, Compose profile `models`. The two GLM lanes run Project Maya. |
 
 The first three run all the time. Model containers start and stop on demand.
 
@@ -52,10 +52,14 @@ the next request for it.
    handling, thinking and reasoning-effort mapping) and proxies it to the model container.
    Message structure belongs to the model's chat template.
 6. On 429 the validator returns the busy response and `Retry-After` to the client.
+7. When the model sends nothing for the lane's `requestTimeoutSeconds` (1200 s unless
+   `models.json` sets it), the validator ends the request with a 504. For a response that
+   does not stream, that is the whole wait.
 
 The validator does not budget tokens. When a client omits `max_tokens`, vLLM uses
-`max_model_len - prompt_tokens`. Other engines have their own defaults, so `models.json`
-declares a `backend` per lane and the validator warns for a backend it has not verified.
+`max_model_len - prompt_tokens`, and so does Maya. Other engines have their own defaults, so
+`models.json` declares a `backend` per lane and the validator warns for a backend it has not
+verified.
 
 ## Lifecycle
 
@@ -78,7 +82,7 @@ compose/                    One fragment per model family
 waker/                      Lifecycle manager
 request-validator/          Validation and routing
 shared/                     Code and model assets used by several services
-custom-docker-containers/   Build inputs for the three runtime images
+custom-docker-containers/   Build inputs for the four runtime images
 integrations/               Client configs and the ComfyUI overlays
 tools/                      Validation, smoke, soak and benchmark scripts
 skills/                     Step-by-step guides for coding agents

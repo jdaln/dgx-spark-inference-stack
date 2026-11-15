@@ -7,6 +7,7 @@ import path from "node:path";
 
 const WEIGHT_FILE = /\.(safetensors|gguf|bin)$/;
 const SHARD_INDEX = "model.safetensors.index.json";
+const GGUF_PART = /^(.+)-(\d{5})-of-(\d{5})\.gguf$/;
 
 function flagValue(command, flag) {
   const i = command.indexOf(flag);
@@ -31,11 +32,27 @@ export function weightTargets(command) {
   return targets;
 }
 
+// A folder of GGUF files: every file must resolve, and a split set
+// (<name>-0000N-of-0000M.gguf) needs all M parts.
+function ggufFolderComplete(dir) {
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith(".gguf"));
+  return files.length > 0 && files.every((f) => {
+    if (!fs.existsSync(path.join(dir, f))) return false;
+    const part = GGUF_PART.exec(f);
+    if (!part) return true;
+    for (let i = 1; i <= Number(part[3]); i += 1) {
+      if (!fs.existsSync(path.join(dir, `${part[1]}-${String(i).padStart(5, "0")}-of-${part[3]}.gguf`))) return false;
+    }
+    return true;
+  });
+}
+
 // config.json plus a weight file; symlinks into blobs/ must resolve. A sharded checkpoint
-// needs every shard its index names: an interrupted download leaves some.
+// needs every shard its index names: an interrupted download leaves some. GGUF repositories
+// ship no config.json: one folder of GGUF files per variant.
 function snapshotComplete(dir) {
   try {
-    if (!fs.existsSync(path.join(dir, "config.json"))) return false;
+    if (!fs.existsSync(path.join(dir, "config.json"))) return ggufFolderComplete(dir);
     const index = path.join(dir, SHARD_INDEX);
     if (fs.existsSync(index)) {
       const shards = new Set(Object.values(JSON.parse(fs.readFileSync(index, "utf8")).weight_map || {}));
@@ -60,9 +77,19 @@ function targetPresent({ ref, revision }, modelsDir) {
   }
 }
 
-// "repo@revision", or the path, of each target missing from modelsDir.
+// "repo@revision", or the path, of each target missing from modelsDir. Every other path under
+// /models that the command names must exist too, such as a pack built beside the weights.
 export function missingWeights(command, modelsDir) {
-  return weightTargets(command)
+  const targets = weightTargets(command);
+  if (targets.length === 0) return [];
+  const missing = targets
     .filter((t) => !targetPresent(t, modelsDir))
     .map((t) => (t.revision ? `${t.ref}@${t.revision}` : t.ref));
+  for (const arg of command) {
+    if (arg.startsWith("/models/") && arg !== targets[0].ref
+      && !fs.existsSync(path.join(modelsDir, arg.slice("/models/".length)))) {
+      missing.push(arg);
+    }
+  }
+  return missing;
 }

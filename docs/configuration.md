@@ -9,13 +9,13 @@ Set these in a `.env` file at the repo root, or in the shell before `docker comp
 | Variable | Default | Effect |
 |---|---|---|
 | `VLLM_API_KEY` | `63TestTOKEN0REPLACEME` | API key clients must send. Change it. |
-| `VLLM_LOGGING` | `0` | `1` turns on vLLM's normal log output. `0` logs warnings and tracebacks only. |
+| `VLLM_LOGGING` | `0` | `1` turns on the engine's normal log output. `0` logs warnings and tracebacks only. |
 | `WAKER_VERBOSE` | `0` | `1` logs every request in the waker and the validator. |
 | `DOCKER_LOG_DRIVER` | `json-file` | `none` turns Docker logging off. |
 | `CACHE_MAX_AGE_DAYS` | `14` | Age at which the waker clears a lane's compile and JIT caches, just before its next start. `0` never clears them. See [security.md](security.md#lane-caches). |
 
-Image overrides (`VLLM_TRACK_IMAGE_MXFP4`, `VLLM_TRACK_IMAGE_DFLASH2`, `VLLM_TRACK_IMAGE_B12X`):
-[runtime-baseline.md](runtime-baseline.md).
+Image overrides (`VLLM_TRACK_IMAGE_MXFP4`, `VLLM_TRACK_IMAGE_DFLASH2`, `VLLM_TRACK_IMAGE_B12X`,
+`VLLM_TRACK_IMAGE_MAYA`): [runtime-baseline.md](runtime-baseline.md).
 
 ## Waker
 
@@ -70,16 +70,17 @@ bash tools/reload-control-plane.sh --stop-stale-utility
 | `port` | integer | `8000` | Port inside the container. |
 | `maxModelLen` | integer | required | Served context, same as `--max-model-len`. |
 | `lifecycle` | `normal`, `utility`, `exclusive` | `normal` | `utility` stays loaded next to a main model; one lane at most. `exclusive` stops the utility lane first. |
-| `backend` | `vllm`, `sglang`, `llamacpp` | `vllm` | Engine. The validator warns for engines whose default `max_tokens` it has not verified. |
+| `backend` | `vllm`, `sglang`, `llamacpp`, `maya` | `vllm` | Engine. The validator warns for engines whose default `max_tokens` it has not verified. |
 | `toolSupport` | `full`, `force-required`, `none` | `full` | `none` strips tool fields. `force-required` sets `tool_choice=required` when tools are sent. |
 | `validatorProfile` | `default`, `small-no-tools`, `vl`, `coder-force-tools`, `llama-tools` | `default` | `small-no-tools` and `vl` strip tools. `coder-force-tools` forces `tool_choice=required`. `llama-tools` adds Llama tool-calling guidance. |
 | `multimodal` | boolean | `false` | Accepts image input. |
 | `normalizeTextContent` | boolean | `false` | Joins array text content into one string for templates that accept only strings. Ignored on multimodal lanes. |
 | `thinkingDefault` | `template`, `off` | `template` | `off` turns thinking off unless the client sets it. |
-| `reasoningEffort` | `passthrough`, `binary`, `graded` | `passthrough` | `binary` maps `reasoning_effort` onto `enable_thinking`. `graded` maps it onto the Qwen3.8 levels `xhigh`, `medium`, `low`. |
+| `reasoningEffort` | `passthrough`, `binary`, `graded` | `passthrough` | `binary` maps `reasoning_effort` onto `enable_thinking`. `graded` maps it onto the Qwen3.8 levels `xhigh`, `medium`, `low`. `passthrough` sends it as the client wrote it. |
 | `reasoningEffortDefault` | `none`, `low`, `medium`, `high` | none | Graded lanes only. Effort used when the client sends no effort and no thinking flag. |
 | `reasoningNeedsSpecialTokens` | boolean | `false` | Keeps special tokens in non-streaming responses with thinking on, so the reasoning parser can find the thinking channel. Gemma 4 needs it. |
 | `speculativeDecoding` | boolean | `false` | Set when the command has `--speculative-config`. The validator then rejects `min_p` and `logit_bias`, which the engine ignores. |
+| `requestTimeoutSeconds` | 60 to 3600 | `1200` | How long the model may send nothing before the request ends with a 504 `gateway_timeout`: the whole wait for a response that does not stream, a gap inside one that does. The validator enforces it. |
 | `experimental` | boolean | `false` | Not yet validated through the gateway and soaked. |
 | `sourceRecipe` | string | none | Upstream recipe the lane follows. |
 | `notes` | string | none | Measured limits and required request shape. |
@@ -90,7 +91,8 @@ bash tools/reload-control-plane.sh --stop-stale-utility
 
 GPU memory share, batch sizes, sequence limits and parser flags live in each model's
 service under `compose/`. Main lanes take 0.50 to 0.80 of memory, the utility lane 0.06.
-A non-exclusive main lane must leave room for the utility lane.
+A non-exclusive main lane must leave room for the utility lane. The Maya lane has no share:
+it leaves `--ram-headroom-gb` free (18, `GLM53_FLASH_MAYA_S_RAM_HEADROOM_GB`).
 
 ## Networks
 

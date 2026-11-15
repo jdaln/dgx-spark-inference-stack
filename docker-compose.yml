@@ -3,6 +3,7 @@ include:
   - compose/models-gpt.yml
   - compose/models-qwen.yml
   - compose/models-gemma.yml
+  - compose/models-glm.yml
   - compose/models-liquid.yml
 
 services:

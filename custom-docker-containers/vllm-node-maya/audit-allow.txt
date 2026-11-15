@@ -1,0 +1,9 @@
+# Outbound-capable lines that stay in the image, each with the reason it cannot be used.
+# Format: <path relative to the scanned folder>: <the source line, stripped>
+# audit.py fails the build for a line that is not listed here, and for an entry that matches
+# nothing.
+
+# llama.cpp's gguf-py can read safetensors files over HTTP (SafetensorRemote). The pack builder
+# never calls it, and the `requests` package it needs is not installed: the build checks that.
+third_party/llama.cpp/gguf-py/gguf/utility.py: response = requests.get(url, allow_redirects=True, headers=headers)
+third_party/llama.cpp/gguf-py/gguf/utility.py: response = requests.head(url, allow_redirects=True, headers=headers)

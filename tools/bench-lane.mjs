@@ -80,7 +80,7 @@ function parseArgs(argv) {
       case "--out": config.out = next(); break;
       case "--url": config.url = next(); break;
       case "--api-key": config.apiKey = next(); break;
-      case "--request-timeout-seconds": config.requestTimeoutMs = Number(next()) * 1000; break;
+      case "--request-timeout-seconds": config.requestTimeoutMs = Number(next()) * 1000; config.requestTimeoutSet = true; break;
       case "--self-test": config.selfTest = true; break;
       case "--with-sandbox": config.withSandbox = true; break;
       case "-h": case "--help": console.log(USAGE); process.exit(0); break;
@@ -449,6 +449,8 @@ async function main() {
     return;
   }
   const lane = readLane(config.model);
+  // Wait a little longer than the lane's own limit on a response that does not stream.
+  if (!config.requestTimeoutSet) config.requestTimeoutMs = ((lane.requestTimeoutSeconds ?? 1200) + 100) * 1000;
   const filler = readFileSync(FILLER_PATH, "utf8");
   const report = {
     model: config.model,

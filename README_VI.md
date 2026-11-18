@@ -56,7 +56,7 @@ wget https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken \
 
 ### 3. Build một image chạy
 
-Các mô hình chạy trên ba image. Một mô hình chỉ khởi động nếu image của nó đã được build cục
+Các mô hình chạy trên bốn image. Một mô hình chỉ khởi động nếu image của nó đã được build cục
 bộ. Image GPT-OSS chỉ cần một lệnh và mất khoảng 20 phút:
 
 ```bash
@@ -64,8 +64,9 @@ docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dock
 ```
 
 Mô hình mặc định `qwen3.8-27b-nvfp4-dflash2` và mô hình tiện ích cần `vllm-node-dflash2`;
-các mô hình Gemma và `qwen3.8-flash-next-nvfp4` cần `vllm-node-b12x`. Cách build cả hai nằm
-trong [docs/runtime-baseline.md](docs/runtime-baseline.md).
+các mô hình Gemma và `qwen3.8-flash-next-nvfp4` cần `vllm-node-b12x`;
+`glm-5.3-flash-maya-s` cần `vllm-node-maya`. Cách build các image này nằm trong
+[docs/runtime-baseline.md](docs/runtime-baseline.md).
 
 ### 4. Tải trọng số
 
@@ -88,7 +89,7 @@ docker compose up -d
 docker compose --profile models up --no-start --no-build vllm-oss20b
 ```
 
-Tên service là các giá trị `container` trong [models.json](models.json). Khi đã build đủ ba
+Tên service là các giá trị `container` trong [models.json](models.json). Khi đã build đủ bốn
 image, bỏ tên service để tạo container cho mọi mô hình.
 
 ## Yêu cầu đầu tiên
@@ -123,14 +124,14 @@ bash tools/test-lane.sh gpt-oss-20b
 | `gpt-oss-20b` | nhanh, nhỏ hơn | 131072 | `vllm-node-mxfp4` |
 | `lfm2.5-1.2b` | tiện ích, luôn được nạp | 32768 | `vllm-node-dflash2` |
 
-[docs/models.md](docs/models.md) liệt kê cả 11 mô hình và giới hạn của chúng.
+[docs/models.md](docs/models.md) liệt kê cả 13 mô hình và giới hạn của chúng.
 
 ## Tài liệu
 
 - [Kiến trúc](docs/architecture.md): thành phần, luồng yêu cầu, endpoint, vòng đời.
 - [Cấu hình](docs/configuration.md): biến môi trường và các trường của `models.json`.
 - [Mô hình](docs/models.md): danh mục và ràng buộc của từng mô hình.
-- [Nền tảng runtime](docs/runtime-baseline.md): ba image và cách build chúng.
+- [Nền tảng runtime](docs/runtime-baseline.md): bốn image và cách build chúng.
 - [Tích hợp](docs/integrations.md): Cline, OpenCode và pi.
 - [Bảo mật](docs/security.md): gia cố container, seccomp, truy cập từ xa qua SSH.
 - [Xử lý sự cố](docs/troubleshooting.md): lỗi thường gặp và cách xử lý.
@@ -155,6 +156,7 @@ nhận bản cập nhật sớm hơn, hãy duyệt nó trong issue Renovate Depe
 - **[local-inference-lab](https://github.com/local-inference-lab)**: các fork của vLLM và FlashInfer có kernel cho GB10, nơi image
   B12X được build từ đó, cùng checkpoint `qwen3.8-flash-next-nvfp4`.
 - **[z-lab](https://huggingface.co/z-lab)**: các mô hình nháp DFlash cho các mô hình Qwen3.8 27B và Gemma 4.
+- **[Project Maya](https://github.com/mw00/project-maya)**: engine và bộ trọng số Maya-S chạy GLM-5.3-Flash trên một máy Spark.
 
 ## Giấy phép
 
@@ -179,6 +181,7 @@ Các tệp sau giữ giấy phép riêng ([LICENSES/](LICENSES/)):
 - `custom-docker-containers/vllm-node-mxfp4/fastsafetensors_mxfp4.patch`,
   `shared/tool_chat_template_gemma4.jinja`: Apache-2.0 (vLLM).
 - `custom-docker-containers/vllm-node-b12x/seccomp-io-uring.json`: Apache-2.0 (moby/profiles).
+- `custom-docker-containers/vllm-node-maya/patches/`: MIT (Project Maya, `LICENSES/MIT-project-maya.txt`).
 - `shared/gemma4-*-nvfp4-config/`: giấy phép mô hình của NVIDIA cho các checkpoint đó.
 
 Các phiên bản công bố trước 2026-10-11 được phát hành theo Apache-2.0 và vẫn dùng được theo

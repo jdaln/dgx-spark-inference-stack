@@ -340,11 +340,47 @@ service_weight_targets() {
   if [[ -n "$draft" ]]; then echo "$draft"; fi
 }
 
-# A service can serve only when ./models holds config.json and weight files for its snapshot
-# (the pinned revision, or the served path) and for any draft model.
+# The folder a path-served lane serves below its snapshot root, or "" at the root. A GGUF
+# repository holds one folder per variant, and such a lane downloads only its own.
+service_weight_subdir() {
+  local ref sub
+  ref="$(service_model_ref "$1")"
+  [[ "$ref" == /models/models--*/snapshots/*/* ]] || return 0
+  sub="${ref#/models/models--*/snapshots/}"
+  sub="${sub#*/}"
+  echo "${sub%/}"
+}
+
+# Every other path under /models that the command names, such as a pack built beside the
+# weights.
+service_extra_model_paths() {
+  jq -r --arg ref "$(service_model_ref "$1")" \
+    '.command[] | tostring | select(startswith("/models/") and . != $ref)' <<<"$1"
+}
+
+# What a lane that serves one folder of a snapshot downloads, as hf include patterns: that
+# folder, and every other path its command names in the same snapshot. Nothing for a lane that
+# serves a whole repository.
+service_weight_includes() {
+  local ref sub root extra
+  sub="$(service_weight_subdir "$1")"
+  [[ -n "$sub" ]] || return 0
+  ref="$(service_model_ref "$1")"
+  root="${ref%/}"
+  root="${root%"/$sub"}"
+  echo "$sub/*"
+  while IFS= read -r extra; do
+    # A path inside the served folder is covered, or is built there (a pack) and not downloaded.
+    if [[ "$extra" == "$root"/* && "$extra" != "${ref%/}"/* ]]; then echo "${extra#"$root"/}"; fi
+  done < <(service_extra_model_paths "$1")
+}
+
+# A service can serve only when ./models holds the weight files of its snapshot (the pinned
+# revision, or the served path) and of any draft model, plus every other /models path its
+# command names.
 model_weights_present() {
   local service_json="$1"
-  local ref rev dir
+  local ref rev dir extra
 
   ref="$(service_model_ref "$service_json")"
   [[ -z "$ref" || "$ref" == "null" ]] && return 1
@@ -356,7 +392,10 @@ model_weights_present() {
     rev="$(service_model_revision "$service_json")"
     repo_snapshot_present "$ref" "$rev" || return 1
   fi
-  draft_weights_present "$service_json"
+  draft_weights_present "$service_json" || return 1
+  while IFS= read -r extra; do
+    [[ -z "$extra" || -e "$MODELS_DIR/${extra#/models/}" ]] || return 1
+  done < <(service_extra_model_paths "$service_json")
 }
 
 repo_snapshot_present() {
@@ -375,9 +414,32 @@ draft_weights_present() {
   repo_snapshot_present "${draft%@*}" "${draft##*@}"
 }
 
+# A folder of GGUF files: every file must resolve, and a split set
+# (<name>-0000N-of-0000M.gguf) needs all M parts.
+gguf_folder_complete() {
+  local dir="$1" f base i total seen=0
+  for f in "$dir"/*.gguf; do
+    # False for an unmatched glob (no GGUF file) and for a dangling link.
+    [[ -e "$f" ]] || return 1
+    seen=1
+    base="${f##*/}"
+    if [[ "$base" =~ ^(.+)-([0-9]{5})-of-([0-9]{5})\.gguf$ ]]; then
+      total=$((10#${BASH_REMATCH[3]}))
+      for ((i = 1; i <= total; i++)); do
+        [[ -e "$dir/$(printf '%s-%05d-of-%s.gguf' "${BASH_REMATCH[1]}" "$i" "${BASH_REMATCH[3]}")" ]] || return 1
+      done
+    fi
+  done
+  [[ "$seen" -eq 1 ]]
+}
+
 snapshot_complete() {
   local dir="$1" hit shards shard
-  [[ -e "$dir/config.json" ]] || return 1
+  # GGUF repositories ship no config.json: one folder of GGUF files per variant.
+  if [[ ! -e "$dir/config.json" ]]; then
+    gguf_folder_complete "$dir"
+    return
+  fi
   # A sharded checkpoint needs every shard its index names: an interrupted download leaves some.
   if [[ -e "$dir/model.safetensors.index.json" ]]; then
     shards="$(jq -r '.weight_map // {} | [.[]] | unique[]' "$dir/model.safetensors.index.json" 2>/dev/null)" || return 1

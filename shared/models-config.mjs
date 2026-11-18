@@ -5,7 +5,7 @@ const ALLOWED_TOOL_SUPPORT = new Set(["full", "force-required", "none"]);
 const ALLOWED_LIFECYCLE = new Set(["normal", "utility", "exclusive"]);
 // Serving engine. It decides whether the validator can leave an omitted max_tokens to the
 // engine (see BACKEND_OWNS_TOKEN_BUDGET in request-validator).
-const ALLOWED_BACKENDS = new Set(["vllm", "sglang", "llamacpp"]);
+const ALLOWED_BACKENDS = new Set(["vllm", "sglang", "llamacpp", "maya"]);
 
 const ALLOWED_VALIDATOR_PROFILES = new Set([
   "default",
@@ -21,6 +21,13 @@ const ALLOWED_VALIDATOR_PROFILES = new Set([
 const ALLOWED_THINKING_DEFAULTS = new Set(["template", "off"]);
 const ALLOWED_REASONING_EFFORT = new Set(["passthrough", "binary", "graded"]);
 const ALLOWED_REASONING_EFFORT_DEFAULTS = new Set(["none", "low", "medium", "high"]);
+
+// How long a lane may send nothing before its request ends with a 504: the whole wait for a
+// response that does not stream, a gap inside one that does. The validator enforces it per
+// lane; the gateway's own proxy_read_timeout must stay above the largest.
+export const DEFAULT_REQUEST_TIMEOUT_SECONDS = 1200;
+export const MAX_REQUEST_TIMEOUT_SECONDS = 3600;
+const MIN_REQUEST_TIMEOUT_SECONDS = 60;
 
 function formatPath(filePath) {
   return filePath || "<inline-models-config>";
@@ -87,9 +94,15 @@ export function normalizeModelsConfig(raw, filePath) {
     const experimental = value.experimental ?? false;
     const sourceRecipe = value.sourceRecipe ?? null;
     const notes = value.notes ?? null;
+    const requestTimeoutSeconds = value.requestTimeoutSeconds ?? DEFAULT_REQUEST_TIMEOUT_SECONDS;
 
     assertPositiveInteger(filePath, modelId, "port", port);
     assertPositiveInteger(filePath, modelId, "maxModelLen", maxModelLen);
+    if (!Number.isInteger(requestTimeoutSeconds) || requestTimeoutSeconds < MIN_REQUEST_TIMEOUT_SECONDS ||
+        requestTimeoutSeconds > MAX_REQUEST_TIMEOUT_SECONDS) {
+      fail(filePath, `model '${modelId}' has invalid requestTimeoutSeconds '${requestTimeoutSeconds}' ` +
+        `(an integer from ${MIN_REQUEST_TIMEOUT_SECONDS} to ${MAX_REQUEST_TIMEOUT_SECONDS})`);
+    }
     assertEnum(filePath, modelId, "toolSupport", toolSupport, ALLOWED_TOOL_SUPPORT);
     assertEnum(filePath, modelId, "validatorProfile", validatorProfile, ALLOWED_VALIDATOR_PROFILES);
     assertEnum(filePath, modelId, "thinkingDefault", thinkingDefault, ALLOWED_THINKING_DEFAULTS);
@@ -153,6 +166,7 @@ export function normalizeModelsConfig(raw, filePath) {
       experimental,
       sourceRecipe,
       notes,
+      requestTimeoutSeconds,
       upstream,
       health
     };

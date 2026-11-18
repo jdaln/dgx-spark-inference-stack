@@ -55,7 +55,7 @@ wget https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken \
 
 ### 3. 런타임 이미지 빌드하기
 
-모델은 세 개의 이미지에서 동작합니다. 모델은 자기 이미지가 로컬에 빌드되어 있을 때만
+모델은 네 개의 이미지에서 동작합니다. 모델은 자기 이미지가 로컬에 빌드되어 있을 때만
 시작합니다. GPT-OSS 이미지는 명령 하나로 빌드하며 약 20분 걸립니다:
 
 ```bash
@@ -63,7 +63,8 @@ docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dock
 ```
 
 기본 모델 `qwen3.8-27b-nvfp4-dflash2`와 유틸리티 모델에는 `vllm-node-dflash2`가, Gemma
-모델과 `qwen3.8-flash-next-nvfp4`에는 `vllm-node-b12x`가 필요합니다. 두 빌드 모두
+모델과 `qwen3.8-flash-next-nvfp4`에는 `vllm-node-b12x`가, `glm-5.3-flash-maya-s`에는
+`vllm-node-maya`가 필요합니다. 이 빌드들은 모두
 [docs/runtime-baseline.md](docs/runtime-baseline.md)에 있습니다.
 
 ### 4. 가중치 내려받기
@@ -87,7 +88,7 @@ docker compose up -d
 docker compose --profile models up --no-start --no-build vllm-oss20b
 ```
 
-서비스 이름은 [models.json](models.json)의 `container` 값입니다. 세 이미지를 모두 빌드했다면
+서비스 이름은 [models.json](models.json)의 `container` 값입니다. 네 이미지를 모두 빌드했다면
 서비스 이름을 빼서 모든 모델 컨테이너를 만드십시오.
 
 ## 첫 요청
@@ -122,14 +123,14 @@ bash tools/test-lane.sh gpt-oss-20b
 | `gpt-oss-20b` | 빠름, 작음 | 131072 | `vllm-node-mxfp4` |
 | `lfm2.5-1.2b` | 유틸리티, 상주 | 32768 | `vllm-node-dflash2` |
 
-[docs/models.md](docs/models.md)에 11개 모델 전체와 한계가 있습니다.
+[docs/models.md](docs/models.md)에 13개 모델 전체와 한계가 있습니다.
 
 ## 문서
 
 - [아키텍처](docs/architecture.md): 구성 요소, 요청 흐름, 엔드포인트, 수명 주기.
 - [설정](docs/configuration.md): 환경 변수와 `models.json` 필드.
 - [모델](docs/models.md): 카탈로그와 모델별 제약.
-- [런타임 기준](docs/runtime-baseline.md): 세 이미지와 빌드 방법.
+- [런타임 기준](docs/runtime-baseline.md): 네 이미지와 빌드 방법.
 - [연동](docs/integrations.md): Cline, OpenCode, pi.
 - [보안](docs/security.md): 컨테이너 강화, seccomp, SSH 원격 접근.
 - [문제 해결](docs/troubleshooting.md): 흔한 장애와 대처.
@@ -154,6 +155,7 @@ Renovate가 Docker 베이스 이미지 다이제스트와 GitHub Actions 핀을 
 - **[local-inference-lab](https://github.com/local-inference-lab)**: B12X 이미지의 빌드 원본인, GB10 커널을 포함한 vLLM 및
   FlashInfer 포크와 `qwen3.8-flash-next-nvfp4` 체크포인트.
 - **[z-lab](https://huggingface.co/z-lab)**: Qwen3.8 27B와 Gemma 4 모델에 쓰는 DFlash 드래프트 모델.
+- **[Project Maya](https://github.com/mw00/project-maya)**: GLM-5.3-Flash를 Spark 한 대에서 실행하는 엔진과 Maya-S 가중치.
 
 ## 라이선스
 
@@ -176,6 +178,7 @@ AGPL 제7조 (b)에 따른 추가 조건: 모든 사본과 수정 버전은 [NOT
 - `custom-docker-containers/vllm-node-mxfp4/fastsafetensors_mxfp4.patch`,
   `shared/tool_chat_template_gemma4.jinja`: Apache-2.0 (vLLM).
 - `custom-docker-containers/vllm-node-b12x/seccomp-io-uring.json`: Apache-2.0 (moby/profiles).
+- `custom-docker-containers/vllm-node-maya/patches/`: MIT (Project Maya, `LICENSES/MIT-project-maya.txt`).
 - `shared/gemma4-*-nvfp4-config/`: 해당 체크포인트에 대한 NVIDIA 모델 라이선스.
 
 2026-10-11 이전에 공개된 버전은 Apache-2.0으로 공개되었으며 계속 그 라이선스로 이용할 수

@@ -55,7 +55,7 @@ wget https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken \
 
 ### 3. ランタイムイメージをビルドする
 
-モデルは 3 つのイメージで動きます。モデルは、そのイメージがローカルにビルドされている場合に
+モデルは 4 つのイメージで動きます。モデルは、そのイメージがローカルにビルドされている場合に
 だけ起動します。GPT-OSS イメージは 1 コマンドで、約 20 分かかります:
 
 ```bash
@@ -63,8 +63,9 @@ docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dock
 ```
 
 デフォルトモデル `qwen3.8-27b-nvfp4-dflash2` とユーティリティモデルには `vllm-node-dflash2`、
-Gemma モデルと `qwen3.8-flash-next-nvfp4` には `vllm-node-b12x` が必要です。両方のビルド手順
-は [docs/runtime-baseline.md](docs/runtime-baseline.md) にあります。
+Gemma モデルと `qwen3.8-flash-next-nvfp4` には `vllm-node-b12x`、`glm-5.3-flash-maya-s` には
+`vllm-node-maya` が必要です。これらのビルド手順は
+[docs/runtime-baseline.md](docs/runtime-baseline.md) にあります。
 
 ### 4. 重みをダウンロードする
 
@@ -87,7 +88,7 @@ docker compose up -d
 docker compose --profile models up --no-start --no-build vllm-oss20b
 ```
 
-サービス名は [models.json](models.json) の `container` の値です。3 つのイメージをすべて
+サービス名は [models.json](models.json) の `container` の値です。4 つのイメージをすべて
 ビルドしたら、サービス名を外すと全モデルのコンテナが作られます。
 
 ## 最初のリクエスト
@@ -122,14 +123,14 @@ bash tools/test-lane.sh gpt-oss-20b
 | `gpt-oss-20b` | 高速、小型 | 131072 | `vllm-node-mxfp4` |
 | `lfm2.5-1.2b` | ユーティリティ、常駐 | 32768 | `vllm-node-dflash2` |
 
-[docs/models.md](docs/models.md) に全 11 モデルとその制限があります。
+[docs/models.md](docs/models.md) に全 13 モデルとその制限があります。
 
 ## ドキュメント
 
 - [アーキテクチャ](docs/architecture.md): 構成要素、リクエストの流れ、エンドポイント、ライフサイクル。
 - [設定](docs/configuration.md): 環境変数と `models.json` のフィールド。
 - [モデル](docs/models.md): カタログと各モデルの制約。
-- [ランタイムベースライン](docs/runtime-baseline.md): 3 つのイメージとそのビルド方法。
+- [ランタイムベースライン](docs/runtime-baseline.md): 4 つのイメージとそのビルド方法。
 - [連携](docs/integrations.md): Cline、OpenCode、pi。
 - [セキュリティ](docs/security.md): コンテナの堅牢化、seccomp、SSH によるリモートアクセス。
 - [トラブルシューティング](docs/troubleshooting.md): よくある障害と対処。
@@ -154,6 +155,7 @@ Renovate が Docker ベースイメージのダイジェストと GitHub Actions
 - **[local-inference-lab](https://github.com/local-inference-lab)**: B12X イメージのビルド元である、GB10 カーネルを含む vLLM と
   FlashInfer のフォーク、および `qwen3.8-flash-next-nvfp4` のチェックポイント。
 - **[z-lab](https://huggingface.co/z-lab)**: Qwen3.8 27B と Gemma 4 モデルで使う DFlash ドラフトモデル。
+- **[Project Maya](https://github.com/mw00/project-maya)**: GLM-5.3-Flash を 1 台の Spark で動かすエンジンと Maya-S の重み。
 
 ## ライセンス
 
@@ -178,6 +180,7 @@ AGPL 第 7 条 (b) に基づく追加条項: すべての複製と改変版は�
 - `custom-docker-containers/vllm-node-mxfp4/fastsafetensors_mxfp4.patch`,
   `shared/tool_chat_template_gemma4.jinja`: Apache-2.0 (vLLM).
 - `custom-docker-containers/vllm-node-b12x/seccomp-io-uring.json`: Apache-2.0 (moby/profiles).
+- `custom-docker-containers/vllm-node-maya/patches/`: MIT (Project Maya, `LICENSES/MIT-project-maya.txt`).
 - `shared/gemma4-*-nvfp4-config/`: それらのチェックポイントに対する NVIDIA のモデルライセンス。
 
 2026-10-11 より前に公開されたバージョンは Apache-2.0 で公開されており、引き続きそのライセンスで

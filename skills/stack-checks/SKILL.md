@@ -33,6 +33,8 @@ docker run --rm -v "$PWD":/workspace -w /workspace/request-validator node:20-alp
   sh -lc "npm ci && npm test" 2>&1 | tee tmp/checks/validator-tests.log
 docker run --rm -v "$PWD":/workspace -w /workspace/waker node:20-alpine \
   sh -lc "npm ci && npm test" 2>&1 | tee tmp/checks/waker-tests.log
+docker run --rm --network none -v "$PWD":/workspace:ro -w /workspace/custom-docker-containers/vllm-node-maya \
+  python:3.12-slim python -B -m unittest test_maya_lane 2>&1 | tee tmp/checks/maya-lane-tests.log   # the Maya lane's entrypoint
 ```
 
 `validate-stack.sh` also runs `check-models.sh` and the soak bundle check.
@@ -43,6 +45,7 @@ docker run --rm -v "$PWD":/workspace -w /workspace/waker node:20-alpine \
 docker compose build waker request-validator && bash tools/reload-control-plane.sh   # after validator, waker or models.json edits
 bash tools/smoke-errors.sh 2>&1 | tee tmp/checks/smoke-errors.log      # error envelope; starts no model
 bash tools/test-lane.sh <model-id>                                      # summary in tmp/test-lane/summary-<time>.txt
+bash tools/test-maya-lane.sh                                            # the Maya lane: privacy, containment, prompt speed; tmp/test-maya-lane/
 bash tools/smoke-gateway.sh 2>&1 | tee tmp/checks/smoke-gateway.log    # shared matrix; needs the GPU free
 ```
 
@@ -51,5 +54,5 @@ bash tools/smoke-gateway.sh 2>&1 | tee tmp/checks/smoke-gateway.log    # shared 
 Scripts that drive Docker run on the host: `validate-stack`, `check-*`, `download-weights`,
 `run-model`, `run-variant`, `inspect-model`, `test-lane`, `smoke-*` and `bench-lane`.
 Everything else runs in a container: unit tests and the bench self-test in
-`node:20-alpine`, the context soak in `node:22-bookworm` (it needs `curl`). Python never runs
-on the host.
+`node:20-alpine`, the context soak in `node:22-bookworm` (it needs `curl`), the Maya
+entrypoint's tests in `python:3.12-slim`. Python never runs on the host.

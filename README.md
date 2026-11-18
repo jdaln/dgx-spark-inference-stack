@@ -54,7 +54,7 @@ wget https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken \
 
 ### 3. Build a runtime image
 
-The models run on three images. A model starts only if its image is built locally. The
+The models run on four images. A model starts only if its image is built locally. The
 GPT-OSS image is one command and takes about 20 minutes:
 
 ```bash
@@ -62,8 +62,9 @@ docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dock
 ```
 
 The default model `qwen3.8-27b-nvfp4-dflash2` and the utility helper need
-`vllm-node-dflash2`; the Gemma models and `qwen3.8-flash-next-nvfp4` need `vllm-node-b12x`.
-Both builds are in [docs/runtime-baseline.md](docs/runtime-baseline.md).
+`vllm-node-dflash2`; the Gemma models and `qwen3.8-flash-next-nvfp4` need `vllm-node-b12x`;
+`glm-5.3-flash-maya-s` needs `vllm-node-maya`. These builds are in
+[docs/runtime-baseline.md](docs/runtime-baseline.md).
 
 ### 4. Download the weights
 
@@ -86,7 +87,7 @@ docker compose up -d
 docker compose --profile models up --no-start --no-build vllm-oss20b
 ```
 
-The service names are the `container` values in [models.json](models.json). Once all three
+The service names are the `container` values in [models.json](models.json). Once all four
 images are built, drop the service name to create every model container.
 
 ## First request
@@ -121,14 +122,14 @@ bash tools/test-lane.sh gpt-oss-20b
 | `gpt-oss-20b` | fast, smaller | 131072 | `vllm-node-mxfp4` |
 | `lfm2.5-1.2b` | utility helper, stays loaded | 32768 | `vllm-node-dflash2` |
 
-[docs/models.md](docs/models.md) lists all 11 models and their limits.
+[docs/models.md](docs/models.md) lists all 13 models and their limits.
 
 ## Documentation
 
 - [Architecture](docs/architecture.md): components, request flow, endpoints, lifecycle.
 - [Configuration](docs/configuration.md): environment variables and `models.json` fields.
 - [Models](docs/models.md): the catalog and per-model constraints.
-- [Runtime baseline](docs/runtime-baseline.md): the three images and how to build them.
+- [Runtime baseline](docs/runtime-baseline.md): the four images and how to build them.
 - [Integrations](docs/integrations.md): Cline, OpenCode and pi.
 - [Security](docs/security.md): container hardening, seccomp, SSH remote access.
 - [Troubleshooting](docs/troubleshooting.md): failure modes and what to do.
@@ -155,6 +156,8 @@ earlier, approve it in the Renovate Dependency Dashboard issue.
   checkpoint.
 - **[z-lab](https://huggingface.co/z-lab)**: the DFlash draft models behind the Qwen3.8 27B
   and Gemma 4 models.
+- **[Project Maya](https://github.com/mw00/project-maya)**: the engine and the Maya-S weights
+  that run GLM-5.3-Flash on one Spark.
 
 ## License
 
@@ -179,6 +182,7 @@ These files keep their own licenses ([LICENSES/](LICENSES/)):
 - `custom-docker-containers/vllm-node-mxfp4/fastsafetensors_mxfp4.patch`,
   `shared/tool_chat_template_gemma4.jinja`: Apache-2.0 (vLLM).
 - `custom-docker-containers/vllm-node-b12x/seccomp-io-uring.json`: Apache-2.0 (moby/profiles).
+- `custom-docker-containers/vllm-node-maya/patches/`: MIT (Project Maya, `LICENSES/MIT-project-maya.txt`).
 - `shared/gemma4-*-nvfp4-config/`: NVIDIA's model licenses for those checkpoints.
 
 Versions published before 2026-10-11 were released under Apache-2.0 and stay available under

@@ -105,6 +105,39 @@ sudo swapon -a
 
 If swap stays in heavy use after the model is healthy, the lane asks for too much memory.
 
+## GLM reads long prompts slowly
+
+The GLM lanes read a prompt at about 750 tok/s. When a lane's engine starts with under
+about 2 GB of memory truly free, because file cache holds the rest, prompts of several
+thousand tokens read about six times slower until the lane is started again. Answers keep
+their speed. The lane guards against it at every start; its log says what it did:
+
+```bash
+docker logs vllm-glm-5.3-flash-maya-s 2>&1 | grep "maya-lane:"
+```
+
+| Line | Meaning |
+|---|---|
+| `memory at ready: N GB free, ...` | Normal from about 3.5 GB free. |
+| `... of file cache that this lane cannot drop is in the way: asking for N GB of headroom` | Cache of files outside `./models` (downloads, image builds) was in the way. Prompts keep their speed, but fewer experts stay in memory and answers come slower. |
+| `only N GB is free after the engine took its memory` | The start ended short anyway: long prompts are slow on this start. |
+
+The second line needs no action: the lane works, only slower at writing. To get every
+expert back, or after the third line, drop the cache of the large files that hold it and
+let the next request start the lane again (`vllm-glm-5.3-flash-maya-s-ablated` for the
+ablated lane). This touches only the files you name, not what other programs have cached:
+
+```bash
+fincore --bytes <files>                               # how much of each file is cached
+dd if=<file> of=/dev/null iflag=nocache count=0       # drop that file's cached pages
+docker stop vllm-glm-5.3-flash-maya-s
+```
+
+Typical holders are recent downloads and image build outputs. Do not use
+`vm.drop_caches`: it empties the cache of everything else running on the host.
+
+`bash tools/test-maya-lane.sh` times a 22K-token prompt through the gateway.
+
 ## Models stop too soon
 
 Raise `IDLE_STOP_SECONDS`, or set it to `0` to turn idle stop off. To keep one model

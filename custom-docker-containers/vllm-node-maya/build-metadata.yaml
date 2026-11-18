@@ -1,0 +1,32 @@
+image_tag: vllm-node-maya
+gpu_arch: "12.1"
+cpu_arch: armv8.6-a+dotprod+i8mm+fp16
+upstream_repo: https://github.com/mw00/project-maya
+upstream_version: 1.1.61
+upstream_commit: f66a913c628c6672795088a56ad85de0efc827e4
+llama_cpp_repo: https://github.com/ggml-org/llama.cpp
+llama_cpp_commit: 3cf03257f219afbe7334045ff7c6a06ac68c627d
+base_images:
+  build: nvidia/cuda:13.0.2-devel-ubuntu24.04@sha256:5dc1bca23d05bd37b011be68ec470c03b403a5da07ec3a86e41af9470e9d0cc6
+  runtime: nvidia/cuda:13.0.2-runtime-ubuntu24.04@sha256:6a0e31b59e70890446f2c17356d6efc0d54260090a8c63d6ca7c2ad049db95d2
+build_command: docker compose --profile models build vllm-glm-5.3-flash-maya-s
+engine_targets:
+  - maya
+local_delta:
+  - patches/0001-serve-only-the-lane-routes.patch       # four routes answer, every other one is a 404
+  - patches/0002-leave-origin-policy-to-the-gateway.patch # no 403 for the Origin header the gateway forwards
+  - patches/0003-ignore-the-web-app-request-fields.patch # strata_resume would keep answers on disk
+  - patches/0004-load-images-from-data-urls-only.patch   # no URL fetch, no local file read
+  - stubs/update.py                                       # replaces serve/update.py: no update check
+  - stubs/model_pull.py                                   # replaces serve/model_pull.py: no downloads
+  - stubs/mcp.py                                          # replaces serve/mcp.py: no MCP client
+  - maya_lane.py                                          # the lane entrypoint and the pack builder
+not_shipped:
+  - maya.py, setup.py, chat.py                            # installer, downloader, terminal chat
+  - serve/web                                             # dashboard
+  - maya-ds4, maya-mm3, maya-vision                       # other engines, image encoder
+runtime:
+  checkpoint: peasantsmith/GLM-5.3-Flash-Maya-GGUF
+  checkpoint_revision: 5ca1df1d2436bd1ab270b169c5ea6c47aad23641
+  checkpoint_folder: Maya-S-v2-IQ2_XXS
+  seccomp: default

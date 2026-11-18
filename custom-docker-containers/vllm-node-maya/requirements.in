@@ -1,0 +1,12 @@
+# What the patched server, the pack builder and llama.cpp's gguf-py import. Upstream's setup.py
+# lists more (requests, pillow, cmake, ninja): build tools, an HTTP client and the image code
+# of the vision build, none of which this image uses.
+#
+# Regenerate requirements.lock with update-lock.sh, on aarch64 (the image's platform).
+numpy
+jinja2
+regex
+jsonschema>=4.18,<5
+psutil
+pyyaml
+tqdm

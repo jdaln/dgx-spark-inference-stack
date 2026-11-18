@@ -7,7 +7,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import http from "node:http";
 import { pathToFileURL } from "node:url";
 import { isOpenAIErrorEnvelope, makeOpenAIError, writeOpenAIError } from "../shared/error-response.mjs";
-import { loadModelsConfig } from "../shared/models-config.mjs";
+import { DEFAULT_REQUEST_TIMEOUT_SECONDS, loadModelsConfig } from "../shared/models-config.mjs";
 
 const PORT = Number(process.env.PORT || 18081);
 // Matches the gateway's client_max_body_size 64m; direct callers get the same cap.
@@ -40,7 +40,8 @@ const MODEL_CONFIG = Object.fromEntries(
       multimodal: entry.multimodal,
       normalizeTextContent: entry.normalizeTextContent,
       speculativeDecoding: entry.speculativeDecoding,
-      reasoningNeedsSpecialTokens: entry.reasoningNeedsSpecialTokens
+      reasoningNeedsSpecialTokens: entry.reasoningNeedsSpecialTokens,
+      requestTimeoutSeconds: entry.requestTimeoutSeconds
     }
   ])
 );
@@ -91,8 +92,8 @@ function unsupportedSamplingParam(body, targetConfig) {
 }
 
 // Engines measured to answer at full length when the client omits max_tokens. Add a backend
-// only after measuring it.
-const BACKEND_OWNS_TOKEN_BUDGET = new Set(["vllm", "sglang"]);
+// only after measuring it (maya: tools/test-maya-lane.sh --token-budget).
+const BACKEND_OWNS_TOKEN_BUDGET = new Set(["vllm", "sglang", "maya"]);
 
 const RECOGNIZED_REASONING_EFFORTS = new Set([
   "none",
@@ -612,7 +613,28 @@ function proxyRequest(req, res, body, target) {
     res.writeHead(proxyRes.statusCode, proxyRes.headers);
     proxyRes.pipe(res);
   });
+  // The lane's limit on silence from the model (models.json requestTimeoutSeconds): the whole
+  // wait for a response that does not stream, a gap inside one that does. The gateway's own
+  // read timeout sits above the largest lane's, so this answer is the one clients get.
+  const limitSeconds = target.requestTimeoutSeconds ?? DEFAULT_REQUEST_TIMEOUT_SECONDS;
+  let timedOut = false;
+  proxyReq.setTimeout(limitSeconds * 1000, () => {
+    timedOut = true;
+    warn(`No data from ${target.host} for ${limitSeconds} s; ending the request`);
+    if (res.headersSent) {
+      res.destroy();
+    } else {
+      writeOpenAIError(res, 504, {
+        message: "Upstream service timed out.",
+        type: "api_error",
+        param: null,
+        code: "gateway_timeout"
+      });
+    }
+    proxyReq.destroy();
+  });
   proxyReq.on("error", (err) => {
+    if (timedOut) return;
     warn(`Proxy error to ${target.host}:`, err.message);
     if (res.headersSent) {
       // Response already streaming; too late for an error envelope.
@@ -822,7 +844,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-export { processBody, unsupportedSamplingParam, MODEL_CONFIG };
+export { processBody, proxyRequest, unsupportedSamplingParam, MODEL_CONFIG };
 
 if (isMainModule()) {
   server.setTimeout(0);

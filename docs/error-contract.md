@@ -41,7 +41,7 @@ All four fields are always present. `param` and `code` may be `null`.
 | `docker_unavailable` | 503 | waker | The Docker API was unreachable. The waker fails closed rather than guessing GPU state. Retry shortly. |
 | `service_unavailable` | 503 | gateway | nginx-generated 503. |
 | `waker_timeout` | 504 | validator | The validator could not reach the waker in time. |
-| `gateway_timeout` | 504 | gateway | `proxy_read_timeout` fired before the upstream answered. |
+| `gateway_timeout` | 504 | validator, gateway | The model sent nothing for its lane's `requestTimeoutSeconds` (1200 s unless `models.json` sets it). The gateway's `proxy_read_timeout` is the backstop above the largest. |
 | `waker_error` | varies | validator | The waker returned a non-envelope error body; the validator wrapped it. |
 | `upstream_error` | engine's | validator | The model engine failed the request. Its message is kept, `type` follows the HTTP status, and a string `code` from the engine replaces this one. |
 | `internal_error` | 500 | all | Internal error in the gateway, validator or waker. |

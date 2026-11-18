@@ -67,6 +67,29 @@ pick_image() {
   [[ -n "$IMAGE" ]]
 }
 
+# Maya serves from a pack (tensor index, small float weights, tokenizer) that sits in the folder
+# of its GGUF files. Lanes cannot write ./models, so the pack is built here, in the lane image
+# with no network.
+build_maya_pack() {
+  local model_id="$1" service_json="$2" image dir pack
+  image="$(jq -r '.image' <<<"$service_json")"
+  dir="$(service_model_ref "$service_json")"
+  pack="$(command_flag_value "$service_json" "--glm-pack")"
+  echo "$model_id: maya-lane-pack --model-path $dir --glm-pack $pack  (image $image, no network)"
+  [[ "$DRY_RUN" -eq 1 ]] && return 0
+  if [[ -e "$MODELS_DIR/${pack#/models/}" ]]; then
+    echo "$model_id: pack already built"
+    return 0
+  fi
+  if ! image_built "$image"; then
+    echo "$model_id: the pack is built in $image, which is not built yet. Build it, then run this again." >&2
+    return 0
+  fi
+  docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges:true --read-only \
+    --tmpfs /tmp -v "$MODELS_DIR:/models" "$image" \
+    maya-lane-pack --model-path "$dir" --glm-pack "$pack" || true
+}
+
 failed=()
 for model_id in "${MODEL_IDS[@]}"; do
   if ! service_json="$(resolve_service_json "$TMP_DIR/compose.json" "$model_id")"; then
@@ -84,11 +107,18 @@ for model_id in "${MODEL_IDS[@]}"; do
     exit 1
   fi
 
-  for target in "${targets[@]}"; do
+  # A lane that serves one folder of a repository (a GGUF variant) fetches that folder and the
+  # other files its command names, not the whole repository.
+  mapfile -t includes < <(service_weight_includes "$service_json")
+  for i in "${!targets[@]}"; do
+    target="${targets[$i]}"
     repo="${target%@*}"
     revision="${target##*@}"
     args=(download "$repo" --cache-dir /models)
     [[ -n "$revision" ]] && args+=(--revision "$revision")
+    if [[ "$i" -eq 0 ]]; then
+      for include in "${includes[@]}"; do args+=(--include "$include"); done
+    fi
     echo "$model_id: hf ${args[*]}  (image $IMAGE)"
     [[ "$DRY_RUN" -eq 1 ]] && continue
     env_args=()
@@ -106,11 +136,15 @@ for model_id in "${MODEL_IDS[@]}"; do
       done' sh "/models/models--${repo//\//--}/blobs" || true
   done
 
+  if [[ "$(jq -r --arg m "$model_id" '.[$m].backend // "vllm"' "$MODELS_FILE")" == maya ]]; then
+    build_maya_pack "$model_id" "$service_json"
+  fi
+
   [[ "$DRY_RUN" -eq 1 ]] && continue
   if model_weights_present "$service_json"; then
     echo "OK: $model_id has complete snapshots in ./models"
   else
-    echo "FAILED: ./models still lacks a complete snapshot (config.json and weights) for $model_id." >&2
+    echo "FAILED: ./models still lacks complete weights for $model_id." >&2
     failed+=("$model_id")
   fi
 done

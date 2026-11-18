@@ -1,0 +1,14 @@
+diff --git a/serve/server.py b/serve/server.py
+index 672992e..a4620e6 100644
+--- a/serve/server.py
++++ b/serve/server.py
+@@ -6129,6 +6129,9 @@ def make_handler(svc: Service):
+             """A browser page on another site (its Origin neither this server nor in cors_origins): it can post a
+             text/plain body with no CORS preflight (CSRF), so it is refused before anything runs.  curl and the SDKs
+             send no Origin."""
++            # This lane sits behind a gateway that owns the origin policy and forwards the Origin header of the
++            # clients it admits (editor webviews among them): no origin is refused here.
++            return False
+             origin = self.headers.get("Origin")
+             if not origin or origin.split("://", 1)[-1] == self.headers.get("Host", "") or self._cors_allow():
+                 return False

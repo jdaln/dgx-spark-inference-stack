@@ -100,6 +100,7 @@ function parseArgs(argv) {
         break;
       case "--request-timeout-seconds":
         config.requestTimeoutSeconds = Number(argv[++index]);
+        config.requestTimeoutSet = true;
         break;
       case "--url":
         config.url = argv[++index];
@@ -173,6 +174,17 @@ function parseArgs(argv) {
   if (!Number.isFinite(config.calibrationMaxTokens) || config.calibrationMaxTokens <= 0) {
     console.error("--calibration-max-tokens must be a positive number");
     usage();
+  }
+
+  if (!config.requestTimeoutSet) {
+    // Outlast the lane's own limit on a response that does not stream (models.json).
+    let laneLimit = 1200;
+    try {
+      laneLimit = JSON.parse(readFileSync(join(REPO_DIR, "models.json"), "utf8"))[config.model]?.requestTimeoutSeconds ?? 1200;
+    } catch {
+      // no inventory beside the tool: keep the default
+    }
+    config.requestTimeoutSeconds = Math.max(config.requestTimeoutSeconds, laneLimit + 100);
   }
 
   if (!Number.isFinite(config.requestTimeoutSeconds) || config.requestTimeoutSeconds <= 0) {

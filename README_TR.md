@@ -57,7 +57,7 @@ wget https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken \
 
 ### 3. Bir çalışma imajı derleyin
 
-Modeller üç imaj üzerinde çalışır. Bir model yalnızca imajı yerelde derlenmişse başlar.
+Modeller dört imaj üzerinde çalışır. Bir model yalnızca imajı yerelde derlenmişse başlar.
 GPT-OSS imajı tek bir komuttur ve yaklaşık 20 dakika sürer:
 
 ```bash
@@ -65,8 +65,9 @@ docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dock
 ```
 
 Varsayılan model `qwen3.8-27b-nvfp4-dflash2` ve yardımcı model `vllm-node-dflash2`
-gerektirir; Gemma modelleri ve `qwen3.8-flash-next-nvfp4` ise `vllm-node-b12x` gerektirir.
-İki derleme de [docs/runtime-baseline.md](docs/runtime-baseline.md) içindedir.
+gerektirir; Gemma modelleri ve `qwen3.8-flash-next-nvfp4` ise `vllm-node-b12x`,
+`glm-5.3-flash-maya-s` ise `vllm-node-maya` gerektirir. Bu derlemeler
+[docs/runtime-baseline.md](docs/runtime-baseline.md) içindedir.
 
 ### 4. Ağırlıkları indirin
 
@@ -89,7 +90,7 @@ docker compose up -d
 docker compose --profile models up --no-start --no-build vllm-oss20b
 ```
 
-Servis adları [models.json](models.json) içindeki `container` değerleridir. Üç imajın
+Servis adları [models.json](models.json) içindeki `container` değerleridir. Dört imajın
 hepsi derlendiğinde, tüm model konteynerlerini oluşturmak için servis adını kaldırın.
 
 ## İlk istek
@@ -124,14 +125,14 @@ bash tools/test-lane.sh gpt-oss-20b
 | `gpt-oss-20b` | hızlı, daha küçük | 131072 | `vllm-node-mxfp4` |
 | `lfm2.5-1.2b` | yardımcı, yüklü kalır | 32768 | `vllm-node-dflash2` |
 
-[docs/models.md](docs/models.md) 11 modelin tamamını ve sınırlarını listeler.
+[docs/models.md](docs/models.md) 13 modelin tamamını ve sınırlarını listeler.
 
 ## Belgeler
 
 - [Mimari](docs/architecture.md): bileşenler, istek akışı, uç noktalar, yaşam döngüsü.
 - [Yapılandırma](docs/configuration.md): ortam değişkenleri ve `models.json` alanları.
 - [Modeller](docs/models.md): katalog ve her modelin kısıtları.
-- [Çalışma temeli](docs/runtime-baseline.md): üç imaj ve nasıl derlendikleri.
+- [Çalışma temeli](docs/runtime-baseline.md): dört imaj ve nasıl derlendikleri.
 - [Entegrasyonlar](docs/integrations.md): Cline, OpenCode ve pi.
 - [Güvenlik](docs/security.md): konteyner sıkılaştırma, seccomp, SSH ile uzaktan erişim.
 - [Sorun giderme](docs/troubleshooting.md): sık arızalar ve yapılacaklar.
@@ -156,6 +157,7 @@ Bir güncellemeyi daha erken almak için Renovate Dependency Dashboard issue'sun
 - **[local-inference-lab](https://github.com/local-inference-lab)**: B12X imajının derlendiği, GB10 çekirdekleri içeren vLLM ve
   FlashInfer fork'ları ile `qwen3.8-flash-next-nvfp4` checkpoint'i.
 - **[z-lab](https://huggingface.co/z-lab)**: Qwen3.8 27B ve Gemma 4 modellerinin DFlash taslak modelleri.
+- **[Project Maya](https://github.com/mw00/project-maya)**: GLM-5.3-Flash'i tek bir Spark üzerinde çalıştıran motor ve Maya-S ağırlıkları.
 
 ## Lisans
 
@@ -179,6 +181,7 @@ Bu dosyalar kendi lisanslarını korur ([LICENSES/](LICENSES/)):
 - `custom-docker-containers/vllm-node-mxfp4/fastsafetensors_mxfp4.patch`,
   `shared/tool_chat_template_gemma4.jinja`: Apache-2.0 (vLLM).
 - `custom-docker-containers/vllm-node-b12x/seccomp-io-uring.json`: Apache-2.0 (moby/profiles).
+- `custom-docker-containers/vllm-node-maya/patches/`: MIT (Project Maya, `LICENSES/MIT-project-maya.txt`).
 - `shared/gemma4-*-nvfp4-config/`: NVIDIA'nın bu modeller için model lisansları.
 
 2026-10-11'den önce yayımlanan sürümler Apache-2.0 ile yayımlandı ve bu lisansla kullanılabilir

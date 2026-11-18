@@ -54,7 +54,7 @@ wget https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken \
 
 ### 3. بناء صورة تشغيل
 
-تعمل النماذج على ثلاث صور. لا يبدأ النموذج إلا إذا كانت صورته مبنية محليًا. صورة GPT-OSS
+تعمل النماذج على أربع صور. لا يبدأ النموذج إلا إذا كانت صورته مبنية محليًا. صورة GPT-OSS
 أمر واحد وتستغرق نحو 20 دقيقة:
 
 ```bash
@@ -62,7 +62,8 @@ docker build -t vllm-node-mxfp4 -f custom-docker-containers/vllm-node-mxfp4/Dock
 ```
 
 يحتاج النموذج الافتراضي `qwen3.8-27b-nvfp4-dflash2` والنموذج المساعد إلى `vllm-node-dflash2`،
-وتحتاج نماذج Gemma و`qwen3.8-flash-next-nvfp4` إلى `vllm-node-b12x`. خطوات بنائهما في
+وتحتاج نماذج Gemma و`qwen3.8-flash-next-nvfp4` إلى `vllm-node-b12x`، ويحتاج
+`glm-5.3-flash-maya-s` إلى `vllm-node-maya`. خطوات بنائها في
 [docs/runtime-baseline.md](docs/runtime-baseline.md).
 
 ### 4. تنزيل الأوزان
@@ -85,7 +86,7 @@ docker compose up -d
 docker compose --profile models up --no-start --no-build vllm-oss20b
 ```
 
-أسماء الخدمات هي قيم `container` في [models.json](models.json). بعد بناء الصور الثلاث،
+أسماء الخدمات هي قيم `container` في [models.json](models.json). بعد بناء الصور الأربع،
 احذف اسم الخدمة لإنشاء حاويات كل النماذج.
 
 ## أول طلب
@@ -119,14 +120,14 @@ bash tools/test-lane.sh gpt-oss-20b
 | `gpt-oss-20b` | سريع، أصغر | 131072 | `vllm-node-mxfp4` |
 | `lfm2.5-1.2b` | مساعد، يبقى محمّلًا | 32768 | `vllm-node-dflash2` |
 
-يسرد [docs/models.md](docs/models.md) النماذج الأحد عشر كلها وحدودها.
+يسرد [docs/models.md](docs/models.md) النماذج الثلاثة عشر كلها وحدودها.
 
 ## التوثيق
 
 - [البنية](docs/architecture.md): المكوّنات، مسار الطلب، نقاط النهاية، دورة الحياة.
 - [الإعداد](docs/configuration.md): متغيرات البيئة وحقول `models.json`.
 - [النماذج](docs/models.md): الكتالوج وقيود كل نموذج.
-- [أساس التشغيل](docs/runtime-baseline.md): الصور الثلاث وطريقة بنائها.
+- [أساس التشغيل](docs/runtime-baseline.md): الصور الأربع وطريقة بنائها.
 - [التكاملات](docs/integrations.md): Cline وOpenCode وpi.
 - [الأمان](docs/security.md): تقوية الحاويات، seccomp، الوصول عن بُعد عبر SSH.
 - [استكشاف الأخطاء](docs/troubleshooting.md): الأعطال الشائعة وما العمل.
@@ -151,6 +152,7 @@ AGPL-3.0-or-later.
 - **[local-inference-lab](https://github.com/local-inference-lab)**: فروع من vLLM وFlashInfer بأنوية GB10 التي تُبنى منها صورة
   B12X، ونقطة الحفظ `qwen3.8-flash-next-nvfp4`.
 - **[z-lab](https://huggingface.co/z-lab)**: نماذج المسودة DFlash لنماذج Qwen3.8 27B وGemma 4.
+- **[Project Maya](https://github.com/mw00/project-maya)**: المحرّك وأوزان Maya-S التي تشغّل GLM-5.3-Flash على جهاز Spark واحد.
 
 ## الرخصة
 
@@ -173,6 +175,7 @@ AGPL-3.0-or-later. راجع [LICENSE](LICENSE). الاستخدام التجار�
 - `custom-docker-containers/vllm-node-mxfp4/fastsafetensors_mxfp4.patch`,
   `shared/tool_chat_template_gemma4.jinja`: Apache-2.0 (vLLM).
 - `custom-docker-containers/vllm-node-b12x/seccomp-io-uring.json`: Apache-2.0 (moby/profiles).
+- `custom-docker-containers/vllm-node-maya/patches/`: MIT (Project Maya, `LICENSES/MIT-project-maya.txt`).
 - `shared/gemma4-*-nvfp4-config/`: رخص نماذج NVIDIA لتلك النماذج.
 
 الإصدارات المنشورة قبل 2026-10-11 صدرت بموجب Apache-2.0 وتبقى متاحة بموجبها.

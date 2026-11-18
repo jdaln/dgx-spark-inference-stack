@@ -104,6 +104,25 @@ leaves a result file in `tmp/` (see [Results](#results)). Run `mkdir -p tmp/chec
     required request shape and known failures in the lane's `models.json` notes, and speeds
     in `docs/models.md`. Notes hold the current shape only: replace superseded figures.
 
+## A lane on another engine
+
+`glm-5.3-flash-maya-s` runs Project Maya, not vLLM (`backend: maya` in `models.json`). What
+differs from the sequence above:
+
+- Its entrypoint (`custom-docker-containers/vllm-node-maya/maya_lane.py`) takes the flags the
+  tools parse: `--model-path`, `--served-model-name`, `--context-length`. Keep that for any
+  new engine, and the tools need no change.
+- Weights are a GGUF folder at a pinned revision. `download-weights.sh` fetches that folder
+  and builds Maya's pack in the lane image, offline.
+- Maya ignores cgroup limits and the vLLM share, so `--mem-limit` does not guard a first
+  start. Cap the pool instead, with `'{"MAYA_GLM_POOL_GB":"24","MAYA_GLM_RAM_GB":"8"}'` as the
+  variant's environment, and judge by `MemAvailable`. The committed bound is
+  `--ram-headroom-gb`.
+- Step 11's regression is `bash tools/test-maya-lane.sh`: no request text in any log or
+  file, no write, no route out, Maya's extra routes gone, prompt speed.
+- Read `memory at ready` in the lane's log before comparing two starts: see the
+  `lane-tuning` skill.
+
 ## Results
 
 | Check | Result file |

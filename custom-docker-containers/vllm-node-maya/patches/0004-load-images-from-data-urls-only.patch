@@ -1,0 +1,21 @@
+diff --git a/serve/server.py b/serve/server.py
+index 8916b3e..c0c3226 100644
+--- a/serve/server.py
++++ b/serve/server.py
+@@ -1810,14 +1810,8 @@ class Vision:
+     def load(source: str) -> bytes:
+         if source.startswith("data:"):
+             return base64.b64decode(source.split(",", 1)[1])
+-        if source.startswith(("http://", "https://")):
+-            req = urllib.request.Request(source, headers={"User-Agent": "maya"})
+-            with urllib.request.urlopen(req, timeout=60) as r:
+-                return r.read()
+-        path = source[7:] if source.startswith("file://") else source
+-        if path and os.path.isfile(path):
+-            return Path(path).read_bytes()
+-        raise ValueError("an image must be a data: URL, an http(s) URL or a local file path")
++        # This lane has no network and hands out no local file: an image comes inline or not at all.
++        raise ValueError("an image must be a data: URL")
+ 
+     @staticmethod
+     def normalize(data: bytes) -> bytes:

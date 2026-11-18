@@ -106,6 +106,38 @@
           }
         },
         {
+          "id": "glm-5.3-flash-maya-s",
+          "name": "GLM 5.3 Flash Maya-S",
+          "reasoning": true,
+          "input": [
+            "text"
+          ],
+          "contextWindow": 131072,
+          "maxTokens": 40960,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "glm-5.3-flash-maya-s-ablated",
+          "name": "GLM 5.3 Flash Maya-S Ablated",
+          "reasoning": true,
+          "input": [
+            "text"
+          ],
+          "contextWindow": 131072,
+          "maxTokens": 40960,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        },
+        {
           "id": "lfm2.5-1.2b",
           "name": "LFM2.5 1.2B Instruct",
           "reasoning": false,
